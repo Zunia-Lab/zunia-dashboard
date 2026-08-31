@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# zunia-dashboard
 
-## Getting Started
+> Web portfolio and activity UI at [wallet.zuniawallet.com](https://wallet.zuniawallet.com).
 
-First, run the development server:
+[![License](https://img.shields.io/github/license/zunialab/zunia-dashboard)](LICENSE)
+[![Website](https://img.shields.io/badge/website-zuniawallet.com-2050C4)](https://zuniawallet.com)
+
+## Overview
+
+Next.js dashboard for balances, activity, and staking across Cosmos chains. Non-custodial: keys stay in the extension or mobile app; the dashboard connects via the wallet provider / WalletConnect. Not a custodial account service.
+
+## Status
+
+In development.
+
+## Related repositories
+
+| Repository | Description |
+|------------|-------------|
+| [zunia-extension](https://github.com/zunialab/zunia-extension) | Browser extension |
+| [zunia-mobile](https://github.com/zunialab/zunia-mobile) | Mobile wallet |
+| [zunia-chain-registry](https://github.com/zunialab/zunia-chain-registry) | Chain metadata |
+| [zunia-docs](https://github.com/zunialab/zunia-docs) | Documentation |
+| [zunia-website](https://github.com/zunialab/zunia-website) | Marketing site |
+| [zunia-brand](https://github.com/zunialab/zunia-brand) | Brand assets |
+
+## Quick start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Dev server |
+| `npm run build` | Production build |
+| `npm run start` | Serve production build |
 
-## Learn More
+## Deployment
 
-To learn more about Next.js, take a look at the following resources:
+Vercel project with custom domain `wallet.zuniawallet.com`. See [DEPLOY.md](../DEPLOY.md).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Contributing
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+See [CONTRIBUTING.md](https://github.com/zunialab/.github/blob/main/CONTRIBUTING.md).
 
-## Deploy on Vercel
+## Security
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+See [SECURITY.md](https://github.com/zunialab/.github/blob/main/SECURITY.md).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
