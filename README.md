@@ -2,7 +2,7 @@
 
 > Web portfolio and activity UI at [wallet.zuniawallet.com](https://wallet.zuniawallet.com).
 
-[![License](https://img.shields.io/github/license/zunialab/zunia-dashboard)](LICENSE)
+[![License](https://img.shields.io/github/license/Zunia-Lab/zunia-dashboard)](LICENSE)
 [![Website](https://img.shields.io/badge/website-zuniawallet.com-2050C4)](https://zuniawallet.com)
 
 ## Overview
@@ -17,12 +17,12 @@ In development.
 
 | Repository | Description |
 |------------|-------------|
-| [zunia-extension](https://github.com/zunialab/zunia-extension) | Browser extension |
-| [zunia-mobile](https://github.com/zunialab/zunia-mobile) | Mobile wallet |
-| [zunia-chain-registry](https://github.com/zunialab/zunia-chain-registry) | Chain metadata |
-| [zunia-docs](https://github.com/zunialab/zunia-docs) | Documentation |
-| [zunia-website](https://github.com/zunialab/zunia-website) | Marketing site |
-| [zunia-brand](https://github.com/zunialab/zunia-brand) | Brand assets |
+| [zunia-extension](https://github.com/Zunia-Lab/zunia-extension) | Browser extension |
+| [zunia-mobile](https://github.com/Zunia-Lab/zunia-mobile) | Mobile wallet |
+| [zunia-chain-registry](https://github.com/Zunia-Lab/zunia-chain-registry) | Chain metadata |
+| [zunia-docs](https://github.com/Zunia-Lab/zunia-docs) | Documentation |
+| [zunia-website](https://github.com/Zunia-Lab/zunia-website) | Marketing site |
+| [zunia-brand](https://github.com/Zunia-Lab/zunia-brand) | Brand assets |
 
 ## Quick start
 
@@ -47,11 +47,11 @@ Vercel project with custom domain `wallet.zuniawallet.com`. See [DEPLOY.md](../D
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/zunialab/.github/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/Zunia-Lab/.github/blob/main/CONTRIBUTING.md).
 
 ## Security
 
-See [SECURITY.md](https://github.com/zunialab/.github/blob/main/SECURITY.md).
+See [SECURITY.md](https://github.com/Zunia-Lab/.github/blob/main/SECURITY.md).
 
 ## License
 
