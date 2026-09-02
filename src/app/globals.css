@@ -1,15 +1,200 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap');
+@import "@zunialab/fonts/fonts.css";
 @import "tailwindcss";
+@import "@zunialab/tokens/theme.css";
+@import "@zunialab/ui/styles.css";
 
-:root {
-  --zunia-ink: #10214f;
-  --zunia-paper: #f4f5f7;
-  --zunia-cobalt: #2050c4;
-  --zunia-muted: #a8bade;
+/* Only `dist` is part of the published package, and a relative path out of the
+   project is something the bundler refuses to walk. */
+@source "../../node_modules/@zunialab/ui/dist/**/*.js";
+@source "../**/*.{ts,tsx}";
+
+html {
+  color-scheme: light;
+}
+
+[data-theme="dark"],
+.zunia-dark {
+  color-scheme: dark;
+}
+
+[data-theme="light"],
+.zunia-light {
+  color-scheme: light;
 }
 
 body {
-  background: var(--zunia-ink);
-  color: var(--zunia-paper);
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  background: var(--z-bg);
+  color: var(--z-fg);
+  font-family: var(--z-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Desktop wallet density. Extension keeps the compact token defaults. */
+.zunia-root {
+  --z-type-micro: 11.5px;
+  --z-type-meta: 13.5px;
+  --z-type-row: 15px;
+  --z-type-body: 15.5px;
+  --z-type-heading: 22px;
+  --z-type-stat: 30px;
+  --z-type-hero: 40px;
+  --z-card-pad: 22px;
+  --z-nav-w: 236px;
+  --z-nav-w-lg: 264px;
+  --z-live-w: 300px;
+  --z-live-w-xl: 328px;
+  --z-h-desktop: 40px;
+  --z-h-sm: 40px;
+  --z-h-md: 46px;
+  --z-h-lg: 50px;
+  --z-radius-control: 14px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+}
+
+/* Official Connect with Zunia button. Kept here so the dashboard styles it
+   without waiting on the SDK's runtime stylesheet injection. */
+.zunia-connect-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: linear-gradient(120deg, #ff1b0c 0%, #ff6a10 50%, #ffc414 100%);
+  color: #ffffff;
+  font-family: var(--z-font-sans);
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(255, 45, 31, 0.28);
+  transition: filter 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+}
+
+.zunia-connect-btn:hover:not(:disabled) {
+  background: linear-gradient(120deg, #ff4e12 0%, #ff8a17 50%, #ffbe14 100%);
+  filter: brightness(1.05);
+}
+
+.zunia-connect-btn:active:not(:disabled) {
+  background: linear-gradient(120deg, #d42800 0%, #ff4e12 55%, #ff8a17 100%);
+  filter: brightness(0.98);
+}
+
+.zunia-connect-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.zunia-connect-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, #ff1b0c 45%, transparent);
+  outline-offset: 2px;
+}
+
+.zunia-connect-btn__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  flex: none;
+  background: none;
+}
+
+.zunia-connect-btn__mark svg {
+  display: block;
+}
+
+.zunia-connect-btn[data-size="sm"] {
+  height: 40px;
+  padding: 0 16px;
+  gap: 10px;
+  font: 500 14px/1 var(--z-font-sans);
+}
+
+.zunia-connect-btn[data-size="md"] {
+  height: 44px;
+  padding: 0 16px;
+  font: 500 14px/1 var(--z-font-sans);
+}
+
+.zunia-connect-btn[data-size="lg"] {
+  height: 52px;
+  padding: 0 20px;
+  font: 500 16px/1 var(--z-font-sans);
+}
+
+/* Full-screen connect gate */
+.zunia-gate-glow {
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--z-accent) 28%, transparent) 0%,
+    transparent 68%
+  );
+  filter: blur(8px);
+  animation: zunia-gate-breathe 7s ease-in-out infinite;
+}
+
+.zunia-gate-ring {
+  border: 1px solid color-mix(in srgb, var(--z-accent) 22%, transparent);
+  animation: zunia-gate-pulse 5.5s ease-out infinite;
+}
+
+.zunia-gate-ring--late {
+  animation-delay: 1.8s;
+  border-color: color-mix(in srgb, var(--z-accent) 12%, transparent);
+}
+
+.zunia-gate-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: soft-light;
+}
+
+.zunia-gate-rise {
+  animation: zunia-gate-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes zunia-gate-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
+@keyframes zunia-gate-pulse {
+  0% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+}
+
+@keyframes zunia-gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zunia-gate-glow,
+  .zunia-gate-ring,
+  .zunia-gate-rise {
+    animation: none;
+  }
 }
