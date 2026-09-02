@@ -28,7 +28,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^6"
   },
   "pnpm": {
     "//": "BOOTSTRAP: resolves the @zunialab/* semver ranges above to local paths until the npm scope is live. Delete this whole pnpm block once published. See zunia-ui/RELEASING.md.",
