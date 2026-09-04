@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Zunia-Lab/zunia-brand/main/png/icons/app/zunia-icon-256.png" alt="Zunia" width="96" />
+</p>
+
 # zunia-dashboard
 
 > Web portfolio and activity UI at [wallet.zuniawallet.com](https://wallet.zuniawallet.com).
