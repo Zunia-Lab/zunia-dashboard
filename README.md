@@ -4,7 +4,7 @@
 
 # zunia-dashboard
 
-> Web portfolio and activity UI at [wallet.zuniawallet.com](https://wallet.zuniawallet.com).
+> Web portfolio and activity UI at [wallet.zunialab.com](https://wallet.zunialab.com).
 
 ## Overview
 

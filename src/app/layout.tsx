@@ -2,21 +2,52 @@ import type { Metadata, Viewport } from "next";
 import { ClientProviders } from "@/components/ClientProviders";
 import "./globals.css";
 
+const SITE_URL = "https://wallet.zunialab.com";
+const DESCRIPTION =
+  "Portfolio and activity for your Zunia wallet. Keys stay in the extension or on your phone.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "Zunia Wallet",
     template: "%s · Zunia",
   },
-  description:
-    "Portfolio and activity for your Zunia wallet. Keys stay in the extension or on your phone.",
-  metadataBase: new URL("https://wallet.zuniawallet.com"),
+  description: DESCRIPTION,
+  applicationName: "Zunia",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Zunia",
   },
-  applicationName: "Zunia",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon", type: "image/png", sizes: "32x32" },
+      { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/icons/icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/apple-icon", type: "image/png", sizes: "180x180" }],
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Zunia",
+    url: SITE_URL,
+    title: "Zunia Wallet",
+    description: DESCRIPTION,
+    locale: "en",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Zunia Wallet",
+    description: DESCRIPTION,
+  },
+  // Gated product shell: allow preview fetchers, keep pages out of search.
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
 };
 
 export const viewport: Viewport = {
