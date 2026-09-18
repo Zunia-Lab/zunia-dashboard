@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
   Input,
   cn,
   focusRing,
@@ -58,15 +68,6 @@ function QrIcon() {
   );
 }
 
-function CloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  );
-}
-
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
 };
@@ -77,25 +78,37 @@ declare global {
   }
 }
 
-function QrModal({
+// BarcodeDetector support is a property of the browser and cannot change during
+// a session, so there is nothing to subscribe to. Reading it through
+// useSyncExternalStore keeps it out of an effect, which is where a synchronous
+// setState would cause a cascading render.
+const noopSubscribe = () => () => {};
+
+function QrDialog({
+  open,
+  onOpenChange,
   onScan,
-  onClose,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onScan: (address: string) => void;
-  onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const detectorSupported = useSyncExternalStore(
+    noopSubscribe,
+    () => typeof window.BarcodeDetector === "function",
+    () => false,
+  );
 
   useEffect(() => {
+    if (!open || !detectorSupported) return;
+    const Detector = window.BarcodeDetector;
+    if (!Detector) return;
+
     let stream: MediaStream | null = null;
     let raf = 0;
     let alive = true;
-    const Detector = window.BarcodeDetector;
-    if (!Detector) {
-      setError("Use Upload QR image in this browser");
-      return;
-    }
 
     void (async () => {
       try {
@@ -140,7 +153,7 @@ function QrModal({
       window.cancelAnimationFrame(raf);
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [onScan]);
+  }, [open, detectorSupported, onScan]);
 
   async function onFile(file: File) {
     const Detector = window.BarcodeDetector;
@@ -163,20 +176,33 @@ function QrModal({
     }
   }
 
+  const message =
+    error ??
+    (detectorSupported
+      ? null
+      : "This browser cannot decode QR codes from the camera. Upload a QR image instead.");
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-[18px] border border-[var(--z-line)] bg-bg p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-medium text-fg">Scan address</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className={cn("rounded-full p-1.5 text-fg-dim hover:bg-[var(--z-state-hover)]", focusRing)}>
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="aspect-square overflow-hidden rounded-[14px] bg-black">
-          <video ref={videoRef} muted playsInline className="size-full object-cover" />
-        </div>
-        {error ? <p className="text-[12.5px] text-[var(--z-danger)]">{error}</p> : null}
-        <label className="flex cursor-pointer items-center justify-center rounded-[12px] border border-[var(--z-line)] py-2.5 text-[13px] text-fg hover:bg-[var(--z-state-hover)]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(440px,calc(100%-32px))]">
+        <DialogTitle>Scan address</DialogTitle>
+        <DialogDescription>
+          Point the camera at a wallet QR, or upload a saved image.
+        </DialogDescription>
+        {detectorSupported ? (
+          <div className="mt-4 aspect-square overflow-hidden rounded-[14px] bg-[var(--z-glass-2)]">
+            <video ref={videoRef} muted playsInline className="size-full object-cover" />
+          </div>
+        ) : null}
+        {message ? (
+          <p className="mt-3 text-[12.5px] text-[var(--z-danger)]">{message}</p>
+        ) : null}
+        <label
+          className={cn(
+            "mt-3 flex cursor-pointer items-center justify-center rounded-[12px] border border-[var(--z-line)] py-2.5 text-[13px] text-fg hover:bg-[var(--z-state-hover)]",
+            focusRing,
+          )}
+        >
           Upload QR image
           <input
             type="file"
@@ -189,22 +215,24 @@ function QrModal({
             }}
           />
         </label>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function BookModal({
+function BookDialog({
+  open,
+  onOpenChange,
   contacts,
   expectedPrefix,
   onPick,
-  onClose,
   onSave,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   contacts: DashboardContact[];
   expectedPrefix?: string;
   onPick: (address: string) => void;
-  onClose: () => void;
   onSave: (contact: DashboardContact) => void;
 }) {
   const [label, setLabel] = useState("");
@@ -214,15 +242,13 @@ function BookModal({
     : contacts;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-md flex-col gap-3 rounded-[18px] border border-[var(--z-line)] bg-bg p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-medium text-fg">Address book</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className={cn("rounded-full p-1.5 text-fg-dim hover:bg-[var(--z-state-hover)]", focusRing)}>
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[80vh] w-[min(440px,calc(100%-32px))] flex-col">
+        <DialogTitle>Address book</DialogTitle>
+        <DialogDescription>
+          Saved in this browser only. Nothing is sent to a server.
+        </DialogDescription>
+        <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
           {filtered.length === 0 ? (
             <p className="py-6 text-center text-[13px] text-fg-dim">
               {contacts.length === 0
@@ -246,7 +272,7 @@ function BookModal({
             ))
           )}
         </div>
-        <div className="grid gap-2 border-t border-[var(--z-line)] pt-3">
+        <div className="mt-3 grid shrink-0 gap-2 border-t border-[var(--z-line)] pt-3">
           <Input label="Label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Exchange" />
           <Input
             label="Address"
@@ -270,12 +296,20 @@ function BookModal({
             Save contact
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-/** Recipient input with QR scan + address book trailing actions. */
+/**
+ * Recipient input with QR scan + address book trailing actions.
+ *
+ * Both overlays run on the shared Dialog primitive rather than a hand-rolled
+ * `fixed inset-0` div: that is what supplies role="dialog", aria-modal, the
+ * focus trap, Escape, the scroll lock and focus restore to the trigger button.
+ * It also replaces the two hardcoded `bg-black/60` overlays with the
+ * --z-overlay token DialogOverlay already uses.
+ */
 export function RecipientAddressField({
   value,
   onChange,
@@ -341,21 +375,22 @@ export function RecipientAddressField({
         onChange={(e) => onChange(e.target.value)}
         trailing={trailing}
       />
-      {modal === "qr" ? (
-        <QrModal onClose={() => setModal(null)} onScan={onScan} />
-      ) : null}
-      {modal === "book" ? (
-        <BookModal
-          contacts={contacts}
-          expectedPrefix={expectedPrefix}
-          onClose={() => setModal(null)}
-          onPick={(address) => {
-            onChange(address);
-            setModal(null);
-          }}
-          onSave={(contact) => setContacts([contact, ...contacts])}
-        />
-      ) : null}
+      <QrDialog
+        open={modal === "qr"}
+        onOpenChange={(next) => setModal(next ? "qr" : null)}
+        onScan={onScan}
+      />
+      <BookDialog
+        open={modal === "book"}
+        onOpenChange={(next) => setModal(next ? "book" : null)}
+        contacts={contacts}
+        expectedPrefix={expectedPrefix}
+        onPick={(address) => {
+          onChange(address);
+          setModal(null);
+        }}
+        onSave={(contact) => setContacts([contact, ...contacts])}
+      />
     </>
   );
 }

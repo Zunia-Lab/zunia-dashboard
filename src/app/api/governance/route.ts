@@ -19,6 +19,10 @@ export async function GET(req: Request) {
         status: "voting",
         title: "Example proposal (stub)",
         yesPct: 42,
+        summary:
+          "Placeholder proposal text while the governance indexer is offline.",
+        description:
+          "This is sample proposal body. When /v1/governance/proposals is live, the full on-chain description renders here.",
       },
     ],
     chains,

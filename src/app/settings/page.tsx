@@ -34,7 +34,10 @@ function SettingsRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-[var(--z-line)] py-3.5 last:border-b-0">
+    // Stacked below sm: at 360px the row is ~296px wide and a three-option
+    // Segmented takes ~174px of it, leaving the title and its description
+    // ~106px to wrap into. The control gets its own line instead.
+    <div className="flex flex-col items-stretch gap-2 border-b border-[var(--z-line)] py-3.5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0 flex-1">
         <div className="text-[15px] font-medium text-fg">{title}</div>
         {description ? (
@@ -43,7 +46,7 @@ function SettingsRow({
           </p>
         ) : null}
       </div>
-      <div className="shrink-0">{control}</div>
+      <div className="shrink-0 sm:ml-auto">{control}</div>
     </div>
   );
 }
@@ -75,7 +78,15 @@ function SettingsSection({
 export default function SettingsPage() {
   const { account, disconnect } = useWallet();
   const { resolved, setTheme } = useTheme();
-  const { hideAmounts, toggleHideAmounts, currency, setCurrency } = usePrefs();
+  const {
+    hideAmounts,
+    toggleHideAmounts,
+    currency,
+    setCurrency,
+    nftMedia,
+    setNftMedia,
+    nftMediaBlockedReason,
+  } = usePrefs();
   const { network, setNetwork } = useChainScope();
   const [followed] = useFollowedChains();
 
@@ -187,6 +198,24 @@ export default function SettingsPage() {
               }
             />
             <SettingsRow
+              title="Show NFT artwork"
+              description={
+                nftMediaBlockedReason ??
+                "Off by default. Artwork is fetched from whatever host each token points at, which tells that host your IP address and which tokens you hold."
+              }
+              control={
+                <Switch
+                  checked={nftMedia && !nftMediaBlockedReason}
+                  onCheckedChange={(next) => setNftMedia(next === true)}
+                  // Hiding amounts while broadcasting holdings to a list of
+                  // third-party hosts would make that control decorative, so
+                  // this one is disabled — with its reason — while it is on.
+                  disabled={nftMediaBlockedReason !== null}
+                  aria-label="Show NFT artwork"
+                />
+              }
+            />
+            <SettingsRow
               title="Currency"
               description="Fiat display for portfolio and staking."
               control={
@@ -247,7 +276,7 @@ export default function SettingsPage() {
 
           <SettingsSection
             title="Device & security"
-            description="Dashboard sessions are read-only. Bind a device to prove ownership without exposing keys."
+            description="Dashboard sessions are read-only. Device binding is not implemented yet — see below."
           >
             <div className="flex flex-col gap-3 py-3.5">
               <Callout tone="neutral" title="Keys stay in the wallet">

@@ -15,9 +15,11 @@ import { useFollowedChains } from "@/lib/usePortfolio";
 const ROUTES = [
   { href: "/portfolio", label: "Portfolio", hint: "Balances and allocation" },
   { href: "/send", label: "Send", hint: "Send and Cross-send" },
+  { href: "/receive", label: "Receive", hint: "Address and QR" },
   { href: "/staking", label: "Staking", hint: "Delegations and rewards" },
   { href: "/swap", label: "Swap", hint: "Compare routes" },
   { href: "/bridge", label: "Bridge", hint: "IBC and external hops" },
+  { href: "/nfts", label: "NFTs", hint: "CW721 collections you hold" },
   { href: "/governance", label: "Governance", hint: "Open proposals" },
   { href: "/activity", label: "Activity", hint: "Transfers and claims" },
   { href: "/networks", label: "Networks", hint: "Follow chains" },

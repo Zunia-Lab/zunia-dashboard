@@ -1,141 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  Button,
-  Callout,
-  Card,
-  EmptyState,
-  FeeSummary,
-  Input,
-  SectionLabel,
-  Segmented,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  TokenLogo,
-} from "@zunialab/ui";
+/**
+ * Where each rail out of Cosmos stands.
+ *
+ * This page used to carry a second cross-chain form: its own chain pickers, its
+ * own copy of the channel-discovery fetch, its own channel-validation fetch —
+ * behind a CTA that was permanently disabled because nothing here could sign.
+ * A second implementation of channel discovery that never moved a token is the
+ * exact duplication `@zunialab/interchain` exists to remove, so it is gone.
+ *
+ * What is left is the honest answer to "can I move this?" for each rail, and a
+ * route to the screen that actually does it. The IBC rail works: Send does a
+ * planned, verified transfer, and Swap does a crosschain swap through Osmosis.
+ * The EVM and Solana rails do not, and say why rather than showing a form.
+ */
+
+import { useState } from "react";
+import Link from "next/link";
+import { Button, Callout, Card, SectionLabel, Segmented } from "@zunialab/ui";
 import { DashboardShell } from "@/components/DashboardShell";
-import { ChainSelect } from "@/components/ChainSelect";
-import { findChain } from "@/lib/chains";
-import { useChainScope } from "@/lib/useChainScope";
-import { usePrefs } from "@/providers/PrefsProvider";
-import { useWallet } from "@/providers/WalletProvider";
+import { useSwapConfig } from "@/lib/interchain/hooks";
 
 type Rail = "ibc" | "evm" | "solana";
 
-const RAIL_COPY: Record<Rail, string> = {
-  ibc: "Native IBC transfer between Cosmos chains. No third party holds the funds.",
-  evm: "Routed through an external bridge provider. Funds leave Cosmos custody rules in transit.",
-  solana:
-    "Routed through an external bridge provider. Funds leave Cosmos custody rules in transit.",
-};
-
-type ChannelOption = {
-  channelId: string;
-  counterpartyChannelId: string;
-  counterpartyChainId: string | null;
-};
+const EXTERNAL_RAIL_REASON =
+  "No bridge provider is configured for this deployment. A route across this rail would hand the funds to a third party, so nothing is offered until an operator configures one and it can be named on screen.";
 
 export default function BridgePage() {
-  const { account } = useWallet();
-  const { selectedChainId, followedOnNetwork } = useChainScope();
-  const { mask } = usePrefs();
   const [rail, setRail] = useState<Rail>("ibc");
-  const fallbackId = followedOnNetwork[0] ?? "cosmoshub-4";
-  const [fromChain, setFromChain] = useState(selectedChainId ?? fallbackId);
-  const [toChain, setToChain] = useState(
-    () =>
-      followedOnNetwork.find((id) => id !== (selectedChainId ?? fallbackId)) ??
-      "osmosis-1",
-  );
-  const [amount, setAmount] = useState("");
-  const [channelId, setChannelId] = useState("");
-  const [channels, setChannels] = useState<ChannelOption[]>([]);
-  const [channelHint, setChannelHint] = useState<string | undefined>();
-
-  useEffect(() => {
-    if (selectedChainId) setFromChain(selectedChainId);
-  }, [selectedChainId]);
-
-  useEffect(() => {
-    if (
-      followedOnNetwork.length > 0 &&
-      !followedOnNetwork.includes(fromChain)
-    ) {
-      setFromChain(followedOnNetwork[0]!);
-    }
-    if (
-      followedOnNetwork.length > 0 &&
-      !followedOnNetwork.includes(toChain)
-    ) {
-      const next =
-        followedOnNetwork.find((id) => id !== fromChain) ??
-        followedOnNetwork[0]!;
-      setToChain(next);
-    }
-  }, [followedOnNetwork, fromChain, toChain]);
-
-  useEffect(() => {
-    if (rail !== "ibc" || !fromChain || !toChain || fromChain === toChain) {
-      setChannels([]);
-      return;
-    }
-    let cancelled = false;
-    void fetch(
-      `/api/ibc/channels?source=${encodeURIComponent(fromChain)}&dest=${encodeURIComponent(toChain)}`,
-    )
-      .then((r) => r.json())
-      .then((j: { channels?: ChannelOption[] }) => {
-        if (cancelled) return;
-        const rows = j.channels ?? [];
-        setChannels(rows);
-        if (rows.length === 1) setChannelId(rows[0]!.channelId);
-      })
-      .catch(() => {
-        if (!cancelled) setChannels([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [rail, fromChain, toChain]);
-
-  useEffect(() => {
-    if (rail !== "ibc" || !channelId.trim()) {
-      setChannelHint(undefined);
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      void fetch(
-        `/api/ibc/channel?source=${encodeURIComponent(fromChain)}&channel=${encodeURIComponent(channelId)}&dest=${encodeURIComponent(toChain)}`,
-      )
-        .then((r) => r.json())
-        .then((j: { message?: string }) => setChannelHint(j.message));
-    }, 400);
-    return () => window.clearTimeout(handle);
-  }, [rail, channelId, fromChain, toChain]);
-
-  const from = findChain(fromChain);
-  const to = findChain(toChain);
+  const config = useSwapConfig();
 
   return (
     <DashboardShell
       title="Bridge"
-      description="Move assets across chains. Signing always happens in your wallet."
-      live={
-        <div className="flex flex-col gap-3">
-          <SectionLabel>In flight</SectionLabel>
-          <EmptyState
-            title="Nothing in transit"
-            description="Transfers you start appear here with their relay progress."
-          />
-        </div>
-      }
+      description="What can leave Cosmos, and what carries it. Signing always happens in your wallet."
     >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <Card className="flex flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
+        <Card className="flex flex-col gap-4">
           <Segmented<Rail>
+            size="sm"
+            className="w-full"
             value={rail}
             onChange={setRail}
             options={[
@@ -145,121 +49,77 @@ export default function BridgePage() {
             ]}
           />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-[14px] bg-[var(--z-glass)] p-4">
-              <SectionLabel>From</SectionLabel>
-              <div className="mt-3 flex items-center gap-2">
-                <TokenLogo
-                  src={from?.iconUrl}
-                  symbol={from?.coinDenom ?? "?"}
-                  size={36}
-                />
-                <ChainSelect
-                  value={fromChain}
-                  onValueChange={setFromChain}
-                  ariaLabel="Bridge from chain"
-                />
-              </div>
-              <div className="mt-3 font-mono text-[13px] text-fg-dim">
-                balance {mask("—")}
-              </div>
-            </div>
-
-            <div className="rounded-[14px] bg-[var(--z-glass)] p-4">
-              <SectionLabel>To</SectionLabel>
-              <div className="mt-3 flex items-center gap-2">
-                <TokenLogo
-                  src={to?.iconUrl}
-                  symbol={to?.coinDenom ?? "?"}
-                  size={36}
-                />
-                <ChainSelect
-                  value={toChain}
-                  onValueChange={(id) => {
-                    setToChain(id);
-                    setChannelId("");
-                  }}
-                  ariaLabel="Bridge to chain"
-                />
-              </div>
-              <div className="mt-3 font-mono text-[13px] text-fg-dim">
-                receives {mask("—")}
-              </div>
-            </div>
-          </div>
-
-          <Input
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
-            placeholder="0.0"
-            aria-label="Amount to bridge"
-            label={`Amount in ${from?.coinDenom ?? ""}`.trim()}
-          />
-
           {rail === "ibc" ? (
-            <div className="flex flex-col gap-2">
-              {channels.length > 1 ? (
-                <Select value={channelId} onValueChange={setChannelId}>
-                  <SelectTrigger aria-label="IBC channel" className="w-full">
-                    <span className="truncate font-mono text-[13px]">
-                      {channelId || "Choose a channel"}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {channels.map((option) => (
-                      <SelectItem key={option.channelId} value={option.channelId}>
-                        {option.channelId}
-                        {option.counterpartyChannelId
-                          ? ` → ${option.counterpartyChannelId}`
-                          : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <SectionLabel>Native IBC</SectionLabel>
+                <p className="text-[length:var(--z-type-body)] leading-relaxed text-fg-muted">
+                  Cosmos-to-Cosmos transfers are native: the chains hold the
+                  funds in escrow themselves and no third party is involved. The
+                  route is planned against live channel data, a wrapped token is
+                  sent back the way it came instead of being wrapped again, and
+                  chains with no direct channel are reached with a
+                  packet-forward memo.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button asChild className="w-full sm:flex-1">
+                  <Link href="/send">Move an asset</Link>
+                </Button>
+                <Button
+                  asChild={config.data?.available === true}
+                  variant="secondary"
+                  className="w-full sm:flex-1"
+                  disabled={config.data?.available !== true}
+                  {...(config.data?.available !== true
+                    ? { "aria-describedby": "bridge-swap-unavailable" }
+                    : {})}
+                >
+                  {config.data?.available === true ? (
+                    <Link href="/swap">Swap while moving</Link>
+                  ) : (
+                    <span>Swap while moving</span>
+                  )}
+                </Button>
+              </div>
+              {config.data?.available !== true ? (
+                <p
+                  id="bridge-swap-unavailable"
+                  className="font-mono text-[length:var(--z-type-micro)] leading-relaxed text-fg-dim"
+                >
+                  {config.loading
+                    ? "Checking whether a crosschain-swaps contract is configured for this deployment…"
+                    : (config.data?.reason ??
+                      config.error?.message ??
+                      "The swap configuration could not be read, so the swap route is not offered.")}
+                </p>
               ) : null}
-              <Input
-                label="IBC channel"
-                placeholder="channel-141"
-                value={channelId}
-                spellCheck={false}
-                hint={channelHint}
-                onChange={(e) => setChannelId(e.target.value)}
-              />
             </div>
-          ) : null}
-
-          <Button disabled className="w-full">
-            {account ? "Review transfer" : "Connect a wallet"}
-          </Button>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <SectionLabel>{rail.toUpperCase()}</SectionLabel>
+              <Callout tone="warning" title="No route from this dashboard">
+                {EXTERNAL_RAIL_REASON}
+              </Callout>
+              <Button disabled className="w-full" aria-describedby="rail-blocked">
+                Review transfer
+              </Button>
+              <p
+                id="rail-blocked"
+                className="text-center font-mono text-[length:var(--z-type-micro)] leading-relaxed text-fg-dim"
+              >
+                Unavailable — nothing here can build or sign a transfer on this
+                rail.
+              </p>
+            </div>
+          )}
         </Card>
 
-        <div className="flex flex-col gap-4">
-          <Card>
-            <SectionLabel>Transfer</SectionLabel>
-            <FeeSummary
-              className="mt-3"
-              rows={[
-                { label: "Rail", value: rail.toUpperCase() },
-                {
-                  label: "Channel",
-                  value: rail === "ibc" ? channelId || "—" : "—",
-                },
-                { label: "Relay fee", value: "—" },
-                { label: "Estimated time", value: "—" },
-              ]}
-            />
-          </Card>
-          <Callout tone={rail === "ibc" ? "neutral" : "warning"} title="Custody">
-            {RAIL_COPY[rail]}
-          </Callout>
-          {rail === "ibc" ? (
-            <Callout tone="info" title="Prefer Send → Cross-send">
-              For a simpler Cosmos-to-Cosmos flow with channel checks, use Send
-              → Cross-send.
-            </Callout>
-          ) : null}
-        </div>
+        <Callout tone="neutral" title="Custody">
+          An IBC transfer never leaves Cosmos custody rules: the source chain
+          escrows the token and the destination chain mints a voucher against
+          it. An external bridge replaces that with whoever operates the bridge.
+        </Callout>
       </div>
     </DashboardShell>
   );

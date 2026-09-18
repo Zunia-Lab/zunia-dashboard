@@ -2,91 +2,74 @@
 
 import { useState } from "react";
 import { Button, Callout } from "@zunialab/ui";
+import { getZunia } from "@zunialab/sdk-web";
 import { useWallet } from "@/providers/WalletProvider";
 
 /**
- * ADR-36 device binding stub: challenge from /api/device/challenge,
- * signature via extension `signArbitrary` when available, verify via backend stub.
+ * Device binding via ADR-36 signArbitrary on the connected extension account.
  */
 export function DeviceBinding() {
   const { account } = useWallet();
-  const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const address =
+    account && "address" in account ? account.address : undefined;
+  const chainId =
+    account && "chainId" in account ? account.chainId : "cosmoshub-4";
+  const canBind = account?.mode === "extension" && Boolean(address);
 
   async function bind() {
-    if (!account) {
-      setStatus("Connect Zunia, Keplr, or WalletConnect first.");
-      return;
-    }
+    if (!address) return;
     setBusy(true);
-    setStatus(null);
+    setError(null);
+    setMessage(null);
     try {
       const challengeRes = await fetch("/api/device/challenge", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          address: account.address,
-          chainId: account.chainId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, chainId }),
       });
-      const challenge = (await challengeRes.json()) as {
-        challengeId?: string;
-        message?: string;
-        error?: string;
-      };
-      if (!challengeRes.ok || !challenge.message || !challenge.challengeId) {
-        throw new Error(challenge.error ?? "Challenge failed");
+      const challenge = await challengeRes.json();
+      if (!challengeRes.ok) {
+        throw new Error(challenge.message ?? "Challenge failed");
       }
 
-      let signature = "stub-signature";
-      let pubKey = "stub-pubkey";
-
-      const provider =
-        typeof window !== "undefined"
-          ? account.mode === "extension" && account.wallet === "keplr"
-            ? window.keplr
-            : (window.zunia ?? window.keplr)
-          : undefined;
-      if (
-        provider &&
-        "signArbitrary" in provider &&
-        typeof (provider as { signArbitrary?: unknown }).signArbitrary ===
-          "function"
-      ) {
-        const signed = await (
-          provider as {
-            signArbitrary: (
-              chainId: string,
-              signer: string,
-              data: string,
-            ) => Promise<{ signature: string; pub_key: { value: string } }>;
-          }
-        ).signArbitrary(account.chainId, account.address, challenge.message);
-        signature = signed.signature;
-        pubKey = signed.pub_key.value;
+      const zunia = await getZunia({ timeoutMs: 2_000 });
+      if (!zunia?.signArbitrary) {
+        throw new Error(
+          "Extension does not expose signArbitrary. Update Zunia extension.",
+        );
       }
+      const signature = await zunia.signArbitrary(
+        chainId,
+        address,
+        challenge.nonce,
+      );
 
       const verifyRes = await fetch("/api/device/verify", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           challengeId: challenge.challengeId,
-          address: account.address,
-          chainId: account.chainId,
+          address,
           signature,
-          pubKey,
         }),
       });
-      const verified = (await verifyRes.json()) as {
-        ok?: boolean;
-        error?: string;
-      };
-      if (!verifyRes.ok || !verified.ok) {
-        throw new Error(verified.error ?? "Verify failed");
+      const verified = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verified.message ?? "Verify failed");
       }
-      setStatus("Device bound. Session token issued by backend when live.");
+      if (verified.sessionToken) {
+        window.localStorage.setItem(
+          "zunia.dashboard.session",
+          verified.sessionToken,
+        );
+      }
+      setMessage("Device bound. Session stored for this browser.");
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Binding failed");
+      setError(e instanceof Error ? e.message : "Binding failed");
     } finally {
       setBusy(false);
     }
@@ -94,34 +77,25 @@ export function DeviceBinding() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <Callout tone="info">
-        Proves address ownership with ADR-36 `signArbitrary` in Zunia or Keplr.
-        Signing never leaves the wallet.
+      <Callout tone="info" title="Device binding">
+        Binding proves you control the connected address by signing a one-time
+        challenge with ADR-36 (signArbitrary). Keys never leave the wallet.
       </Callout>
       <div className="flex flex-wrap items-center gap-2.5">
-        <Button
-          size="sm"
-          disabled={busy || !account}
-          loading={busy}
-          onClick={() => void bind()}
-        >
-          {busy ? "Binding…" : "Bind this device"}
+        <Button size="sm" disabled={!canBind || busy} onClick={() => void bind()}>
+          {busy ? "Signing…" : "Bind this device"}
         </Button>
-        {!account ? (
-          <span className="font-mono text-[12px] text-fg-dim">
-            Connect a wallet first
+        {!canBind ? (
+          <span className="font-mono text-[length:var(--z-type-meta)] text-fg-dim">
+            Connect the Zunia extension first
           </span>
-        ) : (
-          <span className="font-mono text-[12px] text-fg-dim">
-            {account.mode}
-            {account.mode === "extension" && account.wallet
-              ? ` · ${account.wallet}`
-              : ""}
-          </span>
-        )}
+        ) : null}
       </div>
-      {status ? (
-        <p className="font-mono text-[12px] text-fg-muted">{status}</p>
+      {message ? (
+        <p className="font-mono text-[12px] text-[var(--z-success)]">{message}</p>
+      ) : null}
+      {error ? (
+        <p className="font-mono text-[12px] text-[var(--z-danger)]">{error}</p>
       ) : null}
     </div>
   );

@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
     "@zunialab/sdk-core",
   ],
   outputFileTracingRoot: workspaceRoot,
+  turbopack: {
+    root: workspaceRoot,
+  },
 };
 
 export default nextConfig;

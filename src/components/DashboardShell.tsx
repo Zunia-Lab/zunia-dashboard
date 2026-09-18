@@ -7,7 +7,6 @@ import {
   AppShell,
   Avatar,
   Button,
-  Drawer,
   IconButton,
   Mark,
   SectionLabel,
@@ -18,9 +17,13 @@ import {
   interactiveMotion,
   interactiveSurface,
 } from "@zunialab/ui";
+import { AccountSwitcherModal } from "@/components/AccountSwitcherModal";
+import { CommandPalette } from "@/components/CommandPalette";
 import { ConnectWallet } from "@/components/ConnectWallet";
 import { LiveRail } from "@/components/LiveRail";
+import { NetworkPickerModal } from "@/components/NetworkPickerModal";
 import { NotificationsDrawer } from "@/components/NotificationsDrawer";
+import { SideSheet } from "@/components/SideSheet";
 import { usePrefs } from "@/providers/PrefsProvider";
 import { useWallet } from "@/providers/WalletProvider";
 import { cn } from "@/lib/cn";
@@ -28,11 +31,22 @@ import { findChain } from "@/lib/chains";
 import { useChainScope } from "@/lib/useChainScope";
 import { useNotifications } from "@/lib/useNotifications";
 
+/**
+ * Every route reachable from the sidebar, which is also the mobile navigation
+ * sheet below 768px. /send used to live only in a `lg:flex` pill group with the
+ * command palette unmounted, so the wallet could not send at all under 1024px.
+ */
 const PRIMARY_NAV = [
   { href: "/portfolio", label: "Portfolio", icon: PortfolioGlyph },
+  { href: "/send", label: "Send", icon: SendGlyph },
+  { href: "/receive", label: "Receive", icon: ReceiveGlyph },
   { href: "/staking", label: "Staking", icon: StakeGlyph },
   { href: "/swap", label: "Swap", icon: SwapGlyph },
   { href: "/bridge", label: "Bridge", icon: BridgeGlyph },
+  // Beside the other things an account holds, not under a "more" menu: the
+  // extension and the mobile app use the same position and the same word, so
+  // the three products stay recognisably one product.
+  { href: "/nfts", label: "NFTs", icon: NftGlyph },
   { href: "/governance", label: "Governance", icon: GovGlyph },
   { href: "/activity", label: "Activity", icon: ActivityGlyph },
   { href: "/networks", label: "Networks", icon: NetworksGlyph },
@@ -41,6 +55,7 @@ const PRIMARY_NAV = [
 const ECOSYSTEM_NAV = [
   { href: "/missions", label: "Missions" },
   { href: "/dapps", label: "dApps" },
+  { href: "/notifications", label: "Notifications" },
 ] as const;
 
 function isActive(pathname: string, href: string) {
@@ -69,16 +84,18 @@ export function DashboardShell({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [liveOpen, setLiveOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [networksOpen, setNetworksOpen] = useState(false);
   /** Docked Live rail only on large screens; smaller viewports open it on demand. */
   const [liveDocked, setLiveDocked] = useState(false);
-  const [copied, setCopied] = useState(false);
   const {
     network,
     setNetwork,
     selectedChainId,
     selectedChain,
     setSelectedChainId,
-    followedOnNetwork,
+    followedAll,
   } = useChainScope();
 
   useEffect(() => {
@@ -100,21 +117,13 @@ export function DashboardShell({
     return () => mq.removeEventListener("change", sync);
   }, []);
 
-  async function copyAddress() {
-    if (!account) return;
-    try {
-      await navigator.clipboard.writeText(account.address);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* ignore */
-    }
-  }
+  /** Any link inside the navigation sheet must close it before it navigates. */
+  const closeNav = () => setNavOpen(false);
 
-  const rail = followedOnNetwork
+  const rail = followedAll
     .map((chainId) => findChain(chainId))
     .filter((chain): chain is NonNullable<typeof chain> => Boolean(chain))
-    .slice(0, 8);
+    .slice(0, 12);
 
   const allNetworks = !selectedChainId;
   const scopedDescription = selectedChain
@@ -144,6 +153,7 @@ export function DashboardShell({
       </Link>
       {rail.map((chain) => {
         const active = selectedChainId === chain.chainId;
+        const onSlice = chain.network === network;
         const href = pathname.startsWith("/chains/")
           ? `/chains/${chain.chainId}`
           : pathname;
@@ -151,13 +161,17 @@ export function DashboardShell({
           <Link
             key={chain.chainId}
             href={href}
-            title={`${chain.chainName} · ${chain.chainId}`}
-            onClick={() => setSelectedChainId(chain.chainId)}
+            title={`${chain.chainName} · ${chain.chainId}${onSlice ? "" : ` · switch to ${chain.network}`}`}
+            onClick={() => {
+              if (!onSlice) setNetwork(chain.network);
+              setSelectedChainId(chain.chainId);
+            }}
             className={cn(
               "flex size-11 items-center justify-center overflow-hidden rounded-full",
               active
                 ? "shadow-[0_0_0_2px_color-mix(in_srgb,var(--z-accent)_70%,transparent)]"
                 : "hover:bg-[var(--z-state-hover)]",
+              !onSlice && !active && "opacity-45",
             )}
           >
             <TokenLogo
@@ -183,7 +197,21 @@ export function DashboardShell({
 
   const navColumn = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mb-5 flex items-center gap-2.5 px-1">
+      {/*
+        WalletGate never renders this shell without an account, so the old
+        "Watch-only desk" fallback advertised a mode the product does not have.
+        The address line doubles as the Receive entry point, which is how /send
+        and receiving stay reachable inside the mobile navigation sheet.
+      */}
+      <Link
+        href="/receive"
+        onClick={closeNav}
+        title="Show address to receive"
+        className={cn(
+          "mb-5 flex w-full items-center gap-2.5 rounded-[12px] px-1 py-1 text-left",
+          interactiveSurface,
+        )}
+      >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-accent text-[var(--z-accent-fg)]">
           <Mark size={20} />
         </span>
@@ -192,12 +220,10 @@ export function DashboardShell({
             Zunia
           </span>
           <span className="mt-0.5 block truncate font-mono text-[11.5px] text-fg-dim">
-            {account
-              ? truncateAddress(account.address, 6, 4)
-              : "Watch-only desk"}
+            {account ? truncateAddress(account.address, 6, 4) : "—"}
           </span>
         </span>
-      </div>
+      </Link>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
         {PRIMARY_NAV.map((item) => {
@@ -269,25 +295,53 @@ export function DashboardShell({
               { value: "testnet", label: "Test" },
             ]}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setNavOpen(false);
+              setNetworksOpen(true);
+            }}
+            className={cn(
+              "mt-2 w-full rounded-[12px] px-3 py-2 text-left text-[12.5px] text-fg-muted",
+              interactiveMotion,
+              "hover:bg-[var(--z-state-hover)] hover:text-fg",
+            )}
+          >
+            {selectedChain
+              ? `Scope · ${selectedChain.chainName}`
+              : "Scope · all followed"}
+          </button>
         </div>
 
-        <div className="rounded-[14px] bg-[var(--z-glass)] px-3 py-2.5">
-          <div className="flex items-center gap-2.5">
-            <Avatar
-              seed={avatarSeed}
-              fallback={walletName ?? "Zunia"}
-              size={32}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13.5px] font-medium text-fg">
-                {walletName ?? "Guest"}
+        {account ? (
+          <button
+            type="button"
+            onClick={() => {
+              setNavOpen(false);
+              setAccountsOpen(true);
+            }}
+            className={cn(
+              "w-full rounded-[14px] bg-[var(--z-glass)] px-3 py-2.5 text-left",
+              interactiveSurface,
+            )}
+          >
+            <div className="flex items-center gap-2.5">
+              <Avatar
+                seed={avatarSeed}
+                fallback={walletName ?? "Zunia"}
+                size={32}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13.5px] font-medium text-fg">
+                  {walletName ?? "Wallet"}
+                </span>
+                <span className="block truncate font-mono text-[11.5px] text-fg-dim">
+                  Connected
+                </span>
               </span>
-              <span className="block truncate font-mono text-[11.5px] text-fg-dim">
-                {account ? "Connected" : "Not connected"}
-              </span>
-            </span>
-          </div>
-        </div>
+            </div>
+          </button>
+        ) : null}
 
         <Link
           href="/settings"
@@ -308,7 +362,13 @@ export function DashboardShell({
   );
 
   return (
-    <div className="zunia-root flex h-dvh min-h-0 flex-col overflow-hidden bg-bg text-fg">
+    /*
+      Safe-area padding pairs with viewportFit: "cover" in app/layout.tsx. The
+      installed iOS PWA declares a black-translucent status bar, so without this
+      the top bar renders under the clock and the last row under the home
+      indicator. On every other platform the env() values are 0.
+    */
+    <div className="zunia-root flex h-dvh min-h-0 flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] text-fg">
       <AppShell
         className="min-h-0 flex-1"
         chainRail={chainRail}
@@ -341,8 +401,14 @@ export function DashboardShell({
 
             {actions}
 
+            {/*
+              Shortcuts only. Every one of these routes is also in the sidebar
+              and in the command palette, so the group can wait for xl: at
+              1024-1279 the bar cannot fit the pills, the icon cluster, the
+              wallet chip and a readable title at the same time.
+            */}
             {account ? (
-              <div className="hidden items-center rounded-[12px] bg-[var(--z-glass)] p-1 lg:flex">
+              <div className="hidden items-center rounded-[12px] bg-[var(--z-glass)] p-1 xl:flex">
                 <Button asChild size="sm" className="h-8 rounded-[10px] px-3.5 text-[13px] shadow-none">
                   <Link href="/send">Send</Link>
                 </Button>
@@ -352,7 +418,7 @@ export function DashboardShell({
                   size="sm"
                   className="h-8 rounded-[10px] px-3 text-[13px]"
                 >
-                  <Link href="/portfolio">Receive</Link>
+                  <Link href="/receive">Receive</Link>
                 </Button>
                 <Button
                   asChild
@@ -365,8 +431,24 @@ export function DashboardShell({
               </div>
             ) : null}
 
+            {/*
+              36px controls, not 44px: at 768px the content column is 460px wide
+              and the 44px cluster left the page title ~20px. The theme toggle
+              drops below sm because it is also in Settings; search, privacy,
+              notifications and Live have no other entry point at 360px.
+            */}
             <div className="flex items-center gap-0.5 rounded-[12px] bg-[var(--z-glass)] p-0.5">
               <IconButton
+                size="sm"
+                label="Search pages and chains"
+                title="Search (Cmd K)"
+                variant="ghost"
+                onClick={() => setPaletteOpen(true)}
+              >
+                <SearchGlyph />
+              </IconButton>
+              <IconButton
+                size="sm"
                 label={hideAmounts ? "Show amounts" : "Hide amounts"}
                 title={hideAmounts ? "Show amounts" : "Hide amounts"}
                 variant="ghost"
@@ -375,17 +457,20 @@ export function DashboardShell({
                 {hideAmounts ? <EyeOffGlyph /> : <EyeGlyph />}
               </IconButton>
               <IconButton
+                size="sm"
                 label={
                   resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"
                 }
                 title={resolved === "dark" ? "Light" : "Dark"}
                 variant="ghost"
+                className="hidden sm:inline-flex"
                 onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
               >
                 {resolved === "dark" ? <SunGlyph /> : <MoonGlyph />}
               </IconButton>
               <span className="relative">
                 <IconButton
+                  size="sm"
                   label={
                     unreadCount > 0
                       ? `Notifications, ${unreadCount} unread`
@@ -400,12 +485,13 @@ export function DashboardShell({
                 {unreadCount > 0 ? (
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[var(--z-info)]"
+                    className="pointer-events-none absolute right-1 top-1 size-1.5 rounded-full bg-[var(--z-info)]"
                   />
                 ) : null}
               </span>
               {!liveDocked ? (
                 <IconButton
+                  size="sm"
                   label="Open live column"
                   title="Live"
                   variant="ghost"
@@ -416,12 +502,26 @@ export function DashboardShell({
               ) : null}
             </div>
 
+            {/*
+              The wallet chip needs ~170px with the disconnect button. It waits
+              for lg because the sidebar already shows the address from md up,
+              and the navigation sheet shows it below that.
+            */}
             {account ? (
-              <div className="hidden items-center gap-1 sm:flex">
+              <div className="hidden items-center gap-1 lg:flex">
+                <IconButton
+                  size="sm"
+                  label="Pick network scope"
+                  title="Networks"
+                  variant="ghost"
+                  onClick={() => setNetworksOpen(true)}
+                >
+                  <NetworksGlyph />
+                </IconButton>
                 <button
                   type="button"
-                  onClick={() => void copyAddress()}
-                  title={copied ? "Copied" : "Copy address"}
+                  onClick={() => setAccountsOpen(true)}
+                  title="Switch account"
                   className={cn(
                     "flex max-w-[200px] items-center gap-2 rounded-[12px] bg-[var(--z-glass)] py-1 pl-1 pr-2.5 text-left",
                     interactiveSurface,
@@ -437,17 +537,16 @@ export function DashboardShell({
                       {walletName ?? "Wallet"}
                     </span>
                     <span className="mt-0.5 block truncate font-mono text-[11px] leading-tight text-fg-dim">
-                      {copied
-                        ? "Copied"
-                        : truncateAddress(account.address, 6, 4)}
+                      {truncateAddress(account.address, 6, 4)}
                     </span>
                   </span>
                 </button>
                 <IconButton
+                  size="sm"
                   label="Disconnect wallet"
                   title="Disconnect"
                   variant="ghost"
-                  onClick={disconnect}
+                  onClick={() => void disconnect()}
                 >
                   <DisconnectGlyph />
                 </IconButton>
@@ -459,43 +558,94 @@ export function DashboardShell({
         }
         live={liveDocked ? liveColumn : undefined}
       >
-        {children}
+        {/*
+          AppShell's scroll region has horizontal and bottom padding only and no
+          width cap, so every page's first card butted against the top-bar
+          divider and, past ~1600px, asset rows stretched to the full viewport.
+          Capping here fixes both for all 14 routes at once.
+        */}
+        <div className="mx-auto w-full max-w-[1440px] pt-4 md:pt-5 lg:pt-6">
+          {children}
+        </div>
       </AppShell>
 
-      <Drawer open={navOpen} onClose={() => setNavOpen(false)} side="left">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="text-[20px] font-medium tracking-tight">Zunia</span>
-          <IconButton
-            label="Close navigation"
-            variant="ghost"
-            onClick={() => setNavOpen(false)}
-          >
-            ×
-          </IconButton>
-        </div>
-        <div className="mb-3 flex flex-wrap gap-2">{chainRail}</div>
+      <SideSheet
+        open={navOpen}
+        onOpenChange={setNavOpen}
+        side="left"
+        title="Zunia"
+        closeLabel="Close navigation"
+      >
+        <div className="flex flex-wrap gap-2">{chainRail}</div>
         {navColumn}
-      </Drawer>
+      </SideSheet>
 
-      <Drawer open={liveOpen} onClose={() => setLiveOpen(false)}>
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <SectionLabel>Live</SectionLabel>
-          <IconButton
-            label="Close live column"
-            variant="ghost"
-            onClick={() => setLiveOpen(false)}
-          >
-            ×
-          </IconButton>
-        </div>
+      <SideSheet
+        open={liveOpen}
+        onOpenChange={setLiveOpen}
+        title="Live"
+        closeLabel="Close live column"
+      >
         {liveColumn}
-      </Drawer>
+      </SideSheet>
 
       <NotificationsDrawer
         open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
+        onOpenChange={setNotificationsOpen}
+      />
+
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+
+      <AccountSwitcherModal
+        open={accountsOpen}
+        onOpenChange={setAccountsOpen}
+      />
+      <NetworkPickerModal
+        open={networksOpen}
+        onOpenChange={setNetworksOpen}
       />
     </div>
+  );
+}
+
+function SearchGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="6.25" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="m15.6 15.6 3.4 3.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ReceiveGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <path
+        d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 19h14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SendGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <path
+        d="M20 4 3.5 10.2l6.4 2.4M20 4l-6.2 16-2.6-6.6M20 4 9.9 12.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -581,6 +731,31 @@ function StakeGlyph() {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/** A framed picture: the one glyph an NFT surface reads as at 18px. */
+function NftGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <rect
+        x="3.5"
+        y="4.5"
+        width="17"
+        height="15"
+        rx="2.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M4 16l4.2-4.2a1.5 1.5 0 0 1 2.1 0L14 15.5m-1.2-1.2 1.9-1.9a1.5 1.5 0 0 1 2.1 0L20 15.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="9" cy="9" r="1.4" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }

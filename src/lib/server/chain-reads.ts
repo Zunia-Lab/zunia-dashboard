@@ -6,8 +6,12 @@
  */
 
 import "server-only";
-import { bech32 } from "bech32";
 import { CHAINS, findChain, type ChainEntry } from "@/lib/chains";
+// One implementation, in `lib/address.ts`, shared with the browser: the swap
+// and send screens re-encode the connected account for the destination and the
+// swap venue, and a second copy here would be a second chance to disagree
+// about which coin types may be crossed.
+import { reencodeAddress } from "@/lib/address";
 
 const REQUEST_TIMEOUT_MS = 6_000;
 const PRICE_ENDPOINT = "https://api.coingecko.com/api/v3/simple/price";
@@ -41,28 +45,6 @@ export interface PortfolioSnapshot {
   holdings: ChainHolding[];
   /** Chains that were skipped because the address cannot be re-derived. */
   skipped: string[];
-}
-
-/**
- * Re-encodes a bech32 address under another chain's prefix.
- *
- * Cosmos accounts on the same BIP44 coin type share the same 20-byte address,
- * so a `cosmos1…` address is the same account as `osmo1…`. Chains on a
- * different coin type (Ethermint's 60) derive from a different key, so those
- * are refused rather than guessed.
- */
-export function reencodeAddress(
-  address: string,
-  target: ChainEntry,
-  source: ChainEntry,
-): string | null {
-  if (target.coinType !== source.coinType) return null;
-  try {
-    const decoded = bech32.decode(address);
-    return bech32.encode(target.bech32Prefix, decoded.words);
-  } catch {
-    return null;
-  }
 }
 
 async function getJson(url: string): Promise<unknown> {
@@ -326,6 +308,7 @@ export interface ValidatorRow {
   votingPower: number;
   tokens: string;
   jailed: boolean;
+  logoUrl?: string;
 }
 
 /** Bonded validator set for one chain, strongest first. */
@@ -347,9 +330,16 @@ export async function readValidators(chainId: string): Promise<ValidatorRow[]> {
   };
 
   const rows = body.validators ?? [];
-  const total = rows.reduce((sum, v) => sum + BigInt(v.tokens || "0"), 0n);
+  // BigInt(...) rather than 0n / 10000n: tsconfig targets ES2017, where a
+  // BigInt literal is a compile error (TS2737) even though the runtime has
+  // BigInt. The constructor form compiles at every target.
+  const total = rows.reduce(
+    (sum, v) => sum + BigInt(v.tokens || "0"),
+    BigInt(0),
+  );
+  const POWER_SCALE = BigInt(10000);
 
-  return rows
+  const mapped: ValidatorRow[] = rows
     .map((v) => ({
       chainId: chain.chainId,
       chainName: chain.chainName,
@@ -358,13 +348,16 @@ export async function readValidators(chainId: string): Promise<ValidatorRow[]> {
       identity: v.description?.identity ?? "",
       commission: Number(v.commission?.commission_rates?.rate ?? "0"),
       votingPower:
-        total > 0n
-          ? Number((BigInt(v.tokens || "0") * 10000n) / total) / 10000
+        total > BigInt(0)
+          ? Number((BigInt(v.tokens || "0") * POWER_SCALE) / total) / 10000
           : 0,
       tokens: v.tokens ?? "0",
       jailed: Boolean(v.jailed),
     }))
     .sort((a, b) => Number(b.tokens) - Number(a.tokens));
+
+  const { attachValidatorLogos } = await import("./validator-logos");
+  return attachValidatorLogos(mapped.slice(0, 40));
 }
 
 /** Chain ids the dashboard can offer, mainnet first. */

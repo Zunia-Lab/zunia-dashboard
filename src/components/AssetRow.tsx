@@ -26,8 +26,8 @@ export function AssetRow({
 
   return (
     <Link
-      href={`/chains/${encodeURIComponent(holding.chainId)}`}
-      className="flex items-center gap-4 rounded-[12px] px-4 py-3.5 transition-colors duration-[var(--z-duration-base)] hover:bg-[var(--z-state-hover)]"
+      href={`/assets/${encodeURIComponent(holding.symbol)}?chainId=${encodeURIComponent(holding.chainId)}`}
+      className="flex items-center gap-3 rounded-[12px] px-3 py-3 transition-colors duration-[var(--z-duration-base)] hover:bg-[var(--z-state-hover)] sm:gap-4 sm:px-4 sm:py-3.5"
     >
       <TokenLogo
         src={holding.iconUrl}
@@ -62,15 +62,23 @@ export function AssetRow({
         </span>
       </span>
 
-      <span className="shrink-0 text-right">
-        <span className={cn(amountPrimaryClass, "block text-[16px]")}>
+      {/*
+        Capped and truncating: `holding.error` is an upstream message of
+        arbitrary length, and an uncapped shrink-0 column pushed the row wider
+        than the card, which put a horizontal scrollbar on the whole page.
+      */}
+      <span className="max-w-[48%] shrink-0 text-right">
+        <span className={cn(amountPrimaryClass, "block truncate text-[16px]")}>
           {mask(
             holding.value === null
               ? `${amount} ${holding.symbol}`
               : formatFiat(holding.value, currency),
           )}
         </span>
-        <span className={amountSecondaryClass}>
+        <span
+          className={cn(amountSecondaryClass, "truncate")}
+          title={holding.error}
+        >
           {holding.error
             ? holding.error
             : mask(`${amount} ${holding.symbol}`)}

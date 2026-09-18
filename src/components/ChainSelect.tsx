@@ -19,16 +19,22 @@ export function ChainSelect({
   onValueChange: (chainId: string) => void;
   ariaLabel: string;
 }) {
-  const { followedOnNetwork, network } = useChainScope();
+  const { scopedChainIds, followedAll, network } = useChainScope();
 
   const options = useMemo(() => {
-    const rows = followedOnNetwork
+    // Unscoped (Zunia mark) → every followed chain. Scoped → that slice/id.
+    const source =
+      scopedChainIds.length > 0
+        ? scopedChainIds
+        : followedAll.length > 0
+          ? followedAll
+          : [];
+    const rows = source
       .map((chainId) => findChain(chainId))
       .filter((chain): chain is ChainEntry => Boolean(chain));
     return sortChains(rows);
-  }, [followedOnNetwork]);
+  }, [scopedChainIds, followedAll]);
 
-  // If the current value left the followed set, fall back to the first option.
   useEffect(() => {
     if (options.length === 0) return;
     if (!options.some((chain) => chain.chainId === value)) {

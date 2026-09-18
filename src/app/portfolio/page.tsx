@@ -13,11 +13,13 @@ import {
   SectionLabel,
   Segmented,
   Skeleton,
+  TokenLogo,
   amountHeroClass,
   cn,
 } from "@zunialab/ui";
 import { DashboardShell } from "@/components/DashboardShell";
 import { AssetRow } from "@/components/AssetRow";
+import { SampleDataBanner } from "@/components/SampleDataBanner";
 import { useChainScope } from "@/lib/useChainScope";
 import {
   formatFiat,
@@ -26,20 +28,29 @@ import {
 } from "@/lib/usePortfolio";
 import { usePrefs } from "@/providers/PrefsProvider";
 
-/** Slices for the allocation donut, with a folded "Other" tail. */
+/** Slices for the allocation donut, strongest holdings first. */
 function allocation(holdings: ChainHolding[], total: number) {
-  const priced = holdings.filter((h) => (h.value ?? 0) > 0);
+  const priced = holdings
+    .filter((h) => (h.value ?? 0) > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   if (total <= 0 || priced.length === 0) return [];
 
-  const head = priced.slice(0, 3).map((h) => ({
+  const head = priced.slice(0, 5).map((h) => ({
     label: h.symbol,
+    chainName: h.chainName,
+    iconUrl: h.iconUrl,
+    value: h.value ?? 0,
     share: (h.value ?? 0) / total,
   }));
-  const tail = priced.slice(3);
+  const tail = priced.slice(5);
   if (tail.length > 0) {
+    const otherValue = tail.reduce((sum, h) => sum + (h.value ?? 0), 0);
     head.push({
       label: "Other",
-      share: tail.reduce((sum, h) => sum + (h.value ?? 0), 0) / total,
+      chainName: `${tail.length} chains`,
+      iconUrl: undefined,
+      value: otherValue,
+      share: otherValue / total,
     });
   }
   return head;
@@ -48,7 +59,10 @@ function allocation(holdings: ChainHolding[], total: number) {
 type AssetFilter = "all" | "liquid" | "staked";
 
 export default function PortfolioPage() {
-  const { snapshot, loading } = usePortfolio();
+  const { snapshot, loading, sample, status, error } = usePortfolio();
+  // A failed read is not a wallet holding nothing: it renders an em dash and a
+  // reason, never a confident $0.00.
+  const failed = status === "error";
   const { selectedChain } = useChainScope();
   const { mask } = usePrefs();
   const [filter, setFilter] = useState<AssetFilter>("all");
@@ -94,6 +108,17 @@ export default function PortfolioPage() {
       }
     >
       <div className="flex flex-col gap-6">
+        <SampleDataBanner show={sample} />
+
+        {failed ? (
+          <Callout tone="danger" title="Balances unavailable">
+            The portfolio read failed
+            {error?.message ? ` (${error.message})` : ""}. The figures below are
+            not zero balances — they are missing ones. Nothing was read from any
+            followed chain.
+          </Callout>
+        ) : null}
+
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <Card className="flex flex-col justify-between gap-8 p-6 sm:p-7">
             <div>
@@ -106,7 +131,9 @@ export default function PortfolioPage() {
               >
                 {loading
                   ? "…"
-                  : mask(formatFiat(snapshot?.total ?? 0, currency))}
+                  : failed
+                    ? "—"
+                    : mask(formatFiat(snapshot?.total ?? 0, currency))}
               </p>
               {change24h == null ? (
                 <p className="mt-3 text-[14px] text-fg-dim">24h change unavailable</p>
@@ -125,13 +152,20 @@ export default function PortfolioPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 border-t border-[var(--z-line)] pt-5">
+            {/*
+              At 360px the card is ~280px inside its padding, which left each
+              of three columns ~82px — "$1.23M" fit, its hint did not. One
+              column per metric below sm, three from sm up.
+            */}
+            <div className="grid grid-cols-1 gap-3 border-t border-[var(--z-line)] pt-5 sm:grid-cols-3 sm:gap-4">
               <Metric
                 label="Staked"
                 value={
                   loading
                     ? "…"
-                    : mask(formatFiat(snapshot?.staked ?? 0, currency))
+                    : failed
+                      ? "—"
+                      : mask(formatFiat(snapshot?.staked ?? 0, currency))
                 }
                 hint={stakedShare == null ? undefined : `${stakedShare}% of total`}
               />
@@ -140,54 +174,103 @@ export default function PortfolioPage() {
                 value={
                   loading
                     ? "…"
-                    : mask(formatFiat(snapshot?.claimable ?? 0, currency))
+                    : failed
+                      ? "—"
+                      : mask(formatFiat(snapshot?.claimable ?? 0, currency))
                 }
-                hint={`${snapshot?.pricedChains ?? 0} chains priced`}
+                hint={failed ? "not read" : `${snapshot?.pricedChains ?? 0} chains priced`}
               />
               <Metric label="Avg APR" value="—" hint="No yield feed" />
             </div>
           </Card>
 
-          <Card className="flex flex-col p-6 sm:p-7">
-            <div className="flex items-center justify-between gap-3">
-              <SectionLabel>Allocation</SectionLabel>
-              <span className="font-mono text-[12px] text-fg-dim">
-                {snapshot?.pricedChains ?? 0} priced
+          <Card className="@container flex flex-col gap-5 p-6 sm:p-7">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <SectionLabel>Allocation</SectionLabel>
+                <p className="mt-1 text-[13px] text-fg-dim">
+                  Share of priced net worth by chain.
+                </p>
+              </div>
+              <span className="shrink-0 font-mono text-[11.5px] uppercase tracking-[0.1em] text-fg-dim">
+                {slices.length} slice{slices.length === 1 ? "" : "s"}
+                {(snapshot?.pricedChains ?? 0) > 0
+                  ? ` · ${snapshot?.pricedChains} priced`
+                  : ""}
               </span>
             </div>
             {slices.length === 0 ? (
-              <p className="mt-6 flex-1 text-[14px] leading-relaxed text-fg-dim">
+              <p className="flex-1 text-[14px] leading-relaxed text-fg-dim">
                 Appears once a followed chain has a priced balance.
               </p>
             ) : (
-              <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-5 sm:flex-row sm:items-center sm:justify-between">
+              /*
+                A container query, not sm:. The Live rail docks at 1440px, which
+                makes this card ~310px wide — narrower than at 1280px — so a
+                640px viewport query put a 152px donut beside a 200px legend in
+                a 266px box. @md fires on the card, at 448px.
+              */
+              <div className="@md:flex-row @md:items-center flex flex-1 flex-col gap-6">
                 <DonutChart
-                  size={148}
-                  centerLabel="chains"
-                  centerValue={String(snapshot?.pricedChains ?? 0)}
-                  segments={slices.map((s) => ({ value: s.share }))}
+                  size={152}
+                  strokeWidth={12}
+                  centerLabel={slices[0]?.label ?? "top"}
+                  centerValue={`${Math.round((slices[0]?.share ?? 0) * 100)}%`}
+                  segments={slices.map((s, index) => ({
+                    value: s.share,
+                    color: DONUT_COLORS[index % DONUT_COLORS.length],
+                  }))}
                 />
-                <ul className="flex w-full max-w-[200px] flex-col gap-2.5">
-                  {slices.map((slice, index) => (
-                    <li
-                      key={slice.label}
-                      className="flex items-center gap-2.5 font-mono text-[13px]"
-                    >
-                      <span
-                        className="size-[7px] shrink-0 rounded-full"
-                        style={{
-                          background:
-                            DONUT_COLORS[index % DONUT_COLORS.length],
-                        }}
-                      />
-                      <span className="flex-1 truncate text-fg-muted">
-                        {slice.label}
-                      </span>
-                      <span className="tabular-nums text-fg-dim">
-                        {Math.round(slice.share * 100)}%
-                      </span>
-                    </li>
-                  ))}
+                <ul className="flex min-w-0 flex-1 flex-col gap-2.5">
+                  {slices.map((slice, index) => {
+                    const color = DONUT_COLORS[index % DONUT_COLORS.length];
+                    const pct = Math.round(slice.share * 100);
+                    return (
+                      <li
+                        key={`${slice.label}-${slice.chainName}`}
+                        className="flex items-center gap-3"
+                      >
+                        {slice.iconUrl ? (
+                          <TokenLogo
+                            src={slice.iconUrl}
+                            symbol={slice.label}
+                            size={22}
+                          />
+                        ) : (
+                          <span
+                            className="size-[22px] shrink-0 rounded-full"
+                            style={{ background: color }}
+                            aria-hidden
+                          />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-2">
+                            <span className="truncate text-[13.5px] font-medium tracking-tight text-fg">
+                              {slice.label}
+                            </span>
+                            <span className="shrink-0 font-mono text-[12.5px] tabular-nums text-fg">
+                              {pct}%
+                            </span>
+                          </span>
+                          <span className="mt-1.5 block h-[3px] overflow-hidden rounded-full bg-[var(--z-glass-2)]">
+                            <span
+                              className="block h-full rounded-full"
+                              style={{
+                                width: `${pct}%`,
+                                background: color,
+                              }}
+                            />
+                          </span>
+                          <span className="mt-1 flex justify-between gap-2 font-mono text-[10.5px] text-fg-dim">
+                            <span className="truncate">{slice.chainName}</span>
+                            <span className="shrink-0 tabular-nums">
+                              {mask(formatFiat(slice.value, currency))}
+                            </span>
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -214,7 +297,7 @@ export default function PortfolioPage() {
         </Card>
 
         <section>
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
             <div>
               <h2 className="text-[18px] font-medium tracking-tight text-fg">
                 Assets
@@ -223,33 +306,41 @@ export default function PortfolioPage() {
                 Holdings across followed chains.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Segmented<AssetFilter>
-                value={filter}
-                onChange={setFilter}
-                options={[
-                  { value: "all", label: "All" },
-                  { value: "liquid", label: "Liquid" },
-                  { value: "staked", label: "Staked" },
-                ]}
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="-mx-1 overflow-x-auto px-1">
+                <Segmented<AssetFilter>
+                  className="min-w-max"
+                  value={filter}
+                  onChange={setFilter}
+                  options={[
+                    { value: "all", label: "All" },
+                    { value: "liquid", label: "Liquid" },
+                    { value: "staked", label: "Staked" },
+                  ]}
+                />
+              </div>
               <Button asChild variant="secondary">
                 <Link href="/networks">Manage</Link>
               </Button>
             </div>
           </div>
 
-          <Card className="p-0">
+          <Card className="overflow-x-auto p-0">
             {loading ? (
               <div className="flex flex-col gap-2 p-4">
                 <Skeleton className="h-[52px] w-full" />
                 <Skeleton className="h-[52px] w-full" />
                 <Skeleton className="h-[52px] w-full" />
               </div>
+            ) : failed ? (
+              <EmptyState
+                title="Balances unavailable"
+                description={`The read failed${error?.message ? `: ${error.message}` : "."} No chain reported an empty balance — none of them answered.`}
+              />
             ) : (snapshot?.holdings.length ?? 0) === 0 ? (
               <EmptyState
                 title="No balances found"
-                description="None of the followed chains returned a balance for this address."
+                description="Every followed chain answered, and none of them holds a balance for this address."
                 action={
                   <Button asChild>
                     <Link href="/networks">Follow more chains</Link>

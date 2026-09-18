@@ -1,20 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Card, EmptyState, MissionRow } from "@zunialab/ui";
+import { Callout, Card, EmptyState, MissionRow, Skeleton } from "@zunialab/ui";
 import { DashboardShell } from "@/components/DashboardShell";
+import { useJsonState } from "@/lib/useJson";
 
 type Mission = { title: string; xp: string; done?: boolean };
 
 export default function MissionsPage() {
-  const [items, setItems] = useState<Mission[]>([]);
-
-  useEffect(() => {
-    void fetch("/api/missions")
-      .then((r) => r.json())
-      .then((j: { items?: Mission[] }) => setItems(j.items ?? []))
-      .catch(() => setItems([]));
-  }, []);
+  // "No missions" used to render on the first paint and on every failed read
+  // alike. useJsonState keeps loading, failed and genuinely empty apart.
+  const { data, error, loading } = useJsonState<{ items?: Mission[] }>(
+    "/api/missions",
+  );
+  const items = data?.items ?? [];
 
   return (
     <DashboardShell
@@ -22,10 +20,20 @@ export default function MissionsPage() {
       description="Season checklist. The catalog fills in from the backend."
     >
       <Card className={items.length === 0 ? undefined : "p-2"}>
-        {items.length === 0 ? (
+        {loading && items.length === 0 ? (
+          <div className="flex flex-col gap-2 p-4">
+            <Skeleton className="h-[56px] w-full" />
+            <Skeleton className="h-[56px] w-full" />
+          </div>
+        ) : error && items.length === 0 ? (
+          <Callout tone="danger" title="Missions unavailable">
+            The mission read failed ({error.message}). This is not the same as
+            an empty season.
+          </Callout>
+        ) : items.length === 0 ? (
           <EmptyState
             title="No missions"
-            description="Coming soon. The stub API is wired so this page stays ready."
+            description="The catalog read succeeded and returned nothing for this season."
           />
         ) : (
           items.map((mission) => <MissionRow key={mission.title} {...mission} />)

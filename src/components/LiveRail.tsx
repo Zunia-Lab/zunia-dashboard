@@ -40,17 +40,27 @@ export function LiveRail() {
         </p>
       ) : (
         <ul className="-mx-1 flex flex-col">
-          {recent.map((item) => (
-            <li key={item.hash}>
-              <ActivityRow
-                title={item.summary}
-                subtitle={item.time || "—"}
-                status={item.success ? "confirmed" : "failed"}
-                kind={item.kind ?? inferActivityKind(item.summary)}
-                className="rounded-[14px] px-3 py-3"
-              />
-            </li>
-          ))}
+          {recent.map((item) => {
+            const href = item.chainId
+              ? `/activity/${encodeURIComponent(item.hash)}?chainId=${encodeURIComponent(item.chainId)}`
+              : `/activity/${encodeURIComponent(item.hash)}`;
+            return (
+              <li key={`${item.chainId ?? ""}:${item.hash}`}>
+                <Link
+                  href={href}
+                  className="block rounded-[14px] transition-colors hover:bg-[var(--z-state-hover)]"
+                >
+                  <ActivityRow
+                    title={item.summary}
+                    subtitle={item.time || "—"}
+                    status={item.success ? "confirmed" : "failed"}
+                    kind={item.kind ?? inferActivityKind(item.summary)}
+                    className="rounded-[14px] px-3 py-3"
+                  />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
 

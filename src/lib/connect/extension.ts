@@ -14,6 +14,22 @@ export type ZuniaProvider = {
     pubKey: Uint8Array;
   }>;
   experimentalSuggestChain?: (chainInfo: unknown) => Promise<void>;
+  signAmino?: (
+    chainId: string,
+    signer: string,
+    signDoc: unknown,
+  ) => Promise<{
+    signed: unknown;
+    signature: {
+      pub_key: { type: string; value: string };
+      signature: string;
+    };
+  }>;
+  signDirect?: (
+    chainId: string,
+    signer: string,
+    signDoc: unknown,
+  ) => Promise<unknown>;
   signArbitrary?: (
     chainId: string,
     signer: string,

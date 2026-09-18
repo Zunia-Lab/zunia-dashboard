@@ -198,3 +198,31 @@ body {
     animation: none;
   }
 }
+
+/* Responsive dashboard: dense tables scroll; filters stack on narrow viewports */
+@media (max-width: 1023px) {
+  .zunia-root {
+    --z-type-heading: 20px;
+    --z-type-stat: 26px;
+    --z-type-hero: 32px;
+    --z-card-pad: 16px;
+  }
+
+  .zunia-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .zunia-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 639px) {
+  .zunia-root {
+    --z-h-desktop: 44px;
+    --z-h-md: 44px;
+  }
+}
+
