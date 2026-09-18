@@ -34,7 +34,7 @@
     "eslint-config-next": "16.3.3",
     "tailwindcss": "^4",
     "tsx": "^4.19.0",
-    "typescript": "^5"
+    "typescript": "^6"
   },
   "//test": "--conditions=import is required because @zunialab/interchain publishes an exports map with only `types` and `import`. Node's CJS resolver (which tsx routes .ts through in a non-module package) looks for `require` or `default`, finds neither, and refuses the package. Adding `\"default\": \"./dist/index.js\"` to that package's exports map is the real fix; this flag makes the tests run against the package as it is published today.",
   "pnpm": {
