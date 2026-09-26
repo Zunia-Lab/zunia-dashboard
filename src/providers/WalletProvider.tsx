@@ -15,6 +15,7 @@ import {
   connectWithZunia,
   isZuniaInstalled,
   type ZuniaSession,
+  type ZuniaSessionStatus,
 } from "@zunialab/sdk-web";
 import {
   connectExtension,
@@ -56,7 +57,7 @@ type WalletContextValue = {
   account: ConnectedAccount | null;
   session: ZuniaSession | null;
   pairing: ZuniaSession["pairing"];
-  sessionStatus: string;
+  sessionStatus: ZuniaSessionStatus;
   /** True until the first restore attempt finishes. */
   restoring: boolean;
   zuniaAvailable: boolean;
@@ -90,7 +91,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<ConnectedAccount | null>(null);
   const [session, setSession] = useState<ZuniaSession | null>(null);
   const [pairing, setPairing] = useState<ZuniaSession["pairing"]>();
-  const [sessionStatus, setSessionStatus] = useState("idle");
+  const [sessionStatus, setSessionStatus] = useState<ZuniaSessionStatus>("idle");
   const [restoring, setRestoring] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +165,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           chainId: primary.chainId,
           address: primary.address,
           peerName: primary.name ?? "Zunia Mobile",
-          sessionId: next.pairing?.sessionId ?? "session",
+          sessionId: next.pairing?.uri ?? "session",
         };
         setAccount(linked);
         writeWalletHint({
@@ -177,7 +178,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           chainId: primary.chainId,
           address: primary.address,
           peerName: primary.name ?? "Zunia Mobile",
-          topic: next.pairing?.sessionId ?? "wc",
+          topic: next.pairing?.uri ?? "wc",
         };
         setAccount(linked);
         writeWalletHint({
@@ -219,7 +220,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             chainId: primary.chainId,
             address: primary.address,
             peerName: primary.name ?? "Zunia Mobile",
-            sessionId: next.pairing?.sessionId ?? "session",
+            sessionId: next.pairing?.uri ?? "session",
           };
           setAccount(linked);
           writeWalletHint({
@@ -275,7 +276,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             chainId: primary.chainId,
             address: primary.address,
             peerName: primary.name ?? "Zunia Mobile",
-            topic: next.pairing?.sessionId ?? "wc",
+            topic: next.pairing?.uri ?? "wc",
           };
           setAccount(linked);
           writeWalletHint({
