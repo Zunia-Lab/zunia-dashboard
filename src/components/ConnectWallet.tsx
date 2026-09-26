@@ -127,11 +127,6 @@ export function ConnectWallet({
         onOpenChange={setPairingOpen}
         status={sessionStatus}
         pairing={pairing}
-        statusLabel={
-          sessionStatus === "awaiting_wallet"
-            ? "Scan with Zunia mobile or open the deep link"
-            : undefined
-        }
       />
     </>
   );
