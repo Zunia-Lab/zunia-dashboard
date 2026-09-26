@@ -173,6 +173,7 @@ export default function NetworksPage() {
                   symbol={chain.coinDenom}
                   iconUrl={chain.iconUrl}
                   testnet={chain.network === "testnet"}
+                  verified={chain.inCosmosRegistry}
                   selected={followed.includes(chain.chainId)}
                   onToggle={() => toggle(chain.chainId)}
                   control="switch"

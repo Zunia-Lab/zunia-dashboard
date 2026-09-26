@@ -46,7 +46,7 @@ export function extractBech32Address(raw: string): string | null {
 
 function BookIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="block shrink-0">
       <path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2Z" />
       <path d="M18 16H7a2 2 0 0 0-2 2" />
     </svg>
@@ -55,7 +55,7 @@ function BookIcon() {
 
 function QrIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="block shrink-0">
       <path d="M3 7V5a2 2 0 0 1 2-2h2" />
       <path d="M17 3h2a2 2 0 0 1 2 2v2" />
       <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
@@ -327,14 +327,14 @@ export function RecipientAddressField({
   const [modal, setModal] = useState<"qr" | "book" | null>(null);
 
   const trailing = (
-    <span className="flex items-center gap-0.5">
+    <span className="flex h-full items-center gap-1">
       <button
         type="button"
         aria-label="Scan QR code"
         title="Scan QR"
         onClick={() => setModal("qr")}
         className={cn(
-          "flex size-7 items-center justify-center rounded-[8px] text-fg-dim hover:bg-[var(--z-state-hover)] hover:text-fg",
+          "flex size-11 items-center justify-center rounded-full text-fg-muted hover:bg-[var(--z-state-hover)] hover:text-fg",
           focusRing,
         )}
       >
@@ -346,7 +346,7 @@ export function RecipientAddressField({
         title="Address book"
         onClick={() => setModal("book")}
         className={cn(
-          "flex size-7 items-center justify-center rounded-[8px] text-fg-dim hover:bg-[var(--z-state-hover)] hover:text-fg",
+          "flex size-11 items-center justify-center rounded-full text-fg-muted hover:bg-[var(--z-state-hover)] hover:text-fg",
           focusRing,
         )}
       >
@@ -367,6 +367,8 @@ export function RecipientAddressField({
     <>
       <Input
         label="Recipient"
+        className="h-12 py-0"
+        style={{ paddingRight: "6.75rem" }}
         placeholder={`${expectedPrefix ?? "cosmos"}1…`}
         value={value}
         spellCheck={false}

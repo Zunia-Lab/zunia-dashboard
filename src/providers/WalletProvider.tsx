@@ -83,7 +83,7 @@ function clearLegacyWatchOnly() {
 function apiBase(): string {
   return (
     process.env.NEXT_PUBLIC_ZUNIA_CONNECT_API_BASE?.replace(/\/$/, "") ||
-    "http://localhost:8788"
+    "https://api.zunialab.com"
   );
 }
 

@@ -33,6 +33,12 @@ export interface ChainEntry {
   rpc?: string;
   rest?: string;
   iconUrl?: string;
+  /** Official cosmos/chain-registry `chain_name` when this chain_id is listed. */
+  registrySlug?: string;
+  /** True when `chainId` is in the official cosmos/chain-registry. */
+  inCosmosRegistry?: boolean;
+  /** Cosmostation / registry directory names for validator moniker images. */
+  logoSlugs?: string[];
 }
 
 export const CHAINS = raw as ChainEntry[];
@@ -68,7 +74,8 @@ export function searchChains(
     return (
       chain.chainName.toLowerCase().includes(needle) ||
       chain.chainId.toLowerCase().includes(needle) ||
-      chain.coinDenom.toLowerCase().includes(needle)
+      chain.coinDenom.toLowerCase().includes(needle) ||
+      (chain.registrySlug?.toLowerCase().includes(needle) ?? false)
     );
   });
   return sortChains(filtered);

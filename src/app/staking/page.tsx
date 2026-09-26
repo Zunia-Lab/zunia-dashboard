@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Button,
@@ -15,7 +15,9 @@ import {
   Input,
   SectionLabel,
   Stat,
+  Toast,
   ValidatorRow,
+  truncateAddress,
 } from "@zunialab/ui";
 import { DashboardShell } from "@/components/DashboardShell";
 import { SampleDataBanner } from "@/components/SampleDataBanner";
@@ -62,6 +64,12 @@ function StakingBody() {
   const [busy, setBusy] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!txHash) return;
+    const timer = window.setTimeout(() => setTxHash(null), 4200);
+    return () => window.clearTimeout(timer);
+  }, [txHash]);
 
   // Deep-link from the /validators/[address] Delegate CTA.
   const linkedValidator = useMemo(() => {
@@ -193,9 +201,13 @@ function StakingBody() {
         ) : null}
 
         {txHash ? (
-          <Callout tone="info" title="Broadcast accepted">
-            {txHash}
-          </Callout>
+          <div className="pointer-events-none fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md sm:inset-x-auto sm:right-6">
+            <Toast
+              title="Broadcast accepted"
+              meta={truncateAddress(txHash, 10, 8)}
+              detail="Inclusion still depends on the network."
+            />
+          </div>
         ) : null}
 
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">

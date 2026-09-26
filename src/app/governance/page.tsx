@@ -197,8 +197,8 @@ export default function GovernancePage() {
                     onClick={() => setVote(option.value)}
                     className={
                       vote === option.value
-                        ? "rounded-[12px] bg-accent px-4 py-3 text-[14px] font-medium text-accent-fg"
-                        : "rounded-[12px] bg-[var(--z-glass)] px-4 py-3 text-[14px] text-fg-muted hover:bg-[var(--z-state-hover)] hover:text-fg"
+                        ? "rounded-[12px] bg-[var(--z-button)] px-4 py-3 text-[14px] font-semibold text-[var(--z-button-fg)]"
+                        : "rounded-[12px] bg-[var(--z-glass)] px-4 py-3 text-[14px] font-semibold text-fg hover:bg-[var(--z-state-hover)]"
                     }
                   >
                     {option.label}

@@ -90,6 +90,8 @@ export function ChainChooser({
           src={selected?.iconUrl}
           symbol={selected?.coinDenom ?? "?"}
           size={20}
+          verified={selected?.inCosmosRegistry}
+          verifiedLabel="Listed in the Cosmos chain registry"
         />
         <span className="min-w-0 flex-1 truncate">
           {selected ? selected.chainName : value || "Choose a network"}
@@ -124,6 +126,8 @@ export function ChainChooser({
                   chainId: chain.chainId,
                   name: chain.chainName,
                   symbol: chain.coinDenom,
+                  iconUrl: chain.iconUrl,
+                  verified: chain.inCosmosRegistry,
                 }))}
                 activeChainId={value}
                 onSelect={(chainId) => {

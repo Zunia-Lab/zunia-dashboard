@@ -35,6 +35,7 @@ import {
   Input,
   RoutePreview,
   SectionLabel,
+  Segmented,
   Skeleton,
   SwapQuotePanel,
   TokenLogo,
@@ -116,6 +117,8 @@ export default function SwapPage() {
   const [recovering, setRecovering] = useState(false);
   const [recoverError, setRecoverError] = useState<string | null>(null);
   const [recoverTxHash, setRecoverTxHash] = useState<string | null>(null);
+  const [mode, setMode] = useState<"simple" | "expert">("simple");
+  const expert = mode === "expert";
 
   // The connected account decides the source chain, so a rail change that
   // switches chains must not leave the form pointed at the old one. A
@@ -574,7 +577,22 @@ export default function SwapPage() {
   return (
     <DashboardShell
       title="Swap"
-      description="One signature on your own chain. The swap runs on Osmosis inside packet processing."
+      description={
+        expert
+          ? "One signature on your own chain. The swap runs on Osmosis inside packet processing."
+          : "Pay one token, receive another. One signature. Advanced route controls live in Expert."
+      }
+      actions={
+        <Segmented
+          size="sm"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "simple", label: "Simple" },
+            { value: "expert", label: "Expert" },
+          ]}
+        />
+      }
     >
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-4">
@@ -613,10 +631,10 @@ export default function SwapPage() {
             </Callout>
           ) : null}
 
-          <Card className="flex flex-col gap-4">
-            <div className="rounded-[14px] bg-[var(--z-glass)] p-4">
+          <Card className="flex flex-col gap-0 p-2">
+            <div className="rounded-[16px] bg-[var(--z-glass)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <SectionLabel>From</SectionLabel>
+                <SectionLabel>You pay</SectionLabel>
                 {selectedBalance ? (
                   <button
                     type="button"
@@ -633,34 +651,35 @@ export default function SwapPage() {
                     }
                     className="font-mono text-[length:var(--z-type-micro)] text-fg-dim underline underline-offset-2"
                   >
-                    balance{" "}
                     {inputDecimals === null
-                      ? `${selectedBalance.amount} base units`
-                      : formatUnits(selectedBalance.amount, inputDecimals, 6)}
+                      ? `${selectedBalance.amount} available`
+                      : `${formatUnits(selectedBalance.amount, inputDecimals, 6)} available`}
                   </button>
                 ) : null}
               </div>
               <div className="mt-3 flex flex-col gap-3">
-                <ChainChooser
-                  label="Source network"
-                  value={sourceChainId}
-                  onValueChange={(chainId) => {
-                    setSourceChainId(chainId);
-                    setInputDenom("");
-                    setOverrides({});
-                  }}
-                />
-                <AssetSelect
-                  balances={balances}
-                  value={inputDenom}
-                  onValueChange={setInputDenom}
-                  label="Asset to swap"
-                  emptyMessage={`This account holds nothing on ${sourceChain?.chainName ?? sourceChainId}.`}
-                />
+                <div className={expert ? "grid gap-3 sm:grid-cols-2" : "flex flex-col gap-3"}>
+                  <ChainChooser
+                    label="Source network"
+                    value={sourceChainId}
+                    onValueChange={(chainId) => {
+                      setSourceChainId(chainId);
+                      setInputDenom("");
+                      setOverrides({});
+                    }}
+                  />
+                  <AssetSelect
+                    balances={balances}
+                    value={inputDenom}
+                    onValueChange={setInputDenom}
+                    label="Token"
+                    emptyMessage={`This account holds nothing on ${sourceChain?.chainName ?? sourceChainId}.`}
+                  />
+                </div>
                 <Input
                   label={`Amount${selectedBalance?.symbol ? ` (${selectedBalance.symbol})` : ""}`}
                   inputMode="decimal"
-                  placeholder="0.00"
+                  placeholder="0"
                   value={amountInput}
                   spellCheck={false}
                   autoComplete="off"
@@ -677,55 +696,78 @@ export default function SwapPage() {
               </div>
             </div>
 
-            <div className="rounded-[14px] bg-[var(--z-glass)] p-4">
-              <SectionLabel>To</SectionLabel>
+            <div className="relative z-10 -my-3 flex justify-center">
+              <span className="flex size-8 items-center justify-center rounded-full border border-[var(--z-line)] bg-[var(--z-surface-raised)] text-fg-muted shadow-[0_4px_12px_color-mix(in_srgb,var(--z-fg)_10%,transparent)]">
+                ↓
+              </span>
+            </div>
+
+            <div className="rounded-[16px] bg-[var(--z-glass)] p-4">
+              <SectionLabel>You receive</SectionLabel>
               <div className="mt-3 flex flex-col gap-3">
                 <ChainChooser
-                  label="Asset to receive"
+                  label={expert ? "Asset to receive" : "Token"}
                   value={assetChainId}
                   onValueChange={(chainId) => {
                     setAssetChainId(chainId);
                     // Being paid on the asset's own chain is the ordinary case;
-                    // the payout chain stays independently changeable below.
+                    // Expert can change the payout chain independently.
                     setDestChainId(chainId);
                     setOverrides({});
                   }}
                 />
-                <p className="font-mono text-[length:var(--z-type-micro)] leading-relaxed text-fg-dim">
-                  Assets are named by the chain that issues them.{" "}
-                  {assetChain
-                    ? `Buying ${assetChain.coinDenom}.`
-                    : "Choose an issuing network."}
-                </p>
-                <ChainChooser
-                  label="Paid on network"
-                  value={destChainId}
-                  onValueChange={(chainId) => {
-                    setDestChainId(chainId);
-                    setOverrides({});
-                  }}
-                />
-                <div className="flex items-center gap-2">
+                {expert ? (
+                  <>
+                    <p className="font-mono text-[length:var(--z-type-micro)] leading-relaxed text-fg-dim">
+                      Assets are named by the chain that issues them.{" "}
+                      {assetChain
+                        ? `Buying ${assetChain.coinDenom}.`
+                        : "Choose an issuing network."}
+                    </p>
+                    <ChainChooser
+                      label="Paid on network"
+                      value={destChainId}
+                      onValueChange={(chainId) => {
+                        setDestChainId(chainId);
+                        setOverrides({});
+                      }}
+                    />
+                  </>
+                ) : null}
+                <div className="flex items-center gap-2.5 rounded-full border border-[var(--z-line)] bg-[var(--z-surface-raised)] px-2.5 py-1.5">
                   <TokenLogo
                     src={assetChain?.iconUrl}
                     symbol={assetChain?.coinDenom ?? "?"}
                     size={28}
                   />
-                  <span className="min-w-0 truncate font-mono text-[length:var(--z-type-meta)] text-fg-muted">
-                    {recipient ?? "No address on this network"}
-                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold leading-none text-fg">
+                      {assetChain?.coinDenom ?? "Choose a token"}
+                    </p>
+                    <p className="mt-1 truncate font-mono text-[10px] leading-none text-fg-dim">
+                      {quoteView
+                        ? `≈ ${quoteView.outputAmount} ${quoteView.outputSymbol}`
+                        : recipient
+                          ? recipient
+                          : "No address on this network"}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <ChannelOverrides
-              legs={channelLegs}
-              overrides={overrides}
-              onOverridesChange={setOverrides}
-              defaultOpen={(plan.data?.discoveryFailures.length ?? 0) > 0}
-            />
+            {expert ? (
+              <div className="px-2 pb-2 pt-4">
+                <ChannelOverrides
+                  legs={channelLegs}
+                  overrides={overrides}
+                  onOverridesChange={setOverrides}
+                  defaultOpen={(plan.data?.discoveryFailures.length ?? 0) > 0}
+                />
+              </div>
+            ) : null}
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 px-2 pb-2 pt-4">
               <Button
                 className="w-full"
                 disabled={ctaBlocked !== null}
@@ -735,7 +777,9 @@ export default function SwapPage() {
                 }}
                 {...(ctaBlocked ? { "aria-describedby": "swap-blocked" } : {})}
               >
-                Review swap
+                {quoteView && ctaBlocked === null
+                  ? `Swap for ${quoteView.outputAmount} ${quoteView.outputSymbol}`
+                  : "Review swap"}
               </Button>
               {ctaBlocked ? (
                 <p
@@ -745,7 +789,7 @@ export default function SwapPage() {
                   {ctaBlocked}
                 </p>
               ) : null}
-              {blockers.length > 1 ? (
+              {expert && blockers.length > 1 ? (
                 <ul className="flex flex-col gap-1">
                   {blockers.slice(1).map((blocker) => (
                     <li
@@ -764,6 +808,7 @@ export default function SwapPage() {
         <div className="flex min-w-0 flex-col gap-4">
           <Card>
             <SwapQuotePanel
+              variant={mode}
               quote={quoteView}
               gasChainName={sourceChain?.chainName ?? sourceChainId}
               swapVenueName={venueName}
@@ -785,6 +830,7 @@ export default function SwapPage() {
             />
           </Card>
 
+          {expert ? (
           <Card>
             <RoutePreview
               hops={routeHops}
@@ -829,6 +875,7 @@ export default function SwapPage() {
               }
             />
           </Card>
+          ) : null}
 
           {plan.data?.denomStrategy &&
           plan.data.denomStrategy.strategy !== "direct" ? (

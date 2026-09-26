@@ -178,6 +178,8 @@ export function DashboardShell({
               src={chain.iconUrl}
               symbol={chain.coinDenom}
               size={40}
+              verified={chain.inCosmosRegistry}
+              verifiedLabel="Listed in the Cosmos chain registry"
             />
           </Link>
         );

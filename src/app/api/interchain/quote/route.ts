@@ -17,6 +17,7 @@ import {
   createLcdClient,
   isInterchainError,
   quoteOsmosisSwap,
+  readXcsExecutableRoute,
 } from "@zunialab/interchain";
 import { findChain } from "@/lib/chains";
 import { describeError, lcdFor } from "@/lib/server/interchain";
@@ -99,6 +100,47 @@ export async function POST(req: NextRequest) {
       })
     : undefined;
 
+  if (!venue.contractAddress) {
+    return Response.json({
+      ok: false,
+      code: "not-configured",
+      message: "Cross-chain swap has no contract to execute against.",
+    });
+  }
+
+  let executable;
+  try {
+    executable = await readXcsExecutableRoute(
+      lcd,
+      venue.contractAddress,
+      tokenInDenom,
+      tokenOutDenom,
+      { signal: req.signal, retries: 0, timeoutMs: 8_000, cacheTtlMs: 60_000 },
+    );
+  } catch (error) {
+    return Response.json({
+      ok: false,
+      code: isInterchainError(error) ? error.code : "server-error",
+      message: describeError(error, "The swap contract's route could not be read."),
+    });
+  }
+  if (executable.status === "missing") {
+    return Response.json({
+      ok: false,
+      code: "no-route",
+      message:
+        "The Osmosis swap contract has no route for this pair. Signing would send the tokens, the packet would be rejected, and the funds would come back.",
+    });
+  }
+  if (executable.status !== "ready") {
+    return Response.json({
+      ok: false,
+      code: "lcd-unreachable",
+      message:
+        "Zunia could not confirm the Osmosis swap contract will accept this pair, so the swap stays unsigned.",
+    });
+  }
+
   try {
     const quote = await quoteOsmosisSwap(
       {
@@ -107,6 +149,7 @@ export async function POST(req: NextRequest) {
         tokenOutDenom,
         ...(slippagePercent === undefined ? {} : { slippagePercent }),
         ...(router ? { router } : {}),
+        route: executable.route,
         request: { signal: req.signal },
       },
       lcd,
