@@ -451,6 +451,7 @@ function StakingBody() {
           <Input
             className="mt-3"
             label={`Amount${chain ? ` (${chain.coinDenom})` : ""}`}
+            inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
