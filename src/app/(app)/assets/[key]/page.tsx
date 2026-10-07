@@ -10,9 +10,8 @@
  * `ibc/` key the tables do not know is traced on its chain, briefly), so the
  * name, ticker and logo are in the first HTML, the metadata names the asset,
  * and a key that cannot exist (bad shape, unknown chain) gets the not-found
- * page with a real 404 status. `src/proxy.ts` answers those before rendering
- * (`parseAssetKey`, the only way `resolveAssetKey` returns null); the
- * `notFound()` below is the page's own guard, and it sets the status as well,
+ * page with a real 404 status (`parseAssetKey` is the only way
+ * `resolveAssetKey` returns null): the `notFound()` below sets the status,
  * because this page sits outside the wallet pages' loading boundary and so
  * does not stream before it runs. A proven
  * voucher's location key (`osmosis-1:ibc/2739…`) resolves to its origin,

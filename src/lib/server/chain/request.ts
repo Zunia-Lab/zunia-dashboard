@@ -77,8 +77,8 @@ export function inferOperatorChain(address: string): ServerChainEntry {
 /**
  * The chain and operator a validator URL names, or `null` when it can name
  * none: the synchronous half of the validator page's lookup
- * (`(app)/validators/[address]/lookup.ts`), as a function so `src/proxy.ts`
- * can answer a malformed address with a real 404 by exactly the page's rule.
+ * (`(app)/validators/[address]/lookup.ts`), as a function so a malformed
+ * address is refused by exactly the page's rule, before any read.
  *
  * `rawAddress` is the route param as Next hands it to the page (decoded once);
  * it is decoded once more, like the page does, and trimmed. `chainParam` is

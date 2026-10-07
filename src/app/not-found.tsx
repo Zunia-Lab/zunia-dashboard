@@ -14,8 +14,7 @@ export const metadata: Metadata = {
 /**
  * The 404 for every unmatched URL and every `notFound()` call.
  *
- * For an unmatched URL (and the malformed detail URLs `src/proxy.ts`
- * rewrites here) it is full-bleed, outside the app frame: it renders at the
+ * For an unmatched URL it is full-bleed, outside the app frame: it renders at the
  * root, above the `(app)` layout, so there is no sidebar to fall back on — the
  * two exits a lost visitor most likely wants are offered instead. (A page in
  * the frame that calls `notFound()` after a read, for a proposal or validator

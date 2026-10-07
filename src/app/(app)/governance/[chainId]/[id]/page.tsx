@@ -11,9 +11,9 @@
  * 404 for a chain the catalog does not know, a malformed id, or a proposal
  * the chain does not have. An unreachable node is not a 404. The status is a
  * real 404: this route sits outside the wallet pages' loading boundary, so
- * nothing has streamed when `notFound()` runs. `src/proxy.ts` answers the
- * malformed URLs before rendering; a proposal the chain does not have is only
- * known after the read, and Next answers that one with its error document
+ * nothing has streamed when `notFound()` runs. A malformed URL is refused
+ * before any read; a proposal the chain does not have is only known after
+ * the read, and Next answers that one with its error document
  * (the 404 status and head from the server, the not-found page drawn in the
  * browser).
  */
