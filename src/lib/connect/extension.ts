@@ -30,6 +30,18 @@ export interface ExtensionKey {
 
 /** The provider surface both extensions expose (Keplr API). */
 export interface ExtensionProvider {
+  /**
+   * The provider API version. Zunia answers "0.1.0" in every release so far,
+   * so it says nothing about the build: read `zuniaCapabilities` instead.
+   * Keplr answers its own release.
+   */
+  readonly version?: string;
+  /** Zunia 0.1.5+: the installed release (manifest version), "" when unreadable. Absent on 0.1.4 and older. */
+  readonly extensionVersion?: string;
+  /** Zunia 0.1.5+: true on Zunia's provider, also when it is aliased as `window.keplr`. */
+  readonly isZunia?: boolean;
+  /** Zunia 0.1.5+: what this build can sign (`ZUNIA_SIGNING_FEATURES` in `@/lib/tx/zunia-capabilities`). */
+  readonly features?: readonly string[];
   enable(chainIds: string | string[]): Promise<void>;
   getKey(chainId: string): Promise<ExtensionKey>;
   experimentalSuggestChain?(chainInfo: unknown): Promise<void>;
@@ -100,10 +112,12 @@ export function isZuniaAvailable(): boolean {
 /**
  * Keplr proper. The Zunia extension can alias itself as `window.keplr` for
  * dApps that only know Keplr; that alias is Zunia, and offering it as "Keplr"
- * would connect the same wallet under the wrong name.
+ * would connect the same wallet under the wrong name. From 0.1.5 the alias
+ * also says so itself (`isZunia`).
  */
 export function isKeplrAvailable(): boolean {
-  return typeof window !== "undefined" && Boolean(window.keplr) && window.keplr !== window.zunia;
+  if (typeof window === "undefined" || !window.keplr) return false;
+  return window.keplr !== window.zunia && window.keplr.isZunia !== true;
 }
 
 export function isExtensionAvailable(): boolean {

@@ -72,6 +72,7 @@ import { SITE_URL } from "@/lib/site";
 import { fetchChainInfo } from "@/lib/tx/client";
 import { walletRefusal } from "@/lib/tx/errors";
 import type { TxSigner } from "@/lib/tx/flow";
+import { zuniaCapabilities } from "@/lib/tx/zunia-capabilities";
 import { useFollowedChains } from "@/lib/useFollowedChains";
 import { clearApiCache, revalidateApi } from "@/lib/useApi";
 
@@ -693,9 +694,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     };
     return {
       kind,
+      // Read at every signature, not at connect: an extension updated under
+      // the page reports its new build to the next transaction.
       capabilities: (_chainId, key) => {
         const p = getExtensionProvider(kind);
-        return { amino: Boolean(p?.signAmino), direct: Boolean(p?.signDirect), ledger: Boolean(key.isNanoLedger) };
+        return {
+          amino: Boolean(p?.signAmino),
+          direct: Boolean(p?.signDirect),
+          ledger: Boolean(key.isNanoLedger),
+          ...(kind === "zunia" ? { zunia: zuniaCapabilities(p) } : {}),
+        };
       },
       ensureKey,
       signDirect: async (chainId, signerAddress, doc) => {

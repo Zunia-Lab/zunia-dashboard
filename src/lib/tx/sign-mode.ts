@@ -7,9 +7,10 @@
  * - Ethereum-key chains (Injective, Evmos, Dymension, …) sign direct when the
  *   wallet can: several of their ante handlers refuse legacy amino JSON with
  *   an `ethsecp256k1` key outside EIP-712.
- * - The Zunia extension has its own rule (`zuniaMode` below): direct for
- *   everything except a contract call, which signs amino unless its document
- *   holds `&`, `<` or `>`.
+ * - The Zunia extension has its own rule (`zuniaMode` below): from 0.1.5,
+ *   direct for everything; on older builds, direct for everything except a
+ *   contract call or a send to a 32-byte address, which sign amino unless
+ *   their document holds a character the chain escapes.
  * - A non-standard message (a contract call, Osmosis's poolmanager, a
  *   transfer whose memo runs a contract) signs direct when the wallet can, so
  *   its prompt shows the decoded call rather than a JSON blob.
@@ -22,8 +23,10 @@
  * changed: the policy only decides `"auto"`.
  */
 
+import { bech32 } from "@scure/base";
 import { isStandardMessage } from "./messages";
 import type { ResolvedSignMode, SignMode, TxMessage } from "./types";
+import type { ZuniaCapabilities } from "./zunia-capabilities";
 
 /** Which wallet signs (`TxSigner.kind`). */
 export type SignerKind = "zunia" | "keplr" | "zunia-mobile";
@@ -33,6 +36,8 @@ export interface SignerCapabilities {
   direct: boolean;
   /** The key lives on a Ledger: amino only. */
   ledger?: boolean;
+  /** The Zunia extension: what its build reports it can sign (`zuniaCapabilities`). Absent reads as a legacy build. */
+  zunia?: ZuniaCapabilities;
 }
 
 export interface SignModeOptions {
@@ -52,23 +57,27 @@ export class SignModeError extends Error {
 }
 
 const EXECUTE_CONTRACT_TYPE_URL = "/cosmwasm.wasm.v1.MsgExecuteContract";
+const SEND_TYPE_URL = "/cosmos.bank.v1beta1.MsgSend";
 const POOLMANAGER_PREFIX = "/osmosis.poolmanager.";
 
-/** The three characters the chain escapes in an amino document (`&`, `<`, `>`). */
-const AMINO_ESCAPED = /[&<>]/;
+/**
+ * The characters the chain escapes in an amino document: `&`, `<`, `>`,
+ * U+2028 and U+2029 (the A1 rule, `serializeAminoSignDoc` in `./bytes`).
+ */
+const AMINO_ESCAPED = /[&<>\u2028\u2029]/;
 
 /**
- * Whether the amino document would hold `&`, `<` or `>`.
+ * Whether the amino document would hold a character the chain escapes.
  *
  * The chain rebuilds an amino document with Go's JSON encoder, which writes
- * those three as `&`, `<` and `>`; CosmJS, Keplr and Zunia
- * Mobile escape them the same way before signing. The Zunia extension does
- * not (zunia-extension lib/kernel.ts `serializeAminoSignDoc` @ 1453e7a, and
- * zunia-core crates/cosmos/src/amino.rs by design), so its amino signature
- * over such a document is over bytes the chain never rebuilds: refused at
- * broadcast as "signature verification failed", and no retry can help. Only
- * free text can carry them: the memo, a contract call's body, a packet memo.
- * Fees, chain ids and denoms cannot.
+ * `&`, `<` and `>` as `\u0026`, `\u003c` and `\u003e`, and U+2028 and U+2029
+ * as `\u2028` and `\u2029`; CosmJS, Keplr and Zunia Mobile escape the first
+ * three the same way before signing. The Zunia extension up to 0.1.4 escapes
+ * none of them (zunia-extension lib/kernel.ts `serializeAminoSignDoc` @
+ * 1453e7a), so its amino signature over such a document is over bytes the
+ * chain never rebuilds: refused at broadcast as "signature verification
+ * failed", and no retry can help. Only free text can carry them: the memo, a
+ * contract call's body, a packet memo. Fees, chain ids and denoms cannot.
  */
 export function aminoNeedsEscaping(
   messages: readonly Pick<TxMessage, "typeUrl" | "amino">[],
@@ -78,32 +87,56 @@ export function aminoNeedsEscaping(
   return messages.some((message) => message.amino !== undefined && AMINO_ESCAPED.test(JSON.stringify(message.amino)));
 }
 
+/** A `MsgSend` whose recipient bech32-decodes to 32 bytes (a contract, an interchain account, a DAO treasury). */
+function sendsTo32Bytes(message: Pick<TxMessage, "typeUrl" | "amino">): boolean {
+  if (message.typeUrl !== SEND_TYPE_URL) return false;
+  const to = message.amino?.value.to_address;
+  if (typeof to !== "string") return false;
+  const decoded = bech32.decodeUnsafe(to);
+  const bytes = decoded ? bech32.fromWordsUnsafe(decoded.words) : undefined;
+  return bytes instanceof Uint8Array && bytes.length === 32;
+}
+
 /**
- * The Zunia extension (0.1.3 on the Chrome Web Store, 0.1.4 built), until
- * zunia-core is fixed. Both of its modes have a gap, and they do not overlap:
+ * The Zunia extension.
  *
- * - Direct: its kernel decodes every message the dashboard sends (Osmosis
+ * From 0.1.5 (`capabilities.directContractCalls`, read from the provider by
+ * `zuniaCapabilities`) its direct decoder reads every message the dashboard
+ * sends and its amino bytes are escaped as the chain escapes them, so
+ * everything signs direct: the prompt is the decoded transaction, where its
+ * amino prompt for a standard message is a bare type name.
+ *
+ * Older builds (0.1.3 on the Chrome Web Store, 0.1.4), which report nothing:
+ * both of their modes have a gap, and the gaps do not overlap.
+ * - Direct: the kernel decodes every message the dashboard sends (Osmosis
  *   poolmanager swaps from 0.1.4 on) except `MsgExecuteContract` to a normal
- *   32-byte CosmWasm contract, which its address check demotes to "unknown";
- *   the prompt is then refused before it opens ("Blind signing disabled for
- *   unknown messages") unless the user turned blind signing on.
+ *   32-byte CosmWasm contract and `MsgSend` to a 32-byte address, which its
+ *   address check demotes to "unknown"; the prompt is then refused before it
+ *   opens ("Blind signing disabled for unknown messages") unless the user
+ *   turned blind signing on.
  * - Amino: its summary names a contract call (`Execute "osmosis_swap" on
- *   osmo1…`, both builds), but it signs without the chain's `&<>` escaping
+ *   osmo1…`) and a send, but it signs without the chain's escaping
  *   (`aminoNeedsEscaping`).
- *
- * So a contract call signs amino (the XCS swap from Osmosis, a swap
- * recovery, an NFT transfer), and everything else signs direct, where the
- * prompt is the decoded transaction and a memo like "rent & food" is just
- * bytes. A contract call whose document holds `&<>` signs direct too: refused
+ * So a contract call (the XCS swap from Osmosis, a swap recovery, an NFT
+ * transfer) and a send to a 32-byte address sign amino, and everything else
+ * signs direct, where a memo like "rent & food" is just bytes. When their
+ * document holds a character the chain escapes they sign direct too: refused
  * in words before anything is signed (or blind-signed by a user who chose
  * that), never a signature the chain throws away.
  */
-function zuniaMode(messages: readonly Pick<TxMessage, "typeUrl" | "amino">[], memo: string | undefined): ResolvedSignMode {
+function zuniaMode(
+  messages: readonly Pick<TxMessage, "typeUrl" | "amino">[],
+  memo: string | undefined,
+  capabilities: ZuniaCapabilities | undefined,
+): ResolvedSignMode {
+  if (capabilities?.directContractCalls) return "direct";
   // Poolmanager over amino is refused (its amino names are not "Msg…" types,
   // which the extension's amino summary treats as unknown); direct decodes it.
   if (messages.some((message) => message.typeUrl.startsWith(POOLMANAGER_PREFIX))) return "direct";
-  const contractCall = messages.some((message) => message.typeUrl === EXECUTE_CONTRACT_TYPE_URL);
-  if (contractCall && !aminoNeedsEscaping(messages, memo)) return "amino";
+  const directRefuses = messages.some(
+    (message) => message.typeUrl === EXECUTE_CONTRACT_TYPE_URL || (!capabilities?.directSends32 && sendsTo32Bytes(message)),
+  );
+  if (directRefuses && (capabilities?.aminoEscaping || !aminoNeedsEscaping(messages, memo))) return "amino";
   return "direct";
 }
 
@@ -141,7 +174,7 @@ export function chooseSignMode(
     throw new SignModeError("This wallet cannot sign this transaction.");
   }
   if (options.ethKeyChain) return "direct";
-  if (options.wallet === "zunia") return capabilities.amino ? zuniaMode(messages, options.memo) : "direct";
+  if (options.wallet === "zunia") return capabilities.amino ? zuniaMode(messages, options.memo, capabilities.zunia) : "direct";
   if (messages.some((message) => !isStandardMessage(message))) return "direct";
   return capabilities.amino ? "amino" : "direct";
 }

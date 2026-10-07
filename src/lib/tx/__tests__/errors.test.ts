@@ -6,7 +6,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cleanChainLog, explainError, explainTxError, isSimulationRefusal, TxError, walletRefusal } from "../errors";
+import {
+  cleanChainLog,
+  explainError,
+  explainTxError,
+  isSimulationRefusal,
+  refusedMessageTypes,
+  signatureMismatch,
+  TxError,
+  walletRefusal,
+} from "../errors";
 
 test("insufficient funds (simulation on cosmoshub-4)", () => {
   const e = explainTxError(
@@ -158,7 +167,7 @@ test("Zunia refusals: a next step in words, the extension's text kept as the det
 
   const blind = explainError(zunia("UNSUPPORTED", "Blind signing disabled for unknown messages"));
   assert.equal(blind.kind, "wallet-unsupported");
-  assert.equal(blind.message, "Your Zunia extension can't show this transaction yet. Update Zunia to 0.1.4 or later, or use Keplr or Zunia Mobile.");
+  assert.equal(blind.message, "Your Zunia extension can't sign this transaction yet. Update Zunia to the latest version, or use Keplr or Zunia Mobile.");
   assert.equal(blind.retryable, false);
   assert.equal(blind.detail, "Blind signing disabled for unknown messages");
   // UNSUPPORTED for another reason is not a blind-signing refusal.
@@ -211,4 +220,56 @@ test("Zunia refusals are recognised by their words when a wrapper dropped the co
   assert.equal(walletRefusal(new Error("Blind signing disabled for unknown messages")), null);
   assert.equal(walletRefusal(new Error("insufficient funds")), null);
   assert.equal(walletRefusal("Extension context invalidated.")?.kind, "wallet-disconnected");
+});
+
+/*
+ * Zunia 0.1.5 names what it cannot read: "Blind signing disabled for unknown
+ * messages: <type>, …" (at most five, each cut at 128 characters), keeping the
+ * sentence sites already match on.
+ */
+test("a refusal that names its types says which ones, in the same words", () => {
+  const zunia = (message: string) => Object.assign(new Error(message), { name: "ZuniaProviderError", code: "UNSUPPORTED" });
+  const one = explainError(zunia("Blind signing disabled for unknown messages: /cosmos.authz.v1beta1.MsgGrant"));
+  assert.equal(one.kind, "wallet-unsupported");
+  assert.equal(one.title, "Unsupported in Zunia");
+  assert.equal(
+    one.message,
+    "Your Zunia extension can't sign this transaction yet (it cannot read /cosmos.authz.v1beta1.MsgGrant). Update Zunia to the latest version, or use Keplr or Zunia Mobile.",
+  );
+  assert.equal(one.detail, "Blind signing disabled for unknown messages: /cosmos.authz.v1beta1.MsgGrant");
+  assert.match(
+    explainError(zunia("Blind signing disabled for unknown messages: /cosmos.authz.v1beta1.MsgGrant, cosmos-sdk/MsgGrant")).message,
+    /\(it cannot read \/cosmos\.authz\.v1beta1\.MsgGrant and cosmos-sdk\/MsgGrant\)/,
+  );
+  assert.match(
+    explainError(zunia("Blind signing disabled for unknown messages: /a.v1.MsgA, /b.v1.MsgB, osmosis/poolmanager/swap-exact-amount-out")).message,
+    /\(it cannot read \/a\.v1\.MsgA, \/b\.v1\.MsgB and osmosis\/poolmanager\/swap-exact-amount-out\)/,
+  );
+});
+
+test("the types are read strictly: deduplicated, at most five, nothing that is not a type", () => {
+  const sentence = "Blind signing disabled for unknown messages";
+  assert.deepEqual(refusedMessageTypes(sentence), []);
+  assert.deepEqual(refusedMessageTypes(`${sentence}:`), []);
+  assert.deepEqual(refusedMessageTypes(`${sentence}: /x.MsgA, /x.MsgA, /x.MsgB`), ["/x.MsgA", "/x.MsgB"]);
+  assert.deepEqual(refusedMessageTypes(`${sentence}: /a.M1, /a.M2, /a.M3, /a.M4, /a.M5, /a.M6`), ["/a.M1", "/a.M2", "/a.M3", "/a.M4", "/a.M5"]);
+  // A type the extension cut at 128 characters keeps its ellipsis; markup and spaces are not types.
+  const long = `/${"a".repeat(126)}…`;
+  assert.deepEqual(refusedMessageTypes(`${sentence}: ${long}, <img src=x>, two words, /ok.Msg`), [long, "/ok.Msg"]);
+  assert.deepEqual(refusedMessageTypes(`${sentence}: /${"a".repeat(200)}`), []);
+  // Nothing readable: the plain sentence.
+  const none = explainError(Object.assign(new Error(`${sentence}: <b>`), { code: "UNSUPPORTED" }));
+  assert.equal(none.message, "Your Zunia extension can't sign this transaction yet. Update Zunia to the latest version, or use Keplr or Zunia Mobile.");
+});
+
+test("a signature found not to match before broadcast: its own words, what it was over as the detail", () => {
+  const mismatch = signatureMismatch("The amino signature is over the document without the chain's escaping of &, < and >.");
+  assert.equal(mismatch.kind, "signature-mismatch");
+  assert.equal(mismatch.title, "Signature mismatch");
+  assert.equal(mismatch.message, "Your wallet signed something other than this transaction, so nothing was sent.");
+  assert.match(mismatch.detail!, /without the chain's escaping/);
+  assert.equal(mismatch.retryable, false);
+  assert.equal(signatureMismatch(null).detail, null);
+  // It reaches the flows as it is.
+  assert.equal(explainError(new TxError(mismatch)).kind, "signature-mismatch");
 });

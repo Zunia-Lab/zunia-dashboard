@@ -71,16 +71,31 @@ export function asBytes(value: unknown, what: string): Uint8Array {
   throw new Error(`The wallet returned unreadable ${what}`);
 }
 
+/** What Go's JSON encoder escapes in a string, and how it writes each one. */
+const GO_ESCAPES: Readonly<Record<string, string>> = {
+  "&": "\\u0026",
+  "<": "\\u003c",
+  ">": "\\u003e",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029",
+};
+
 /**
- * Amino sign bytes as the chain rebuilds them: sorted keys, compact JSON, and
- * `&`, `<`, `>` written `\u0026`, `\u003c`, `\u003e`, as Go's JSON encoder
- * writes them (CosmJS `serializeSignDoc` escapes the same three; Keplr and
- * Zunia Mobile sign these bytes). The Zunia extension leaves them unescaped,
+ * Amino sign bytes as the chain rebuilds them (the A1 rule every Zunia
+ * serializer follows): keys sorted at every level, compact JSON, `&`, `<`,
+ * `>` written `\u0026`, `\u003c`, `\u003e` and U+2028, U+2029 written
+ * `\u2028`, `\u2029`, encoded as UTF-8. That is what Go's `json.Marshal`
+ * writes when the chain rebuilds the document (Cosmos SDK x/tx aminojson).
+ * CosmJS `serializeSignDoc`, Keplr and Zunia Mobile escape only the first
+ * three, so a document holding U+2028 or U+2029 gets a signature from them
+ * that the chain refuses: the memo field refuses both (`memoProblem` in
+ * `./flow`). The Zunia extension up to 0.1.4 escapes none of the five,
  * which is why the sign-mode policy keeps it off amino for such documents
- * (`aminoNeedsEscaping`).
+ * (`aminoNeedsEscaping`). The escapes only ever appear inside strings: none
+ * of the five characters can appear in JSON outside one.
  */
 export function serializeAminoSignDoc(value: unknown): Uint8Array {
-  const json = JSON.stringify(sortKeysDeep(value)).replace(/&/g, "\\u0026").replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+  const json = JSON.stringify(sortKeysDeep(value)).replace(/[&<>\u2028\u2029]/g, (char) => GO_ESCAPES[char] ?? char);
   return new TextEncoder().encode(json);
 }
 

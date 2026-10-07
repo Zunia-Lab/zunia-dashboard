@@ -52,6 +52,7 @@ import { explainMemo } from "@/lib/interchain/memo-summary";
 import type { RoutePlanWire } from "@/lib/interchain/wire";
 import { maskAmounts } from "@/lib/notifications/text";
 import { pendingTransfers } from "@/lib/pending-transfers";
+import { memoProblem } from "@/lib/tx/flow";
 import { buildSend, buildTransfer } from "@/lib/tx/messages";
 import type { FeeTier, SignRequest } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
@@ -316,6 +317,8 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
     () => (mode === "ibc" && candidate ? explainMemo(candidate.plan.memo, { receiver: candidate.receiver, chainName: (id: string) => chainName(id) }) : null),
     [mode, candidate],
   );
+  // What is signed is the trimmed memo, and trimming drops a separator at either end.
+  const memoIssue = memoProblem(memo.trim());
 
   const blocked: string | null = (() => {
     if (!portfolio.data && (portfolio.loading || portfolio.status === "idle")) return "Reading your balances…";
@@ -340,6 +343,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
       return `Keep ${formatAmount(fromBase(reserve, decimals), { maxFraction: 6 })} ${symbol} for the network fee (Max does it for you).`;
     }
     if (memo.length > MAX_MEMO) return `Memos are limited to ${MAX_MEMO} characters.`;
+    if (memoIssue) return memoIssue;
     if (mode === "ibc") {
       if (plan.status === "loading" || plan.status === "idle") return "Planning the route…";
       if (plan.status === "error") return plan.error?.message ?? "The route could not be planned.";
@@ -753,7 +757,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
               maxLength={MAX_MEMO + 40}
               placeholder="Optional"
               onChange={(event) => setMemo(event.target.value)}
-              error={memo.length > MAX_MEMO ? `${memo.length - MAX_MEMO} characters over the ${MAX_MEMO} a chain accepts` : undefined}
+              error={memo.length > MAX_MEMO ? `${memo.length - MAX_MEMO} characters over the ${MAX_MEMO} a chain accepts` : (memoIssue ?? undefined)}
               hint={
                 exchange && !memo.trim()
                   ? undefined

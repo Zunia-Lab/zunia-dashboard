@@ -18,7 +18,9 @@
  *    the bytes that are broadcast. Both modes are checked: a wallet may change
  *    fee and memo, never the messages, the chain, the sequence or the account
  *    that signs (a switched account is stopped with words, not broadcast into
- *    an opaque "unauthorized").
+ *    an opaque "unauthorized"). Then the signature itself is verified over
+ *    the bytes the chain will rebuild (`verify-signature.ts`): one the chain
+ *    would refuse is stopped here, and nothing is sent.
  * 3. **Broadcast** (`/api/broadcast`, sync). A sequence mismatch — another
  *    transaction from the account went first — is retried once, re-signed
  *    with the sequence the chain expects. "Already in the mempool" (the same
@@ -43,7 +45,7 @@ import {
   SIGN_MODE_DIRECT,
 } from "./encode";
 import { assembleAminoTxRaw, makeStdSignDoc, type StdSignDoc } from "./amino-tx";
-import { explainError, explainTxError, TxError } from "./errors";
+import { explainError, explainTxError, signatureMismatch, TxError } from "./errors";
 import {
   computeFee,
   DEFAULT_GAS_ADJUSTMENT,
@@ -59,6 +61,7 @@ import { chooseSignMode, type SignerCapabilities, type SignerKind } from "./sign
 import type { AccountInfo, BroadcastAnswer } from "./client";
 import { SimulationRefused } from "./client";
 import type { ResolvedSignMode, SignRequest, SignResult, SignStage, TxOutcome } from "./types";
+import { checkAminoSignature, checkDirectSignature } from "./verify-signature";
 
 /** The signer's key on one chain. */
 export interface SignerKey {
@@ -160,6 +163,45 @@ function validate(req: SignRequest, chain: FlowChain): void {
   }
 }
 
+/** A lone UTF-16 surrogate: half of a character (an emoji cut in two), which UTF-8 cannot carry. */
+function isWellFormed(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      i++;
+    }
+  }
+  return true;
+}
+
+/**
+ * Why a memo cannot be signed as typed, in words; null when it can.
+ *
+ * Two kinds of character break the signature rather than the transaction,
+ * so the chain would refuse it as "signature verification failed":
+ * - U+2028 and U+2029 (line and paragraph separators, invisible, pasted in
+ *   from documents): the chain writes them escaped in an amino document,
+ *   CosmJS-based wallets (Keplr, Zunia Mobile) sign them as they are;
+ * - a broken character (half of an emoji, a lone surrogate): UTF-8 cannot
+ *   carry it, so the transaction's bytes and a wallet's JSON disagree.
+ * Refused in every mode, so the outcome does not depend on which mode the
+ * policy picked. Separators at either end are not a problem: the memo is
+ * trimmed before signing, and trimming removes them.
+ */
+export function memoProblem(memo: string | undefined): string | null {
+  if (!memo) return null;
+  if (/[\u2028\u2029]/.test(memo)) {
+    return "The memo contains an invisible line separator, often pasted in with text. Clear the memo and type it again: wallets and chains encode that character differently, so the chain would refuse the signature.";
+  }
+  if (!isWellFormed(memo)) {
+    return "The memo contains a broken character, often half of an emoji cut off when pasting. Clear the memo and type it again.";
+  }
+  return null;
+}
+
 function maxSequence(a: string, b: string | null | undefined): string {
   if (!b || !/^\d+$/.test(b)) return a;
   return BigInt(b) > BigInt(a) ? b : a;
@@ -228,6 +270,10 @@ async function simulateGas(
 /** Steps 1 of the flow: everything up to the wallet prompt. Also the fee preview. */
 export async function planTx(req: SignRequest, opts: FlowOptions, minSequence?: string | null): Promise<TxPlan> {
   validate(req, opts.chain);
+  // Not in `validate`: the fee preview of such a memo is still right, only
+  // its signature would not be.
+  const memo = memoProblem(req.memo);
+  if (memo) throw new Error(memo);
   const key = await opts.signer.ensureKey(req.chainId);
   const account = await opts.api.getAccount(req.chainId, key.address);
   const pubKeyTypeUrl = pubKeyTypeUrlFor(opts.chain, account.pubKey?.typeUrl);
@@ -365,6 +411,16 @@ async function signPlan(req: SignRequest, plan: TxPlan, opts: FlowOptions): Prom
     }
     assertSameKey(response.signature, plan.signer.pubKey);
     const signature = normalizeSignature(fromBase64(response.signature.signature));
+    const check = checkDirectSignature({
+      bodyBytes: signedBody,
+      authInfoBytes: signedAuth,
+      chainId: req.chainId,
+      accountNumber: plan.accountNumber,
+      pubKey: plan.signer.pubKey,
+      pubKeyTypeUrl: plan.pubKeyTypeUrl,
+      signature,
+    });
+    if (check.verdict === "invalid") throw new TxError(signatureMismatch(check.detail));
     return {
       txRaw: encodeTxRaw({ bodyBytes: signedBody, authInfoBytes: signedAuth, signatures: [signature] }),
       fee: decodeAuthInfoFee(signedAuth),
@@ -403,6 +459,8 @@ async function signPlan(req: SignRequest, plan: TxPlan, opts: FlowOptions): Prom
   if (pubKey.length !== 33) throw new Error("The wallet returned an unexpected public key.");
   assertSameKey(response.signature, plan.signer.pubKey);
   const signature = normalizeSignature(fromBase64(response.signature.signature));
+  const check = checkAminoSignature({ signed, pubKey, pubKeyTypeUrl: plan.pubKeyTypeUrl, signature });
+  if (check.verdict === "invalid") throw new TxError(signatureMismatch(check.detail));
   return {
     txRaw: assembleAminoTxRaw({
       signDoc: signed,

@@ -7,6 +7,7 @@ import { poolSwapTxMessage, POOL_SWAP_TYPE_URL } from "../osmosis";
 import { aminoNeedsEscaping, chooseSignMode, SignModeError, type SignerKind } from "../sign-mode";
 import { isEthKeyChain, pubKeyTypeUrlFor } from "../pubkey";
 import type { ResolvedSignMode, TxMessage } from "../types";
+import { ZUNIA_SIGNING_FEATURES, zuniaCapabilities } from "../zunia-capabilities";
 
 const send = buildSend({ fromAddress: "cosmos1a", toAddress: "cosmos1b", amount: [{ denom: "uatom", amount: "1" }] });
 const vote = buildVote({ proposalId: "1", voter: "cosmos1a", option: "yes" });
@@ -76,33 +77,48 @@ const poolSwapWithAmino = poolSwapTxMessage(POOL_SWAP_TYPE_URL, {
   token_out_min_amount: "1",
 });
 
-type Row = { name: string; messages: TxMessage[]; memo?: string; expect: Record<SignerKind | "any", ResolvedSignMode> };
+// A send to a 32-byte address: the XCS contract itself.
+const sendTo32 = buildSend({ fromAddress: OSMO, toAddress: XCS, amount: [{ denom: "uosmo", amount: "50" }] });
+
+/** What Zunia 0.1.5's provider reports (P1). */
+const ZUNIA_015 = {
+  version: "0.1.0",
+  extensionVersion: "0.1.5",
+  isZunia: true,
+  features: ["sign-direct:wasm-contract-32", "sign-direct:send-32", "sign-direct:osmosis-poolmanager", "sign-direct:osmosis-exact-out", "sign-amino:escaped"],
+};
+
+type Row = { name: string; messages: TxMessage[]; memo?: string; expect: Record<SignerKind | "any" | "zunia@0.1.5", ResolvedSignMode> };
 
 /*
  * Keplr and Zunia Mobile (and a caller that names no wallet) share the
- * general rule; the Zunia extension has its own. "any" is the no-wallet
- * answer, and must equal Keplr's.
+ * general rule; the Zunia extension has its own, by build: "zunia" is a build
+ * that reports nothing (0.1.4 and older), "zunia@0.1.5" one that reports its
+ * version and features. "any" is the no-wallet answer, and must equal Keplr's.
  */
 const ROWS: Row[] = [
-  { name: "send", messages: [send], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "send, memo with &", messages: [send], memo: "rent & food", expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "send, memo with < >", messages: [send], memo: "<b>hi</b>", expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "stake", messages: [stake], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "vote", messages: [vote], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "IBC transfer", messages: [transfer()], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
-  { name: "IBC transfer, forward memo", messages: [transfer(forwardMemo)], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino" } },
+  { name: "send", messages: [send], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "send, memo with &", messages: [send], memo: "rent & food", expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "send, memo with < >", messages: [send], memo: "<b>hi</b>", expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "stake", messages: [stake], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "vote", messages: [vote], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "IBC transfer", messages: [transfer()], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "IBC transfer, forward memo", messages: [transfer(forwardMemo)], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
   // The swap's cross-chain path: a transfer whose memo runs the swap contract.
-  { name: "IBC transfer, wasm-hook memo + fee", messages: [transfer(xcsMemo), feeSend], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "IBC transfer, forward then wasm hook", messages: [transfer(forwardThenWasm)], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
+  { name: "IBC transfer, wasm-hook memo + fee", messages: [transfer(xcsMemo), feeSend], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "IBC transfer, forward then wasm hook", messages: [transfer(forwardThenWasm)], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
   // The swap from Osmosis funds, a recovery, an NFT transfer.
-  { name: "XCS contract call + fee", messages: [xcsSwap, feeSend], expect: { zunia: "amino", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "recovery contract call", messages: [contract], memo: "Recover swap output · by Zunia-wallet", expect: { zunia: "amino", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "contract call, memo with &", messages: [contract], memo: "a & b", expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "contract call, & in its body", messages: [nftAmp], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
+  { name: "XCS contract call + fee", messages: [xcsSwap, feeSend], expect: { zunia: "amino", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "recovery contract call", messages: [contract], memo: "Recover swap output · by Zunia-wallet", expect: { zunia: "amino", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "contract call, memo with &", messages: [contract], memo: "a & b", expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "contract call, & in its body", messages: [nftAmp], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
   // Osmosis pools: direct everywhere, amino form or not.
-  { name: "poolmanager (amino form) + fee", messages: [poolSwapWithAmino, feeSend], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "poolmanager (no amino form)", messages: [poolSwap], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
-  { name: "poolmanager + contract call", messages: [poolSwapWithAmino, contract], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct" } },
+  { name: "poolmanager (amino form) + fee", messages: [poolSwapWithAmino, feeSend], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "poolmanager (no amino form)", messages: [poolSwap], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  { name: "poolmanager + contract call", messages: [poolSwapWithAmino, contract], expect: { zunia: "direct", keplr: "direct", "zunia-mobile": "direct", any: "direct", "zunia@0.1.5": "direct" } },
+  // A send to a contract or an interchain account: older Zunia builds refuse it in direct mode.
+  { name: "send to a 32-byte address", messages: [sendTo32], expect: { zunia: "amino", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
+  { name: "send to a 32-byte address, memo with &", messages: [sendTo32], memo: "a & b", expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
 ];
 
 for (const row of ROWS) {
@@ -110,10 +126,81 @@ for (const row of ROWS) {
     for (const wallet of ["zunia", "keplr", "zunia-mobile"] as const) {
       assert.equal(chooseSignMode(row.messages, both, "auto", { wallet, memo: row.memo }), row.expect[wallet], wallet);
     }
+    // A build that reports only the API version "0.1.0" is the build that reports nothing.
+    const legacy = { ...both, zunia: zuniaCapabilities({ version: "0.1.0" }) };
+    assert.equal(chooseSignMode(row.messages, legacy, "auto", { wallet: "zunia", memo: row.memo }), row.expect.zunia, "zunia, 0.1.0 reported");
+    const current = { ...both, zunia: zuniaCapabilities(ZUNIA_015) };
+    assert.equal(chooseSignMode(row.messages, current, "auto", { wallet: "zunia", memo: row.memo }), row.expect["zunia@0.1.5"], "zunia@0.1.5");
+    // Capabilities are the Zunia extension's: another wallet given them keeps its own rule.
+    assert.equal(chooseSignMode(row.messages, current, "auto", { wallet: "keplr", memo: row.memo }), row.expect.keplr, "keplr, Zunia capabilities ignored");
     assert.equal(chooseSignMode(row.messages, both, "auto", { memo: row.memo }), row.expect.any, "no wallet named");
     assert.equal(row.expect.any, row.expect.keplr, "naming Keplr changes nothing");
   });
 }
+
+test("Zunia 0.1.5 still meets the general limits: Ledger is amino, an explicit mode is honoured, Ethereum-key chains direct", () => {
+  const current = { ...both, zunia: zuniaCapabilities(ZUNIA_015) };
+  assert.equal(chooseSignMode([send], current, "amino", { wallet: "zunia" }), "amino");
+  assert.equal(chooseSignMode([send], { ...current, ledger: true }, "auto", { wallet: "zunia" }), "amino");
+  assert.equal(chooseSignMode([send], { ...current, direct: false }, "auto", { wallet: "zunia" }), "amino");
+  assert.equal(chooseSignMode([send], current, "auto", { wallet: "zunia", ethKeyChain: true }), "direct");
+});
+
+test("what the Zunia provider reports: 0.1.4 and older say nothing, 0.1.5 its version and what it can sign", () => {
+  const legacy = {
+    extensionVersion: null,
+    directContractCalls: false,
+    directSends32: false,
+    directPoolmanager: null,
+    directExactOut: false,
+    aminoEscaping: false,
+    aminoPoolmanager: false,
+  };
+  assert.deepEqual(zuniaCapabilities({ version: "0.1.0" }), legacy);
+  assert.deepEqual(zuniaCapabilities(undefined), legacy);
+  assert.deepEqual(zuniaCapabilities(null), legacy);
+  const fixed = { extensionVersion: "0.1.5", directContractCalls: true, directSends32: true, directPoolmanager: true, directExactOut: true, aminoEscaping: true, aminoPoolmanager: false };
+  assert.deepEqual(zuniaCapabilities(ZUNIA_015), fixed);
+  // Readable amino pool swaps are optional in 0.1.5: only `features` says so.
+  assert.equal(zuniaCapabilities({ ...ZUNIA_015, features: [...ZUNIA_015.features, "sign-amino:osmosis-poolmanager"] }).aminoPoolmanager, true);
+  // Without `features`, the version decides.
+  assert.deepEqual(zuniaCapabilities({ version: "0.1.0", extensionVersion: "0.1.5" }), fixed);
+  assert.equal(zuniaCapabilities({ version: "0.1.0", extensionVersion: "0.2.0" }).directContractCalls, true);
+  assert.equal(zuniaCapabilities({ version: "0.1.0", extensionVersion: "0.1.4" }).directContractCalls, false);
+  assert.equal(zuniaCapabilities({ version: "0.1.5" }).directContractCalls, true, "a build that reports its release as the API version");
+  // With `features`, they decide: a build that lists only some.
+  const partial = zuniaCapabilities({ version: "0.1.0", extensionVersion: "0.1.5", features: ["sign-amino:escaped"] });
+  assert.equal(partial.directContractCalls, false);
+  assert.equal(partial.directPoolmanager, false);
+  assert.equal(partial.aminoEscaping, true);
+  // 0.1.5 that could not read its manifest says "", and its features still count.
+  const unread = zuniaCapabilities({ version: "0.1.0", extensionVersion: "", features: ZUNIA_015.features });
+  assert.equal(unread.extensionVersion, null);
+  assert.equal(unread.directContractCalls, true);
+  // A page object, not trusted to be well-typed.
+  assert.deepEqual(zuniaCapabilities({ version: "0.1.0", features: "sign-direct:wasm-contract-32" as unknown as string[] }), legacy);
+  assert.deepEqual(zuniaCapabilities({ version: 5 as unknown as string, extensionVersion: 5 as unknown as string }), legacy);
+  // The SDK's strings, character for character (sdk-core `ZUNIA_SIGNING_FEATURES`).
+  assert.deepEqual(Object.values(ZUNIA_SIGNING_FEATURES), [
+    "sign-direct:wasm-contract-32",
+    "sign-direct:send-32",
+    "sign-direct:osmosis-poolmanager",
+    "sign-direct:osmosis-exact-out",
+    "sign-amino:escaped",
+    "sign-amino:osmosis-poolmanager",
+  ]);
+});
+
+test("a 32-byte recipient is read from the send's address, and only a well-formed one counts", () => {
+  const zunia = { wallet: "zunia" as const };
+  // 20 bytes (a person), a malformed address and another chain's 32 bytes.
+  assert.equal(chooseSignMode([feeSend], both, "auto", zunia), "direct");
+  assert.equal(chooseSignMode([buildSend({ fromAddress: OSMO, toAddress: `${XCS.slice(0, -1)}x`, amount: [{ denom: "uosmo", amount: "1" }] })], both, "auto", zunia), "direct");
+  assert.equal(chooseSignMode([buildSend({ fromAddress: "cosmos1a", toAddress: "cosmos1uwk8xc6q0s6t5qcpr6rht3sczu6du83xq8pwxjua0hfj5hzcnh3sqxwvxs", amount: [{ denom: "uatom", amount: "1" }] })], both, "auto", zunia), "direct");
+  // A 0.1.5-style build that lists 32-byte sends but not contract calls: the send signs direct.
+  const sends = { ...both, zunia: zuniaCapabilities({ version: "0.1.0", features: [ZUNIA_SIGNING_FEATURES.directSends32] }) };
+  assert.equal(chooseSignMode([sendTo32], sends, "auto", zunia), "direct");
+});
 
 test("Zunia: a wallet without one of the modes gets the other; Ethereum-key chains stay direct", () => {
   assert.equal(chooseSignMode([send], { amino: true, direct: false }, "auto", { wallet: "zunia" }), "amino");

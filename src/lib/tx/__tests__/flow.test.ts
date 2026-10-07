@@ -1,19 +1,42 @@
 /**
  * The sign flow end to end, with a fake wallet and fake routes: what is
  * simulated, what is signed, what is broadcast, what the user is told.
+ *
+ * The fake wallet signs for real, with the vendored vectors' key (the public
+ * "abandon … about" test phrase): the flow verifies every signature before
+ * broadcasting it, so a wallet that signs other bytes is a test of its own.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
-import { toBase64, fromBase64, toHex } from "../bytes";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import { bech32 } from "@scure/base";
+
+import { toBase64, fromBase64, fromHex, serializeAminoSignDoc, sortKeysDeep, toHex } from "../bytes";
 import { SimulationRefused, type AccountInfo, type BroadcastAnswer } from "../client";
-import { decodeAuthInfoFee, encodeAuthInfo, encodePubKeyAny, encodeTxBody, SIGN_MODE_DIRECT } from "../encode";
+import { decodeAuthInfoFee, encodeAuthInfo, encodePubKeyAny, encodeSignDoc, encodeTxBody, SIGN_MODE_DIRECT } from "../encode";
 import { TxError } from "../errors";
-import { planTx, previewTx, signAndBroadcast, type FlowChain, type FlowOptions, type TxApi, type TxSigner } from "../flow";
+import {
+  memoProblem,
+  planTx,
+  previewTx,
+  signAndBroadcast,
+  type DirectSignDocInput,
+  type FlowChain,
+  type FlowOptions,
+  type TxApi,
+  type TxSigner,
+} from "../flow";
 import { buildExecuteContract, buildSend } from "../messages";
 import { readProtoFields } from "../proto";
+import { INJECTIVE_PUBKEY_TYPE_URL } from "../pubkey";
 import type { SignStage, TxOutcome } from "../types";
 import type { StdSignDoc } from "../amino-tx";
+import { zuniaCapabilities } from "../zunia-capabilities";
 
 const CHAIN: FlowChain = {
   chainId: "cosmoshub-4",
@@ -25,10 +48,27 @@ const CHAIN: FlowChain = {
   feeDecimals: 6,
   gasPriceStep: { low: 0.005, average: 0.025, high: 0.03 },
 };
-const ADDRESS = "cosmos1q6d3d089hg59x6gcx92uumx70s5y5wadntgvtr";
-const PUBKEY = fromBase64("A0vr/+IDH9PVhfT1ZI+UcpISMJGty7jNgwndXX4/VAp0");
+const vectors = JSON.parse(readFileSync(join(import.meta.dirname, "vectors/cosmos-signing.json"), "utf8")) as {
+  key: { privkey_hex: string; pubkey_compressed_hex: string; addresses: { cosmos: string } };
+};
+/** The vectors' key: the public "abandon … about" test phrase, m/44'/118'/0'/0/0. */
+const PRIVKEY = fromHex(vectors.key.privkey_hex);
+const PUBKEY = fromHex(vectors.key.pubkey_compressed_hex);
+const ADDRESS = vectors.key.addresses.cosmos;
+/** For wallets the flow stops before it looks at their signature. */
 const SIGNATURE = toBase64(new Uint8Array(64).fill(5));
 const send = buildSend({ fromAddress: ADDRESS, toAddress: ADDRESS, amount: [{ denom: "uatom", amount: "1" }] });
+
+/** A signature as a wallet makes it: secp256k1 over the digest of the bytes, base64. */
+const signBytes = (bytes: Uint8Array, digest: (b: Uint8Array) => Uint8Array = sha256) =>
+  toBase64(secp256k1.sign(digest(bytes), PRIVKEY, { prehash: false }));
+/** What Keplr, Zunia Mobile and Zunia 0.1.5 sign in amino mode (A1 bytes). */
+const signAminoDoc = (doc: StdSignDoc) => signBytes(serializeAminoSignDoc(doc));
+/** What the Zunia extension up to 0.1.4 signs in amino mode: nothing escaped. */
+const signAminoUnescaped = (doc: StdSignDoc) => signBytes(new TextEncoder().encode(JSON.stringify(sortKeysDeep(doc))));
+const signDirectDoc = (doc: DirectSignDocInput, digest?: (b: Uint8Array) => Uint8Array) => signBytes(encodeSignDoc(doc), digest);
+const PUB_KEY = { type: "tendermint/PubKeySecp256k1", value: toBase64(PUBKEY) };
+const SIGNATURE_CHECK_FAILED = "Your wallet signed something other than this transaction, so nothing was sent.";
 
 interface Calls {
   simulate: string[];
@@ -42,10 +82,12 @@ function harness(overrides: {
   api?: Partial<TxApi>;
   signer?: Partial<TxSigner>;
   account?: Partial<AccountInfo>;
+  chain?: FlowChain;
 } = {}) {
+  const chain = overrides.chain ?? CHAIN;
   const calls: Calls = { simulate: [], broadcast: [], signAmino: [], signDirect: [], stages: [] };
   const account: AccountInfo = {
-    chainId: CHAIN.chainId,
+    chainId: chain.chainId,
     address: ADDRESS,
     accountNumber: "681",
     sequence: "366",
@@ -72,24 +114,25 @@ function harness(overrides: {
     },
     ...overrides.api,
   };
+  // Signs what it was sent, as Keplr and Zunia Mobile do.
   const signer: TxSigner = {
     kind: "keplr",
     capabilities: () => ({ amino: true, direct: true }),
     ensureKey: async () => ({ address: ADDRESS, pubKey: PUBKEY }),
     signAmino: async (_chainId, _signer, doc) => {
       calls.signAmino.push(doc);
-      return { signed: doc, signature: { pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(PUBKEY) }, signature: SIGNATURE } };
+      return { signed: doc, signature: { pub_key: PUB_KEY, signature: signAminoDoc(doc) } };
     },
     signDirect: async (_chainId, _signer, doc) => {
       calls.signDirect.push(doc);
-      return { signed: { bodyBytes: doc.bodyBytes, authInfoBytes: doc.authInfoBytes }, signature: { pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(PUBKEY) }, signature: SIGNATURE } };
+      return { signed: { bodyBytes: doc.bodyBytes, authInfoBytes: doc.authInfoBytes }, signature: { pub_key: PUB_KEY, signature: signDirectDoc(doc) } };
     },
     ...overrides.signer,
   };
   const opts: FlowOptions = {
     signer,
     api,
-    chain: CHAIN,
+    chain,
     onStage: (stage) => calls.stages.push(stage),
     sleep: async () => {},
     pollIntervalMs: 1,
@@ -118,7 +161,7 @@ test("amino happy path: simulate ×1.4, sign once, broadcast, confirm", async ()
   assert.equal(doc.memo, "hi");
   assert.deepEqual(doc.fee, { amount: [{ denom: "uatom", amount: "3071" }], gas: "122824" });
   const parts = txRawParts(calls.broadcast[0]!);
-  assert.equal(toHex(parts.sig), "05".repeat(64));
+  assert.equal(toBase64(parts.sig), signAminoDoc(doc));
   assert.deepEqual(decodeAuthInfoFee(parts.auth), { amount: [{ denom: "uatom", amount: "3071" }], gasLimit: "122824" });
 });
 
@@ -135,7 +178,7 @@ test("direct mode for a contract call; a fee the wallet changed is the fee broad
         // As the extensions answer across postMessage: a plain array.
         return {
           signed: { bodyBytes: Array.from(doc.bodyBytes), authInfoBytes: Array.from(changedAuth) },
-          signature: { pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(PUBKEY) }, signature: SIGNATURE },
+          signature: { pub_key: PUB_KEY, signature: signDirectDoc({ ...doc, authInfoBytes: changedAuth }) },
         };
       },
     },
@@ -310,10 +353,10 @@ test("direct mode: a changed memo is accepted, changed messages are refused", as
   const contract = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
   const memoEdited = harness({
     signer: {
-      signDirect: async (_c, _s, doc) => ({
-        signed: { bodyBytes: encodeTxBody({ messages: [contract], memo: "edited in the wallet" }), authInfoBytes: doc.authInfoBytes },
-        signature: { pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(PUBKEY) }, signature: SIGNATURE },
-      }),
+      signDirect: async (_c, _s, doc) => {
+        const bodyBytes = encodeTxBody({ messages: [contract], memo: "edited in the wallet" });
+        return { signed: { bodyBytes, authInfoBytes: doc.authInfoBytes }, signature: { pub_key: PUB_KEY, signature: signDirectDoc({ ...doc, bodyBytes }) } };
+      },
     },
   });
   const ok = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [contract], memo: "hi" }, memoEdited.opts);
@@ -387,7 +430,7 @@ test("requests are validated before anything else", async () => {
   await assert.rejects(signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "x".repeat(300) }, opts), /256 bytes/);
 });
 
-test("the Zunia extension: a send signs direct (memo with & included), a contract call amino", async () => {
+test("a Zunia extension that reports nothing (0.1.4 and older): a send signs direct (memo with & included), a contract call amino", async () => {
   const zunia = harness({ signer: { kind: "zunia" } });
   const sent = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "rent & food" }, zunia.opts);
   assert.equal(sent.signMode, "direct");
@@ -405,7 +448,8 @@ test("the Zunia extension: a send signs direct (memo with & included), a contrac
 test("a Zunia refusal reaches the user with the next step, and nothing is broadcast", async () => {
   const refuse = (code: string, message: string) => async () => Promise.reject(Object.assign(new Error(message), { code }));
   const cases: Array<[string, string, string, RegExp]> = [
-    ["UNSUPPORTED", "Blind signing disabled for unknown messages", "wallet-unsupported", /Update Zunia to 0\.1\.4 or later, or use Keplr or Zunia Mobile/],
+    ["UNSUPPORTED", "Blind signing disabled for unknown messages", "wallet-unsupported", /can't sign this transaction yet\. Update Zunia to the latest version, or use Keplr or Zunia Mobile/],
+    ["UNSUPPORTED", "Blind signing disabled for unknown messages: /cosmos.authz.v1beta1.MsgGrant", "wallet-unsupported", /\(it cannot read \/cosmos\.authz\.v1beta1\.MsgGrant\)/],
     ["LOCKED", "Zunia stayed locked, so the request was cancelled", "wallet-timeout", /Unlock it and try again/],
     ["USER_REJECTED", "Request expired before it was answered", "wallet-timeout", /prompt expired/],
     ["INTERNAL", "Extension context invalidated.", "wallet-disconnected", /Reload this page/],
@@ -417,4 +461,196 @@ test("a Zunia refusal reaches the user with the next step, and nothing is broadc
     assert.match(error.explained.message, words, code);
     assert.equal(calls.broadcast.length, 0, code);
   }
+});
+
+/* ------------------------------------------------- Zunia builds, by what they report */
+
+/** What Zunia 0.1.5's provider reports (P1). */
+const ZUNIA_015 = {
+  version: "0.1.0",
+  extensionVersion: "0.1.5",
+  isZunia: true,
+  features: ["sign-direct:wasm-contract-32", "sign-direct:send-32", "sign-direct:osmosis-poolmanager", "sign-direct:osmosis-exact-out", "sign-amino:escaped"],
+};
+/** A 32-byte account: a contract, an interchain account, a DAO treasury. */
+const CONTRACT_ACCOUNT = bech32.encode("cosmos", bech32.toWords(new Uint8Array(32).fill(7)));
+const sendTo32 = buildSend({ fromAddress: ADDRESS, toAddress: CONTRACT_ACCOUNT, amount: [{ denom: "uatom", amount: "1" }] });
+
+test("Zunia 0.1.5 (it reports its build): everything signs direct, where its prompt is the decoded transaction", async () => {
+  const zunia = harness({ signer: { kind: "zunia", capabilities: () => ({ amino: true, direct: true, zunia: zuniaCapabilities(ZUNIA_015) }) } });
+  const call = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  const requests: Array<{ messages: (typeof send)[]; memo?: string }> = [
+    { messages: [call], memo: "Recover swap output · by Zunia-wallet" },
+    { messages: [send], memo: "rent & food" },
+    { messages: [sendTo32] },
+    { messages: [send] },
+  ];
+  for (const request of requests) {
+    const result = await signAndBroadcast({ chainId: CHAIN.chainId, ...request }, zunia.opts);
+    assert.equal(result.signMode, "direct", request.messages[0]!.typeUrl);
+  }
+  assert.equal(zunia.calls.signAmino.length, 0);
+  assert.equal(zunia.calls.broadcast.length, requests.length);
+});
+
+test("a Zunia extension that reports nothing: a send to a 32-byte address signs amino (its direct decoder refuses it), unless it needs escaping", async () => {
+  const zunia = harness({ signer: { kind: "zunia" } });
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [sendTo32] }, zunia.opts)).signMode, "amino");
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [sendTo32], memo: "a & b" }, zunia.opts)).signMode, "direct");
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send] }, zunia.opts)).signMode, "direct");
+});
+
+/* ------------------------------------------------- the signature check before broadcast */
+
+test("a wallet that signs amino without the chain's escaping is stopped before broadcast, in words", async () => {
+  // The Zunia extension up to 0.1.4, under a policy that sends it a document with "&".
+  const { calls, opts } = harness({
+    signer: {
+      signAmino: async (_c, _s, doc) => {
+        calls.signAmino.push(doc);
+        return { signed: doc, signature: { pub_key: PUB_KEY, signature: signAminoUnescaped(doc) } };
+      },
+    },
+  });
+  const error = (await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "rent & food" }, opts).catch((e: unknown) => e)) as TxError;
+  assert.ok(error instanceof TxError);
+  assert.equal(error.explained.kind, "signature-mismatch");
+  assert.equal(error.explained.title, "Signature mismatch");
+  assert.equal(error.explained.message, SIGNATURE_CHECK_FAILED);
+  assert.match(error.explained.detail!, /without the chain's escaping of &, < and >/);
+  assert.equal(error.explained.retryable, false);
+  assert.equal(error.txHash, null);
+  assert.equal(error.onChain, false);
+  assert.equal(calls.signAmino.length, 1);
+  assert.equal(calls.broadcast.length, 0);
+  assert.ok(!calls.stages.includes("broadcasting"));
+  assert.equal(calls.stages.at(-1), "failed");
+  // With nothing to escape, the same wallet signs the chain's bytes: broadcast.
+  const plain = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "rent" }, opts);
+  assert.equal(plain.signMode, "amino");
+  assert.equal(calls.broadcast.length, 1);
+});
+
+test("direct: a wallet that returns an edited memo but signed the original body is stopped before broadcast", async () => {
+  const contract = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  const { calls, opts } = harness({
+    signer: {
+      signDirect: async (_c, _s, doc) => ({
+        signed: { bodyBytes: encodeTxBody({ messages: [contract], memo: "edited in the wallet" }), authInfoBytes: doc.authInfoBytes },
+        signature: { pub_key: PUB_KEY, signature: signDirectDoc(doc) },
+      }),
+    },
+  });
+  const error = (await signAndBroadcast({ chainId: CHAIN.chainId, messages: [contract], memo: "hi" }, opts).catch((e: unknown) => e)) as TxError;
+  assert.equal(error.explained.kind, "signature-mismatch");
+  assert.equal(error.explained.message, SIGNATURE_CHECK_FAILED);
+  assert.match(error.explained.detail!, /does not verify over the transaction's sign bytes/);
+  assert.equal(calls.broadcast.length, 0);
+});
+
+const INJECTIVE: FlowChain = {
+  chainId: "injective-1",
+  chainName: "Injective",
+  coinType: 60,
+  features: ["eth-address-gen", "eth-key-sign"],
+  ethPubKeyTypeUrl: INJECTIVE_PUBKEY_TYPE_URL,
+  feeMinimalDenom: "inj",
+  feeDenom: "INJ",
+  feeDecimals: 18,
+  gasPriceStep: { low: 500_000_000, average: 500_000_000, high: 500_000_000 },
+};
+
+test("Ethereum-key chains: direct is checked over keccak256; amino from a Ledger (EIP-712 there) is left to the chain", async () => {
+  const account = { pubKey: { typeUrl: INJECTIVE_PUBKEY_TYPE_URL, key: toBase64(PUBKEY) } };
+  const contract = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  const wallet = (digest: (b: Uint8Array) => Uint8Array) =>
+    harness({
+      chain: INJECTIVE,
+      account,
+      signer: {
+        signDirect: async (_c, _s, doc) => ({
+          signed: { bodyBytes: doc.bodyBytes, authInfoBytes: doc.authInfoBytes },
+          signature: { pub_key: PUB_KEY, signature: signDirectDoc(doc, digest) },
+        }),
+      },
+    });
+  const keccak = wallet(keccak_256);
+  assert.equal((await signAndBroadcast({ chainId: INJECTIVE.chainId, messages: [contract] }, keccak.opts)).signMode, "direct");
+  assert.equal(keccak.calls.broadcast.length, 1);
+
+  // A wallet that hashed with SHA-256 where the chain checks keccak256.
+  const sha = wallet(sha256);
+  const error = (await signAndBroadcast({ chainId: INJECTIVE.chainId, messages: [contract] }, sha.opts).catch((e: unknown) => e)) as TxError;
+  assert.equal(error.explained.kind, "signature-mismatch");
+  assert.match(error.explained.detail!, /SHA-256 digest; the chain checks keccak256/);
+  assert.equal(sha.calls.broadcast.length, 0);
+
+  // A Ledger signs amino there, and what it signs (EIP-712) only the chain rebuilds.
+  const ledger = harness({
+    chain: INJECTIVE,
+    account,
+    signer: {
+      ensureKey: async () => ({ address: ADDRESS, pubKey: PUBKEY, isNanoLedger: true }),
+      capabilities: () => ({ amino: true, direct: true, ledger: true }),
+      signAmino: async (_c, _s, doc) => ({
+        signed: doc,
+        signature: { pub_key: PUB_KEY, signature: signBytes(new TextEncoder().encode("an EIP-712 digest stand-in"), keccak_256) },
+      }),
+    },
+  });
+  assert.equal((await signAndBroadcast({ chainId: INJECTIVE.chainId, messages: [send] }, ledger.opts)).signMode, "amino");
+  assert.equal(ledger.calls.broadcast.length, 1);
+});
+
+test("a key that is not a compressed secp256k1 point is left to the chain", async () => {
+  const odd = PUBKEY.slice();
+  odd[0] = 0x05;
+  const contract = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  const { calls, opts } = harness({
+    signer: {
+      ensureKey: async () => ({ address: ADDRESS, pubKey: odd }),
+      signDirect: async (_c, _s, doc) => ({
+        signed: { bodyBytes: doc.bodyBytes, authInfoBytes: doc.authInfoBytes },
+        signature: { pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(odd) }, signature: SIGNATURE },
+      }),
+    },
+  });
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [contract] }, opts)).signMode, "direct");
+  assert.equal(calls.broadcast.length, 1);
+});
+
+/* ------------------------------------------------- memos the signature would not survive */
+
+const LINE_SEPARATOR = String.fromCharCode(0x2028);
+const PARAGRAPH_SEPARATOR = String.fromCharCode(0x2029);
+const HIGH_SURROGATE = String.fromCharCode(0xd83d);
+const LOW_SURROGATE = String.fromCharCode(0xde80);
+
+test("a memo with a line separator or half a character is refused before the wallet is asked, in words", async () => {
+  for (const memo of [
+    `rent${LINE_SEPARATOR}food`,
+    `rent${PARAGRAPH_SEPARATOR}food`,
+    `rent ${HIGH_SURROGATE}`,
+    `${LOW_SURROGATE} rent`,
+    `${HIGH_SURROGATE}${HIGH_SURROGATE}${LOW_SURROGATE}`,
+  ]) {
+    const { calls, opts } = harness();
+    const error = (await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo }, opts).catch((e: unknown) => e)) as TxError;
+    assert.ok(error instanceof TxError, JSON.stringify(memo));
+    assert.equal(error.explained.message, memoProblem(memo));
+    assert.equal(calls.simulate.length + calls.signAmino.length + calls.signDirect.length + calls.broadcast.length, 0);
+  }
+  assert.match(memoProblem(`rent${LINE_SEPARATOR}food`)!, /invisible line separator.*Clear the memo and type it again/);
+  assert.match(memoProblem(`rent ${HIGH_SURROGATE}`)!, /broken character.*Clear the memo and type it again/);
+  // Whole characters are fine, & < > included: the chain's escaping covers those.
+  for (const memo of [undefined, "", "rent & food <3>", `rocket ${HIGH_SURROGATE}${LOW_SURROGATE}`, "Recover swap output · by Zunia-wallet"]) {
+    assert.equal(memoProblem(memo), null, JSON.stringify(memo));
+  }
+  // The fee is still measured: only the signature would not survive such a memo.
+  const { opts } = harness();
+  const preview = await previewTx(
+    { chainId: CHAIN.chainId, messages: [send], memo: `rent${LINE_SEPARATOR}food` },
+    { api: opts.api, chain: CHAIN, address: ADDRESS, pubKey: PUBKEY },
+  );
+  assert.equal(preview.gas.method, "simulated");
 });

@@ -37,6 +37,11 @@ export type TxErrorKind =
   | "wallet-disconnected"
   /** The wallet refused to show the request: it cannot display this transaction (Zunia without blind signing). */
   | "wallet-unsupported"
+  /**
+   * The wallet's signature does not verify over the transaction it returned,
+   * found before broadcast (`verify-signature.ts`): nothing was sent.
+   */
+  | "signature-mismatch"
   | "unknown";
 
 export interface ExplainedTxError {
@@ -155,7 +160,12 @@ const COPY: Record<TxErrorKind, { title: string; message: string; retryable: boo
   },
   "wallet-unsupported": {
     title: "Unsupported in Zunia",
-    message: "Your Zunia extension can't show this transaction yet. Update Zunia to 0.1.4 or later, or use Keplr or Zunia Mobile.",
+    message: "Your Zunia extension can't sign this transaction yet. Update Zunia to the latest version, or use Keplr or Zunia Mobile.",
+    retryable: false,
+  },
+  "signature-mismatch": {
+    title: "Signature mismatch",
+    message: "Your wallet signed something other than this transaction, so nothing was sent.",
     retryable: false,
   },
   unknown: {
@@ -273,6 +283,46 @@ function walletWords(kind: TxErrorKind, title: string, message: string, text: st
   return { ...withKind(kind, text), title, message };
 }
 
+/** A message type as a refusal names it: a type URL or an amino name, at most 128 characters (the extension cuts longer ones with "…"). */
+const MESSAGE_TYPE = /^[A-Za-z0-9_./-]{1,127}(?:[A-Za-z0-9_./-]|…)$/;
+
+/**
+ * The message types a blind-signing refusal names, in its order. Zunia 0.1.5
+ * appends the ones it cannot read to the sentence ("Blind signing disabled
+ * for unknown messages: /cosmos.authz.v1beta1.MsgGrant", at most five); older
+ * builds name none. Anything that does not look like a type is left out.
+ */
+export function refusedMessageTypes(text: string): string[] {
+  const listed = /blind signing disabled for unknown messages:\s*(.+)$/i.exec(text.trim())?.[1];
+  if (!listed) return [];
+  const types = listed.split(",").map((type) => type.trim()).filter((type) => MESSAGE_TYPE.test(type));
+  return [...new Set(types)].slice(0, 5);
+}
+
+/** "A", "A and B", "A, B and C". */
+function listText(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** `wallet-unsupported`, naming the message types the refusal names. */
+function unsupported(text: string): ExplainedTxError {
+  const explained = withKind("wallet-unsupported", text);
+  const types = refusedMessageTypes(text);
+  if (types.length === 0) return explained;
+  return {
+    ...explained,
+    message: `Your Zunia extension can't sign this transaction yet (it cannot read ${listText(types)}). Update Zunia to the latest version, or use Keplr or Zunia Mobile.`,
+  };
+}
+
+/**
+ * The wallet's signature failed the check before broadcast (`flow.ts`): the
+ * standard words, and what it was found to be over as the detail.
+ */
+export function signatureMismatch(detail: string | null): ExplainedTxError {
+  return withKind("signature-mismatch", detail ?? "");
+}
+
 /**
  * The Zunia extension's own refusals, with the next step in words.
  *
@@ -283,8 +333,10 @@ function walletWords(kind: TxErrorKind, title: string, message: string, text: st
  *
  * - `UNSUPPORTED` "Blind signing disabled for unknown messages": a message
  *   the extension cannot decode is refused before any prompt opens (0.1.3
- *   and Osmosis poolmanager swaps). Its own kind, `wallet-unsupported`:
- *   trying again cannot help, another wallet can.
+ *   and Osmosis poolmanager swaps; up to 0.1.4, contract calls and sends to
+ *   32-byte addresses in direct mode). From 0.1.5 the sentence names the
+ *   types, and so does the message here. Its own kind, `wallet-unsupported`:
+ *   trying again cannot help, an update or another wallet can.
  * - "Request expired before it was answered" carries `USER_REJECTED`, but
  *   nobody declined: the 5-minute prompt ran out. `wallet-timeout`, so no
  *   flow answers it with "Cancelled in your wallet".
@@ -302,7 +354,7 @@ function walletWords(kind: TxErrorKind, title: string, message: string, text: st
 export function walletRefusal(error: unknown, wallet?: SignerKind): ExplainedTxError | null {
   const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const code = (error as { code?: unknown } | null)?.code;
-  if (code === "UNSUPPORTED" && /blind signing/i.test(text)) return withKind("wallet-unsupported", text);
+  if (code === "UNSUPPORTED" && /blind signing/i.test(text)) return unsupported(text);
   if (/request expired before it was answered/i.test(text)) {
     return walletWords("wallet-timeout", "No answer in time", "The Zunia prompt expired. Try again.", text);
   }
