@@ -1,0 +1,350 @@
+/*
+ * Landing page styles that utilities cannot express: the animated hero
+ * backdrop, the chain marquee and the document-scroll switch.
+ *
+ * Colours come from the theme tokens (--z-*, --d-*), so both themes follow
+ * without a second copy of each rule. Every animation stops under
+ * prefers-reduced-motion, and every decorative layer is absolutely
+ * positioned and pointer-transparent, so none of it can shift the layout.
+ */
+
+/* ------------------------------------------------------------ page root */
+
+.root {
+  position: relative;
+  min-height: 100dvh;
+  /* Blooms and the marquee are wider than the viewport on purpose; `clip`
+     hides the overflow without creating a scroll container, so the sticky
+     navigation keeps working. */
+  overflow-x: clip;
+  background: var(--z-bg);
+  color: var(--z-fg);
+}
+
+/* Sections jump below the sticky navigation. */
+.root :where(section[id]) {
+  scroll-margin-top: 80px;
+}
+
+/* ------------------------------------------------------------ navigation */
+
+.nav {
+  transition:
+    background-color var(--d-dur-fast) var(--d-ease),
+    border-color var(--d-dur-fast) var(--d-ease),
+    box-shadow var(--d-dur-fast) var(--d-ease);
+  border-bottom: 1px solid transparent;
+}
+
+.nav[data-scrolled] {
+  background: color-mix(in srgb, var(--z-bg) 78%, transparent);
+  border-bottom-color: var(--d-hairline);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* ------------------------------------------------------------ hero backdrop */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  /* Fades into the page below instead of ending on a hard edge. */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+}
+
+/* Brand bloom, top right: the ramp at the bloom tokens' strength (16% dark,
+   6% light), breathing slowly. */
+.bloom {
+  position: absolute;
+  top: -360px;
+  right: -280px;
+  width: 1100px;
+  height: 980px;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    var(--d-bloom-1) 0%,
+    var(--d-bloom-2) 46%,
+    transparent 100%
+  );
+  animation: bloom 18s var(--d-ease) infinite alternate;
+  will-change: transform, opacity;
+}
+
+/* A second, warmer and fainter bloom lower left balances the composition. */
+.bloomAlt {
+  position: absolute;
+  bottom: -460px;
+  left: -420px;
+  width: 900px;
+  height: 820px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--d-bloom-2) 0%, transparent 100%);
+  opacity: 0.7;
+  animation: bloom 24s var(--d-ease) infinite alternate-reverse;
+}
+
+/* The chevron grid: faded out towards the edges, drifting one tile per
+   cycle so the loop is seamless. */
+.gridFade {
+  position: absolute;
+  inset: 0;
+  /* Strongest behind the live preview (top right), gone before the copy. */
+  -webkit-mask-image: radial-gradient(ellipse 58% 62% at 82% 24%, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 80%);
+  mask-image: radial-gradient(ellipse 58% 62% at 82% 24%, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 80%);
+}
+
+.grid {
+  position: absolute;
+  /* One accent tile (168px, three grid tiles) of slack on the side the
+     drift comes from, so the loop never uncovers an edge. */
+  top: -168px;
+  left: -168px;
+  width: calc(100% + 168px);
+  height: calc(100% + 168px);
+  color: var(--z-fg);
+  animation: drift 96s linear infinite;
+  will-change: transform;
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.32;
+}
+
+/* On a phone the copy fills the width the grid would sit behind. */
+@media (max-width: 767px) {
+  .gridFade {
+    display: none;
+  }
+}
+
+@keyframes bloom {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+  to {
+    transform: translate3d(-48px, 36px, 0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes drift {
+  to {
+    transform: translate3d(168px, 168px, 0);
+  }
+}
+
+/* ------------------------------------------------------------ hero copy */
+
+.headline {
+  /* 36px on a 390px phone, 64px from about 1050px: two lines at every width. */
+  font-size: clamp(2.25rem, 1.25rem + 4.2vw, 4rem);
+  line-height: 1.03;
+  letter-spacing: -0.045em;
+  font-weight: 500;
+}
+
+/* The brand ramp on the second line only (spec: gradient used sparingly). */
+.headlineAccent {
+  background-image: var(--z-accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  /* Descenders and the ramp's last stop stay inside the clip box. */
+  padding-bottom: 0.06em;
+}
+
+/* On the light page the ramp's gold end fades to 1.5:1; a deeper cut of the
+   same ramp keeps every letter above 3:1 (large text). */
+:global(:is([data-theme="light"], .zunia-light)) .headlineAccent {
+  background-image: linear-gradient(120deg, #d4190b 0%, #e8590c 50%, #c27400 100%);
+}
+
+/* Entrance: copy rises in sequence on first paint (no layout shift: only
+   opacity and transform). */
+.rise {
+  animation: rise 720ms var(--d-ease-out) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Live dot on the preview header. */
+.pulse {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--z-success);
+}
+
+.pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: ping 2.4s var(--d-ease-out) infinite;
+}
+
+@keyframes ping {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------ marquee */
+
+.marquee {
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+}
+
+.track {
+  display: flex;
+  width: max-content;
+  animation: marquee 72s linear infinite;
+}
+
+/* One full copy of the row; the track holds two so -50% loops seamlessly. */
+.copy {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding-right: 10px;
+}
+
+.trackReverse {
+  animation-direction: reverse;
+  animation-duration: 84s;
+}
+
+/* WCAG 2.2.2: motion longer than five seconds can be paused — hover or
+   keyboard focus anywhere in the strip stops both rows. */
+.marquee:hover .track,
+.marquee:focus-within .track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* ------------------------------------------------------------ feature tiles */
+
+/* A packet travelling along the IBC route line.
+
+   It moves with transform and opacity only, which the compositor animates
+   on its own: animating `left` ran style, layout and layerize on the main
+   thread every frame, for as long as the page was open, on or off screen.
+   The box spans the line minus the dot (the dot is its ::before), so a
+   translate by its own width, 100%, ends exactly where `left: calc(100% -
+   8px)` did. No `will-change`: a running transform animation gets its own
+   layer anyway. */
+.packet {
+  position: absolute;
+  inset: 0 8px 0 0;
+  animation: packet 2.8s var(--d-ease) infinite;
+}
+
+.packet::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: var(--z-accent);
+  box-shadow: 0 0 0 4px var(--d-accent-soft);
+}
+
+@keyframes packet {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------ reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .bloom,
+  .bloomAlt,
+  .grid,
+  .rise,
+  .pulse::after,
+  .packet {
+    animation: none;
+  }
+
+  /* Resting mid-route: half the box's width is calc(50% - 4px) of the line. */
+  .packet {
+    transform: translateX(50%);
+  }
+
+  /* Until hydration, the marquee stops and wraps into a static, centred
+     cloud of chips; after it, ChainMarquee renders one static list. */
+  .marquee {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .track {
+    display: block;
+    width: auto;
+    max-width: 1280px;
+    margin-inline: auto;
+    padding-inline: 16px;
+    animation: none;
+  }
+
+  .copy {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-right: 0;
+  }
+
+  .trackDuplicate {
+    display: none;
+  }
+}

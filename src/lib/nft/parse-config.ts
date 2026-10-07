@@ -250,33 +250,126 @@ export function parseIcs721Links(
 }
 
 /**
+ * The entry as it may be echoed back in a problem.
+ *
+ * Problems are served by `/api/nft/config`, which anyone can read, and an
+ * operator's slip is exactly when a secret lands in the wrong key. So the
+ * userinfo goes (everything up to the *last* `@`: a password may itself
+ * contain `/` or `@`, and a malformed entry still has to come back clean), and
+ * so does any query string or fragment, which is where gateway and index
+ * tokens live (`?token=…`).
+ */
+function redactEntry(entry: string): string {
+  const cut = entry.search(/[?#]/);
+  let text = cut === -1 ? entry : `${entry.slice(0, cut + 1)}<redacted>`;
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(text);
+  const start = scheme ? scheme[0].length : 0;
+  const at = text.lastIndexOf("@");
+  if (at >= start) text = `${text.slice(0, start)}<redacted>${text.slice(at)}`;
+  return text;
+}
+
+/**
+ * Parse one operator URL under the transport rule every NFT upstream shares:
+ * `https://`, or `http://127.0.0.1` exactly — never a prefix match, which
+ * also accepts `http://127.0.0.1.attacker.example` — when the caller allows
+ * it (`allowLoopback: NODE_ENV !== "production"`), and no `user:password@`
+ * (fetch refuses such a URL, and a gateway one would reach every browser).
+ */
+function parseOperatorUrl(
+  entry: string,
+  key: string,
+  options: { readonly allowLoopback?: boolean },
+  what: string,
+): { readonly url: URL; readonly problem: null } | { readonly url: null; readonly problem: ConfigProblem } {
+  let url: URL;
+  try {
+    url = new URL(entry);
+  } catch {
+    return { url: null, problem: { key, entry: redactEntry(entry), reason: "Not a valid URL." } };
+  }
+  if (url.username || url.password) {
+    return {
+      url: null,
+      problem: { key, entry: redactEntry(entry), reason: `${what} must not carry credentials in the URL.` },
+    };
+  }
+  const loopback = url.protocol === "http:" && url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(loopback && options.allowLoopback === true)) {
+    return {
+      url: null,
+      problem: {
+        key,
+        entry: redactEntry(entry),
+        reason: loopback
+          ? "A loopback address is only accepted in local development."
+          : `${what} must be https:// — cleartext can be rewritten in flight.`,
+      },
+    };
+  }
+  return { url, problem: null };
+}
+
+/**
  * Gateway base URLs for `ipfs://` and `ar://`.
  *
- * `https://` only, with the same loopback exception the NFT indexer gets: a
- * metadata document read over cleartext can be rewritten in flight, and the
- * thing it rewrites is the artwork and the trait list of an asset the user is
- * about to act on — but a gateway on `127.0.0.1` has no network to be rewritten
- * on, and without the exception the whole media path is untestable locally.
+ * `https://` only: a metadata document read over cleartext can be rewritten in
+ * flight, and the thing it rewrites is the artwork and the trait list of an
+ * asset the user is about to act on. A gateway on `http://127.0.0.1` has no
+ * network to be rewritten on and keeps the media path testable locally, so it
+ * is accepted when — and only when — the caller says so
+ * (`allowLoopback: NODE_ENV !== "production"`); off by default, so a caller
+ * that forgets the option can never let a production build talk cleartext.
+ *
+ * A gateway base ends up in `<img src>` for every visitor, so one that carries
+ * credentials is refused rather than handed to the browser. So is one with a
+ * query string or fragment: the engine appends the content path to the base
+ * (`{base}{cid}/{path}`), which would land inside the query and fetch nothing.
  */
 export function parseGateways(
   raw: string | undefined,
   key: string,
+  options: { readonly allowLoopback?: boolean } = {},
 ): { readonly gateways: readonly string[]; readonly problems: readonly ConfigProblem[] } {
   const gateways: string[] = [];
   const problems: ConfigProblem[] = [];
   for (const entry of parseList(raw)) {
-    if (!entry.startsWith("https://") && !entry.startsWith("http://127.0.0.1")) {
+    const parsed = parseOperatorUrl(entry, key, options, "Gateways");
+    if (parsed.problem) {
+      problems.push(parsed.problem);
+      continue;
+    }
+    if (parsed.url.search || parsed.url.hash || /[?#]/.test(entry)) {
       problems.push({
         key,
-        entry,
-        reason:
-          "Gateways must be https:// (or a loopback address for local development) — a cleartext gateway can be rewritten in flight.",
+        entry: redactEntry(entry),
+        reason: "A gateway is a base path: the content id is appended to it, so it cannot have a query string or fragment.",
       });
       continue;
     }
     gateways.push(entry.endsWith("/") ? entry : `${entry}/`);
   }
   return { gateways, problems };
+}
+
+/**
+ * `ZUNIA_NFT_INDEXER_URL`, the "contracts by owner" index.
+ *
+ * The same transport rule as the gateways ({@link parseOperatorUrl}). A query
+ * string is kept — an index may want a key in it, and the URL never leaves the
+ * server — but a problem never echoes it. A trailing slash is dropped because
+ * the caller appends `?chainId=&owner=` through the URL API.
+ */
+export function parseIndexerUrl(
+  raw: string | undefined,
+  key: string,
+  options: { readonly allowLoopback?: boolean } = {},
+): { readonly url: string | null; readonly problems: readonly ConfigProblem[] } {
+  const value = raw?.trim();
+  if (!value) return { url: null, problems: [] };
+  const parsed = parseOperatorUrl(value, key, options, "The NFT index URL");
+  if (parsed.problem) return { url: null, problems: [parsed.problem] };
+  return { url: value.replace(/\/$/, ""), problems: [] };
 }
 
 /** An explicit operator opt-in. Anything but a recognised true is false. */

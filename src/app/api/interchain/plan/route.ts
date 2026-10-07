@@ -15,9 +15,10 @@
  *    warns, and that placeholder is the single field in this whole flow where a
  *    wrong value loses funds. So the sender is re-encoded for every chain in
  *    the graph that shares its coin type and passed in.
- * 3. **The venue.** `SwapVenue.contractAddress` is host configuration, checked
- *    on chain by `swap-venue.ts`. An unavailable venue means no swap candidate
- *    is offered at all, rather than one that cannot be signed.
+ * 3. **The venue.** The crosschain-swaps contract is the one the swap
+ *    engine's venue check verified on chain (`lib/server/swap/venue.ts`: label
+ *    and reviewed code id). An unavailable venue means no swap candidate is
+ *    offered at all, rather than one that cannot be signed.
  * 4. **The venue-side input denom.** The quote needs to know what the pool is
  *    being asked to sell — the input denom as denominated on Osmosis, not on
  *    the source chain. `recommendDenom` answers exactly that question, so it is
@@ -26,6 +27,13 @@
  * The response is inert JSON. The browser re-derives what the memo does from
  * the memo bytes before the user approves it (`lib/interchain/memo-summary.ts`);
  * nothing in this file is the security control.
+ *
+ * It is, though, the most expensive handler in the app — channel walks, client
+ * and module probes, denom traces, all from this server's IP — so it is
+ * guarded like every other fan-out route (`lib/server/interchain-request.ts`):
+ * same origin only, a bounded `application/json` body, at most
+ * `MAX_OVERRIDES` hand-typed channels naming catalog chains only, and a rate
+ * limit that charges for each of them.
  */
 
 import { NextRequest } from "next/server";
@@ -37,13 +45,12 @@ import {
   TRANSFER_PORT,
   type ChainCapabilities,
   type ChannelLink,
-  type RouteHopOverride,
   type RoutePlanCandidate,
   type RouteRequest,
   type SwapVenue,
 } from "@zunialab/interchain";
 import { addressesForChains } from "@/lib/address";
-import { CHAINS, findChain } from "@/lib/chains";
+import { SERVER_CHAINS as CHAINS, findServerChain as findChain } from "@/lib/server/chains";
 import {
   capabilitiesFor,
   chainRegistry,
@@ -51,10 +58,11 @@ import {
   describeError,
   discoverLinks,
   lcdFactory,
-  rememberManualChannel,
   type DiscoveryFailure,
 } from "@/lib/server/interchain";
-import { swapVenueConfig } from "@/lib/server/swap-venue";
+import { boundedBody, foreignOrigin, overLimit } from "@/lib/server/interchain-request";
+import { readOverrides } from "@/lib/server/interchain-rules";
+import { swapVenue } from "@/lib/server/swap/venue";
 
 export const runtime = "nodejs";
 
@@ -85,30 +93,6 @@ function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function readOverrides(value: unknown): RouteHopOverride[] {
-  if (!Array.isArray(value)) return [];
-  const out: RouteHopOverride[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const row = entry as Record<string, unknown>;
-    const channelId = str(row.channelId);
-    if (!channelId) continue;
-    out.push({
-      ...(typeof row.hopIndex === "number" && Number.isInteger(row.hopIndex)
-        ? { hopIndex: row.hopIndex }
-        : {}),
-      ...(str(row.fromChainId) ? { fromChainId: str(row.fromChainId) } : {}),
-      ...(str(row.toChainId) ? { toChainId: str(row.toChainId) } : {}),
-      channelId,
-      ...(str(row.port) ? { port: str(row.port) } : {}),
-      ...(str(row.counterpartyChannelId)
-        ? { counterpartyChannelId: str(row.counterpartyChannelId) }
-        : {}),
-    });
-  }
-  return out;
-}
-
 interface OutputAsset {
   readonly originChainId: string;
   readonly baseDenom: string;
@@ -127,6 +111,15 @@ function bad(message: string) {
   return Response.json({ ok: false, code: "bad-request", message }, { status: 400 });
 }
 
+/**
+ * A plan body is a few short fields plus at most `MAX_OVERRIDES` channel rows;
+ * 16 KB is several times the largest the UI sends.
+ */
+const MAX_BODY_BYTES = 16_384;
+
+/** A chain id this build's catalog has. */
+const inCatalog = (chainId: string) => findChain(chainId) !== undefined;
+
 /** A stable identity for a candidate, so the UI can keep a selection across replans. */
 function candidateId(candidate: RoutePlanCandidate): string {
   const channels = candidate.plan.hops
@@ -136,12 +129,21 @@ function candidateId(candidate: RoutePlanCandidate): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: PlanBody;
-  try {
-    body = (await req.json()) as PlanBody;
-  } catch {
-    return bad("The request body was not JSON.");
-  }
+  const foreign = foreignOrigin(req);
+  if (foreign) return foreign;
+  const parsed = await boundedBody(req, MAX_BODY_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as PlanBody;
+
+  // Hand-typed channels, checked and capped. Charged for before any work:
+  // each one with chain ids is a discovery pair of its own.
+  const overrides = readOverrides(body.overrides, inCatalog);
+  const limited = overLimit(
+    req,
+    { scope: "interchain-plan", capacity: 30, refillPerSecond: 0.5, cost: 1 + overrides.length },
+    "Too many route requests. Wait a moment and try again.",
+  );
+  if (limited) return limited;
 
   const sourceChainId = str(body.sourceChainId);
   const destChainId = str(body.destChainId);
@@ -152,7 +154,6 @@ export async function POST(req: NextRequest) {
   const requestedOutputDenom = str(body.outputDenom);
   const outputAsset = readOutputAsset(body.outputAsset);
   const allowSwap = body.allowSwap === true;
-  const overrides = readOverrides(body.overrides);
 
   if (!sourceChainId || !destChainId) return bad("Both chains are required.");
   if (!inputDenom) return bad("An input denom is required.");
@@ -168,15 +169,19 @@ export async function POST(req: NextRequest) {
   if (!source) return bad(`${sourceChainId} is not in this build's chain catalog.`);
   if (!dest) return bad(`${destChainId} is not in this build's chain catalog.`);
 
-  const venueConfig = allowSwap ? await swapVenueConfig() : null;
-  if (allowSwap && venueConfig && !venueConfig.available) {
+  // The verified crosschain-swaps contract (label and reviewed code id read
+  // off Osmosis), or the reason there is none. Never consulted for a plain
+  // transfer.
+  const venue = allowSwap ? await swapVenue() : null;
+  if (allowSwap && venue && !venue.address) {
     return Response.json({
       ok: false,
       code: "not-configured",
-      message: venueConfig.reason ?? "Cross-chain swap is not configured.",
+      message: venue.reason ?? "Cross-chain swap is not available right now.",
     });
   }
-  const venueChainId = venueConfig?.chainId ?? null;
+  const venueAddress = venue?.address ?? null;
+  const venueChainId = venueAddress ? (venue?.chainId ?? null) : null;
 
   // Only the pairs a candidate could actually use. A user-supplied override is
   // added as an edge as well, so a route the wallet could not discover is still
@@ -198,17 +203,12 @@ export async function POST(req: NextRequest) {
   ) {
     pairs.push([venueChainId, outputAsset.originChainId]);
   }
+  // The typed channels themselves reach the planner through `manualLinks`
+  // below, for this request only; nothing a request says is written to the
+  // shared route registry.
   for (const override of overrides) {
     if (override.fromChainId && override.toChainId) {
       pairs.push([override.fromChainId, override.toChainId]);
-      rememberManualChannel({
-        fromChainId: override.fromChainId,
-        toChainId: override.toChainId,
-        channelId: override.channelId,
-        ...(override.counterpartyChannelId
-          ? { counterpartyChannelId: override.counterpartyChannelId }
-          : {}),
-      });
     }
   }
 
@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
    * not run ibc-hooks", and the plan then carries that as a warning on the one
    * chain where it is certainly false.
    *
-   * `swap-venue.ts` has already read the crosschain-swaps contract off this
+   * The venue check has already read the crosschain-swaps contract off this
    * chain, which is direct evidence that CosmWasm is there. That contradicts
    * the only premise the negative rests on, so the negative is dropped back to
    * "unknown" — the engine then says support is *unconfirmed*, which is true,
@@ -263,7 +263,7 @@ export async function POST(req: NextRequest) {
    */
   const capabilities = (chainId: string): ChainCapabilities | undefined => {
     const base = probed(chainId);
-    if (!venueConfig?.verified || chainId !== venueConfig.chainId) return base;
+    if (!venueAddress || chainId !== venueChainId) return base;
     return {
       ...(base?.pfm === undefined ? {} : { pfm: base.pfm }),
       ...(base?.ibcHooks === true ? { ibcHooks: true } : {}),
@@ -290,12 +290,12 @@ export async function POST(req: NextRequest) {
   const outputDenom = outputDenomResult.denom;
 
   const venues: SwapVenue[] =
-    venueConfig && venueConfig.available && venueConfig.contractAddress
+    venueAddress && venueChainId
       ? [
           {
-            chainId: venueConfig.chainId,
-            contractAddress: venueConfig.contractAddress,
-            label: venueConfig.chainName,
+            chainId: venueChainId,
+            contractAddress: venueAddress,
+            label: findChain(venueChainId)?.chainName ?? venueChainId,
           },
         ]
       : [];

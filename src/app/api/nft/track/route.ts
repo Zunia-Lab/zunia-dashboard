@@ -29,8 +29,9 @@ import {
   isInterchainError,
   type ExtractedPacket,
 } from "@zunialab/interchain";
-import { findChain } from "@/lib/chains";
+import { findServerChain as findChain } from "@/lib/server/chains";
 import { lcdFor } from "@/lib/server/interchain";
+import { overLimit } from "@/lib/server/interchain-request";
 import { describeNftError } from "@/lib/server/nft";
 
 export const runtime = "nodejs";
@@ -59,6 +60,10 @@ function findIcs721Packet(
 }
 
 export async function GET(req: NextRequest) {
+  // Polled every 6 s while a transfer is in flight; the same budget as the
+  // other NFT reads.
+  const limited = overLimit(req, { scope: "nft-track", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const params = req.nextUrl.searchParams;
   const chainId = params.get("chainId")?.trim() ?? "";
   const hash = params.get("hash")?.trim() ?? "";

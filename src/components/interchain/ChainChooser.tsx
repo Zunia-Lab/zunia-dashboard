@@ -3,30 +3,18 @@
 /**
  * Pick any chain in the catalog, not only a followed one.
  *
- * `ChainSelect` scopes to followed networks, which is right for Send and wrong
- * here: a swap is asked for precisely because the user holds something on a
- * chain they have not followed, or wants to be paid on one. 332 rows is too
- * many for a `<select>`, so this is a dialog with a labelled search field over
- * the shared `NetworkPickerSheet`.
- *
- * The sheet's own search input is deliberately not used — it is labelled by its
- * placeholder, and a placeholder disappears the moment someone types into it.
- * Filtering happens here and the sheet is handed the filtered rows.
+ * A swap or an NFT transfer is asked for precisely because the user holds
+ * something on a chain they have not followed, or wants it delivered to one,
+ * so this lists the whole catalog (or the `chains` given), searchable, as the
+ * kit's picker (a popover on desktop, a sheet on phones). Kept under this
+ * name and props for the screens built against it; the picker itself is the
+ * transfer pages' `ChainPicker`.
  */
 
-import { useMemo, useState } from "react";
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  NetworkPickerSheet,
-  SearchField,
-  TokenLogo,
-} from "@zunialab/ui";
+import { useId, useMemo } from "react";
+import { ChainPicker } from "@/components/transfer/ChainPicker";
 import { cn } from "@/lib/cn";
-import { findChain, searchChains, sortChains, type ChainEntry } from "@/lib/chains";
+import { searchChains, sortChains, type ChainEntry } from "@/lib/chains";
 
 export interface ChainChooserProps {
   readonly value: string;
@@ -40,106 +28,22 @@ export interface ChainChooserProps {
   readonly className?: string;
 }
 
-export function ChainChooser({
-  value,
-  onValueChange,
-  label,
-  chains,
-  disabled = false,
-  disabledReason,
-  className,
-}: ChainChooserProps) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const rows = useMemo(() => {
-    const pool = chains ? sortChains([...chains]) : searchChains("");
-    if (!search.trim()) return pool.slice(0, 200);
-    const needle = search.trim().toLowerCase();
-    return pool
-      .filter(
-        (chain) =>
-          chain.chainName.toLowerCase().includes(needle) ||
-          chain.chainId.toLowerCase().includes(needle) ||
-          chain.coinDenom.toLowerCase().includes(needle),
-      )
-      .slice(0, 200);
-  }, [chains, search]);
-
-  const selected = findChain(value);
-
+export function ChainChooser({ value, onValueChange, label, chains, disabled = false, disabledReason, className }: ChainChooserProps) {
+  const labelId = useId();
+  const pool = useMemo(() => (chains ? sortChains([...chains]) : searchChains("")), [chains]);
   return (
-    <div className={cn("flex min-w-0 flex-col gap-2", className)}>
-      <span
-        className="font-mono text-[length:var(--z-type-micro)] uppercase tracking-[0.14em] text-fg-muted"
-        id={`chain-chooser-${label.replace(/\s+/g, "-").toLowerCase()}`}
-      >
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)} role="group" aria-labelledby={labelId}>
+      <span id={labelId} className="text-[12.5px] font-medium text-fg-muted">
         {label}
       </span>
-      <Button
-        variant="secondary"
-        className="w-full justify-start gap-2 text-left"
-        onClick={() => setOpen(true)}
+      <ChainPicker
+        label={label}
+        value={value || null}
+        onChange={onValueChange}
+        chains={pool}
         disabled={disabled}
-        aria-label={`${label}: ${selected?.chainName ?? (value || "none selected")}. Change`}
-        {...(disabled && disabledReason
-          ? { title: disabledReason }
-          : {})}
-      >
-        <TokenLogo
-          src={selected?.iconUrl}
-          symbol={selected?.coinDenom ?? "?"}
-          size={20}
-          verified={selected?.inCosmosRegistry}
-          verifiedLabel="Listed in the Cosmos chain registry"
-        />
-        <span className="min-w-0 flex-1 truncate">
-          {selected ? selected.chainName : value || "Choose a network"}
-        </span>
-        <span className="shrink-0 font-mono text-[length:var(--z-type-micro)] text-fg-dim">
-          change
-        </span>
-      </Button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-[min(420px,calc(100%-32px))]">
-          <DialogTitle>{label}</DialogTitle>
-          <DialogDescription>
-            {rows.length === 200
-              ? "Showing the first 200 matches. Refine the search to narrow it."
-              : `${rows.length} network${rows.length === 1 ? "" : "s"}.`}
-          </DialogDescription>
-          <div className="mt-3 flex flex-col gap-3">
-            <SearchField
-              value={search}
-              onValueChange={setSearch}
-              placeholder="Search networks"
-              aria-label={`Search networks for ${label}`}
-            />
-            {rows.length === 0 ? (
-              <p className="py-6 text-center text-[length:var(--z-type-meta)] text-fg-dim">
-                No network matches “{search}”.
-              </p>
-            ) : (
-              <NetworkPickerSheet
-                networks={rows.map((chain) => ({
-                  chainId: chain.chainId,
-                  name: chain.chainName,
-                  symbol: chain.coinDenom,
-                  iconUrl: chain.iconUrl,
-                  verified: chain.inCosmosRegistry,
-                }))}
-                activeChainId={value}
-                onSelect={(chainId) => {
-                  onValueChange(chainId);
-                  setOpen(false);
-                  setSearch("");
-                }}
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+        disabledReason={disabledReason ?? null}
+      />
     </div>
   );
 }

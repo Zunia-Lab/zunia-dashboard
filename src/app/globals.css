@@ -1,12 +1,31 @@
 @import "@zunialab/fonts/fonts.css";
 @import "tailwindcss";
 @import "@zunialab/tokens/theme.css";
+@import "../styles/viz.css";
 @import "@zunialab/ui/styles.css";
+@import "../styles/ui.css";
 
 /* Only `dist` is part of the published package, and a relative path out of the
    project is something the bundler refuses to walk. */
 @source "../../node_modules/@zunialab/ui/dist/**/*.js";
 @source "../**/*.{ts,tsx}";
+
+/*
+ * Dashboard theme layer.
+ *
+ * `@zunialab/tokens` owns the brand roles (--z-*) and is shared with the
+ * extension popup and the phone app, so everything desktop-specific lives here
+ * as --d-* tokens on `.zunia-root` (the body and the app frame carry that
+ * class, and Radix portals mount into the body, so popovers inherit them).
+ * This file is the only place new tokens are defined (design spec §3).
+ *
+ * Cascade note: Tailwind v4 puts utilities in `@layer utilities`, and
+ * unlayered CSS beats every layer regardless of specificity. So the defaults
+ * below that a utility must be able to override (focus ring, card surface,
+ * skeleton) live in `@layer base` / `@layer components`; only custom
+ * properties and the rules that must beat @zunialab/ui's own unlayered CSS
+ * (its global 3px scrollbars) stay unlayered.
+ */
 
 html {
   color-scheme: light;
@@ -27,31 +46,369 @@ body {
   color: var(--z-fg);
   font-family: var(--z-font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Desktop wallet density. Extension keeps the compact token defaults. */
+/* ------------------------------------------------------------------ tokens */
+
 .zunia-root {
-  --z-type-micro: 11.5px;
-  --z-type-meta: 13.5px;
-  --z-type-row: 15px;
-  --z-type-body: 15.5px;
-  --z-type-heading: 22px;
-  --z-type-stat: 30px;
-  --z-type-hero: 40px;
-  --z-card-pad: 22px;
+  /* Base type: 14px Space Grotesk (spec §8 density). */
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  font-kerning: normal;
+
+  /* @zunialab/ui density bridge: kit components that are still on screen
+     (the app frame, legacy pages) read these, so they follow the same
+     compact desktop scale instead of the old 15.5px one. */
+  --z-type-micro: 11px;
+  --z-type-meta: 12.5px;
+  --z-type-row: 13.5px;
+  --z-type-body: 14px;
+  --z-type-heading: 16px;
+  --z-type-stat: 24px;
+  --z-type-hero: 44px;
+  --z-card-pad: 16px;
   --z-nav-w: 236px;
   --z-nav-w-lg: 264px;
   --z-live-w: 300px;
   --z-live-w-xl: 328px;
-  --z-h-desktop: 40px;
-  --z-h-sm: 40px;
-  --z-h-md: 46px;
-  --z-h-lg: 50px;
-  --z-radius-control: 14px;
-  font-size: 15.5px;
-  line-height: 1.5;
-  letter-spacing: -0.015em;
+  --z-h-desktop: 32px;
+  --z-h-sm: 32px;
+  --z-h-md: 36px;
+  --z-h-lg: 40px;
+  --z-radius-control: 10px;
+
+  /* Surfaces. Light values here; dark below. */
+  --d-card: var(--z-surface);
+  --d-card-2: var(--z-surface-raised);
+  --d-card-hover: #fcfbfa;
+  --d-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+  --d-hairline: rgba(17, 17, 17, 0.08);
+  --d-hairline-strong: rgba(17, 17, 17, 0.14);
+  /* Form-control edge: a step above the hairline so a field reads as one
+     without leaning on its fill alone. */
+  --d-control-line: rgba(17, 17, 17, 0.16);
+  --d-input-bg: #ffffff;
+  --d-glass: rgba(17, 17, 17, 0.04);
+  --d-glass-2: rgba(17, 17, 17, 0.07);
+  --d-row-hover: rgba(17, 17, 17, 0.025);
+  --d-row-selected: rgba(255, 27, 12, 0.055);
+  --d-pop-bg: #ffffff;
+  --d-pop-shadow: 0 18px 48px rgba(17, 17, 17, 0.12), 0 2px 6px rgba(17, 17, 17, 0.06);
+  --d-overlay: rgba(17, 17, 17, 0.3);
+  --d-skeleton: rgba(17, 17, 17, 0.065);
+  --d-shimmer: rgba(255, 255, 255, 0.7);
+  --d-seg-track: rgba(17, 17, 17, 0.05);
+  --d-seg-thumb: #ffffff;
+  --d-seg-thumb-shadow: 0 1px 2px rgba(17, 17, 17, 0.1), 0 0 0 1px rgba(17, 17, 17, 0.06);
+
+  /* Status and brand roles the dashboard adds. Accent as text: #d4190b is
+     4.68:1 on the page and 5.33:1 on a card, where the brand red is 3.41:1. */
+  --d-pos: var(--z-success);
+  --d-neg: var(--z-danger);
+  --d-accent-text: #d4190b;
+  --d-accent-soft: rgba(255, 27, 12, 0.08);
+  --d-accent-line: rgba(255, 27, 12, 0.32);
+
+  /* Hero card bloom (spec §3: 6% light / 16% dark) and grain. */
+  --d-bloom-1: rgba(255, 27, 12, 0.06);
+  --d-bloom-2: rgba(255, 138, 23, 0.035);
+  --d-grain-opacity: 0.025;
+
+  /* Shape and rhythm. */
+  --d-radius-card: 16px;
+  --d-radius-inner: 12px;
+  --d-radius-control: 10px;
+  --d-radius-sm: 6px;
+  --d-gap: 16px;
+  --d-pad: 16px;
+  --d-section-gap: 24px;
+  --d-row-h: 44px;
+  --d-row-h-compact: 36px;
+  --d-head-h: 36px;
+  --d-cell-px: 12px;
+  --d-ctl-xs: 28px;
+  --d-ctl-sm: 32px;
+  --d-ctl-md: 36px;
+  --d-ctl-lg: 40px;
+
+  /* Type scale (spec §3/§8). Large standalone figures use proportional
+     digits; tables and axes use tabular ones. */
+  --d-type-hero: 44px;
+  --d-type-kpi: 24px;
+  --d-type-title: 18px;
+  --d-type-card-title: 15px;
+  --d-type-body: 14px;
+  --d-type-meta: 12.5px;
+  --d-type-label: 11px;
+
+  /* Motion (spec §3): hover 160 ms, popovers 200 ms, page 180 ms, number
+     tween 450 ms. */
+  --d-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --d-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --d-dur-fast: 160ms;
+  --d-dur-pop: 200ms;
+  --d-dur-page: 180ms;
+  --d-dur-tween: 450ms;
+
+  /* Offset for sticky table headers. 0 while the top bar sits outside the
+     scroll container; a frame whose sticky top bar scrolls with the content
+     sets it to that bar's height on the scroll container. */
+  --d-sticky-top: 0px;
 }
+
+:is([data-theme="dark"], .zunia-dark) .zunia-root,
+.zunia-root:is([data-theme="dark"], .zunia-dark) {
+  --d-card-hover: #1a1714;
+  --d-card-shadow: none;
+  --d-hairline: rgba(241, 240, 238, 0.075);
+  --d-hairline-strong: rgba(241, 240, 238, 0.13);
+  --d-control-line: rgba(241, 240, 238, 0.12);
+  --d-input-bg: rgba(241, 240, 238, 0.03);
+  --d-glass: rgba(241, 240, 238, 0.04);
+  --d-glass-2: rgba(241, 240, 238, 0.075);
+  --d-row-hover: rgba(241, 240, 238, 0.03);
+  --d-row-selected: rgba(255, 78, 18, 0.085);
+  --d-pop-bg: #1c1814;
+  --d-pop-shadow: 0 18px 48px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --d-overlay: rgba(5, 4, 3, 0.62);
+  --d-skeleton: rgba(241, 240, 238, 0.075);
+  --d-shimmer: rgba(241, 240, 238, 0.07);
+  --d-seg-track: rgba(241, 240, 238, 0.05);
+  --d-seg-thumb: #2a2622;
+  --d-seg-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(241, 240, 238, 0.06);
+  /* #ff4e12 (brand vermilion) is 5.59:1 on a dark card. */
+  --d-accent-text: #ff4e12;
+  --d-accent-soft: rgba(255, 78, 18, 0.12);
+  --d-accent-line: rgba(255, 78, 18, 0.4);
+  --d-bloom-1: rgba(255, 27, 12, 0.16);
+  --d-bloom-2: rgba(255, 138, 23, 0.07);
+  --d-grain-opacity: 0.05;
+}
+
+/* A light region inside a dark document (or vice versa) gets its own values;
+   the order matters, this block must follow the dark one. */
+:is([data-theme="light"], .zunia-light) .zunia-root,
+.zunia-root:is([data-theme="light"], .zunia-light) {
+  --d-card-hover: #fcfbfa;
+  --d-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+  --d-hairline: rgba(17, 17, 17, 0.08);
+  --d-hairline-strong: rgba(17, 17, 17, 0.14);
+  --d-control-line: rgba(17, 17, 17, 0.16);
+  --d-input-bg: #ffffff;
+  --d-glass: rgba(17, 17, 17, 0.04);
+  --d-glass-2: rgba(17, 17, 17, 0.07);
+  --d-row-hover: rgba(17, 17, 17, 0.025);
+  --d-row-selected: rgba(255, 27, 12, 0.055);
+  --d-pop-bg: #ffffff;
+  --d-pop-shadow: 0 18px 48px rgba(17, 17, 17, 0.12), 0 2px 6px rgba(17, 17, 17, 0.06);
+  --d-overlay: rgba(17, 17, 17, 0.3);
+  --d-skeleton: rgba(17, 17, 17, 0.065);
+  --d-shimmer: rgba(255, 255, 255, 0.7);
+  --d-seg-track: rgba(17, 17, 17, 0.05);
+  --d-seg-thumb: #ffffff;
+  --d-seg-thumb-shadow: 0 1px 2px rgba(17, 17, 17, 0.1), 0 0 0 1px rgba(17, 17, 17, 0.06);
+  --d-accent-text: #d4190b;
+  --d-accent-soft: rgba(255, 27, 12, 0.08);
+  --d-accent-line: rgba(255, 27, 12, 0.32);
+  --d-bloom-1: rgba(255, 27, 12, 0.06);
+  --d-bloom-2: rgba(255, 138, 23, 0.035);
+  --d-grain-opacity: 0.025;
+}
+
+/* Density by viewport (spec §2/§8): tighter grid gap under 1280, roomier
+   card padding and a larger hero from 1536, touch-size controls on phones. */
+@media (max-width: 1279px) {
+  .zunia-root {
+    --d-gap: 12px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .zunia-root {
+    --d-pad: 20px;
+    --d-type-hero: 48px;
+  }
+}
+
+@media (max-width: 639px) {
+  .zunia-root {
+    --d-ctl-xs: 32px;
+    --d-ctl-sm: 36px;
+    --d-ctl-md: 40px;
+    --d-ctl-lg: 44px;
+    --d-type-hero: 34px;
+    --d-section-gap: 20px;
+    --z-type-hero: 34px;
+  }
+}
+
+/* Short names for the tokens above, resolved where they are used (`inline`),
+   so they follow the theme on any element: bg-card, bg-card-2,
+   border-hairline, divide-hairline, text-pos, text-neg, text-accent-text,
+   rounded-card, rounded-inner, rounded-ctl, shadow-pop. */
+@theme inline {
+  --color-card: var(--d-card);
+  --color-card-2: var(--d-card-2);
+  --color-hairline: var(--d-hairline);
+  --color-hairline-strong: var(--d-hairline-strong);
+  --color-pos: var(--d-pos);
+  --color-neg: var(--d-neg);
+  --color-accent-text: var(--d-accent-text);
+  --radius-card: var(--d-radius-card);
+  --radius-inner: var(--d-radius-inner);
+  --radius-ctl: var(--d-radius-control);
+  --shadow-pop: var(--d-pop-shadow);
+}
+
+/* -------------------------------------------------------------------- base */
+
+@layer base {
+  /* One focus ring for the whole dashboard (spec §3): 2px, offset 2px,
+     keyboard only. A component can still opt out with a utility. */
+  .zunia-root :focus-visible {
+    outline: 2px solid var(--z-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .zunia-root ::selection {
+    background: color-mix(in srgb, var(--z-accent) 26%, transparent);
+    color: inherit;
+  }
+
+  .zunia-root :where(h1, h2, h3, h4) {
+    text-wrap: balance;
+  }
+}
+
+/* --------------------------------------------------------------- utilities */
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The brand ramp as text (hero figures, marks). Decoration only: the ramp
+   is not a palette and must never be the only carrier of meaning. */
+@utility text-brand-gradient {
+  background-image: var(--z-accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* -------------------------------------------------------------- components */
+
+@layer components {
+  .d-card {
+    background: var(--d-card);
+    border: 1px solid var(--d-hairline);
+    border-radius: var(--d-radius-card);
+    box-shadow: var(--d-card-shadow);
+  }
+
+  /* Mono caps label (spec §3: 11px JetBrains Mono uppercase 0.08em fg-dim). */
+  .d-label {
+    font-family: var(--z-font-mono);
+    font-size: var(--d-type-label);
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--z-fg-dim);
+  }
+
+  /* First-load placeholder shaped like the content. Refetches never show it:
+     they dim the previous frame instead (see Card `pending`). */
+  .d-skeleton {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: var(--d-radius-sm);
+    background: var(--d-skeleton);
+  }
+
+  .d-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 20%, var(--d-shimmer) 50%, transparent 80%);
+    transform: translateX(-100%);
+    animation: d-shimmer 1.5s ease-in-out infinite;
+  }
+
+  .d-fade-in {
+    animation: d-fade-in var(--d-dur-page) var(--d-ease) both;
+  }
+}
+
+@keyframes d-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes d-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------- scrollbars */
+
+/* Data areas (tables, lists, code) get a 6px bar that a pointer can hit;
+   @zunialab/ui's global 3px hairline is right for the popup, too thin for a
+   wide table. Unlayered on purpose: it has to beat that global rule.
+   `scrollbar-color: auto` hands Chromium back to ::-webkit-scrollbar (it
+   ignores those pseudo-elements once a standard scrollbar property is set,
+   and .zunia-root sets one that inherits). */
+.d-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.d-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.d-scroll::-webkit-scrollbar-track,
+.d-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.d-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--z-fg) 20%, transparent);
+}
+
+.d-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--z-fg) 36%, transparent);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .d-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--z-fg) 28%, transparent) transparent;
+  }
+}
+
+/* Scrollers that should not show a bar at all (chip rows on phones). */
+.d-no-scrollbar {
+  scrollbar-width: none;
+}
+
+.d-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ------------------------------------------------------ connect + gate */
 
 /* Official Connect with Zunia button. Kept here so the dashboard styles it
    without waiting on the SDK's runtime stylesheet injection. */
@@ -125,7 +482,7 @@ body {
   font: 500 16px/1 var(--z-font-sans);
 }
 
-/* Full-screen connect gate */
+/* Full-screen connect gate (the landing page may reuse these). */
 .zunia-gate-glow {
   background: radial-gradient(
     circle,
@@ -191,38 +548,20 @@ body {
   }
 }
 
+/* ---------------------------------------------------------- reduced motion */
+
+/* No tweens, no shimmer, no entrance motion (spec §3). Popovers and dialogs
+   keep a plain fade-free appearance; state changes stay instant. */
 @media (prefers-reduced-motion: reduce) {
   .zunia-gate-glow,
   .zunia-gate-ring,
-  .zunia-gate-rise {
+  .zunia-gate-rise,
+  .d-fade-in {
     animation: none;
   }
-}
 
-/* Responsive dashboard: dense tables scroll; filters stack on narrow viewports */
-@media (max-width: 1023px) {
-  .zunia-root {
-    --z-type-heading: 20px;
-    --z-type-stat: 26px;
-    --z-type-hero: 32px;
-    --z-card-pad: 16px;
-  }
-
-  .zunia-table-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .zunia-filter-row {
-    flex-direction: column;
-    align-items: stretch;
+  .d-skeleton::after {
+    animation: none;
+    display: none;
   }
 }
-
-@media (max-width: 639px) {
-  .zunia-root {
-    --z-h-desktop: 44px;
-    --z-h-md: 44px;
-  }
-}
-

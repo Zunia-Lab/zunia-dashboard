@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { API_ERROR_TEXT, httpErrorText } from "@/lib/api-error";
 
 /** Why a read produced no payload. Rendered by the caller, never swallowed. */
 export interface JsonError {
   kind: "http" | "network" | "parse";
   /** Present when a response arrived; absent when the request never landed. */
   status?: number;
+  /** Written for the page (`@/lib/api-error`). */
   message: string;
+  /** The browser's raw text for a failed request, for debugging. Never shown. */
+  detail?: string;
 }
 
 export interface JsonState<T> {
@@ -91,7 +95,7 @@ export function useJsonState<T>(url: string | null): JsonState<T> {
             error: {
               kind: "http",
               status: response.status,
-              message: `Request failed with HTTP ${response.status}`,
+              message: httpErrorText(response.status),
             },
             loading: false,
           });
@@ -106,7 +110,7 @@ export function useJsonState<T>(url: string | null): JsonState<T> {
         } catch {
           settle({
             data: cached,
-            error: { kind: "parse", message: "Response was not JSON" },
+            error: { kind: "parse", message: API_ERROR_TEXT.parse },
             loading: false,
           });
         }
@@ -114,10 +118,8 @@ export function useJsonState<T>(url: string | null): JsonState<T> {
       .catch((err: unknown) => {
         settle({
           data: cached,
-          error: {
-            kind: "network",
-            message: err instanceof Error ? err.message : "Request failed",
-          },
+          // The browser's own words ("Failed to fetch", "Load failed") are not for the page.
+          error: { kind: "network", message: API_ERROR_TEXT.network, ...(err instanceof Error ? { detail: err.message } : {}) },
           loading: false,
         });
       });

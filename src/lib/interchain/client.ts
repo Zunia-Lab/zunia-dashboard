@@ -17,17 +17,13 @@ import {
   readChannelsResponse,
   readPlanResponse,
   readTxStatusResponse,
-  readQuoteResponse,
-  readSwapConfigResponse,
   readTraceResponse,
   type BalancesResponse,
   type ChannelCheckResponse,
   type ChannelsResponse,
   type InterchainFailure,
   type PlanResponse,
-  type QuoteResponse,
   type RoutePlanWire,
-  type SwapConfigResponse,
   type TrackResponse,
   type TxStatusResponse,
 } from "./wire";
@@ -90,12 +86,6 @@ async function postJson(
   } catch (error) {
     return transportFailure(error);
   }
-}
-
-export async function fetchSwapConfig(
-  signal?: AbortSignal,
-): Promise<SwapConfigResponse> {
-  return readSwapConfigResponse(await getJson("/api/interchain/config", signal));
 }
 
 export async function fetchBalances(
@@ -195,21 +185,6 @@ export async function fetchPlan(
   signal?: AbortSignal,
 ): Promise<PlanResponse> {
   return readPlanResponse(await postJson("/api/interchain/plan", input, signal));
-}
-
-export interface QuoteInput {
-  readonly chainId: string;
-  readonly tokenInDenom: string;
-  readonly tokenInAmount: string;
-  readonly tokenOutDenom: string;
-  readonly slippagePercent: number;
-}
-
-export async function fetchQuote(
-  input: QuoteInput,
-  signal?: AbortSignal,
-): Promise<QuoteResponse> {
-  return readQuoteResponse(await postJson("/api/interchain/quote", input, signal));
 }
 
 export interface TrackInput {

@@ -1,34 +1,33 @@
 /**
- * Deployment configuration for the crosschain-swap path.
+ * Deployment configuration for the IBC engine and the crosschain-swap venue.
  *
  * Pure environment reading, with no chain access, so it can be imported from
- * anywhere on the server without pulling the engine in. The on-chain check that
- * decides whether the feature is actually offered lives in `swap-venue.ts`.
+ * anywhere on the server without pulling the engine in. The on-chain check
+ * that decides whether a crosschain-swaps contract is actually used lives in
+ * `swap/venue.ts`; every route that names the contract (the swap engine,
+ * `/api/interchain/plan` and `/api/interchain/track`) goes through it.
  *
- * The crosschain-swaps contract address is NOT a constant and never will be.
- * The addresses circulating in Osmosis governance threads are unverified, a new
- * deployment replaces them, and a wrong address in an ibc-hooks memo sends funds
- * to a contract that will not send them back. So it comes from the environment,
- * it is checked against the chain before use, and the whole feature fails
- * closed — with the missing key named — when either half is absent.
+ * The contract address is never trusted because it is configured: it is
+ * checked against the chain (label and reviewed code id) before use, and the
+ * contract path fails closed, with a reason, when that check does not pass.
  *
- * Env vars, all optional; the feature is simply off without the first:
+ * Env vars, all optional:
  *
  * | Key | Meaning |
  * |-----|---------|
- * | `ZUNIA_XCS_CONTRACT`      | crosschain-swaps contract address |
- * | `ZUNIA_XCS_CHAIN_ID`      | chain it runs on (default `osmosis-1`) |
- * | `ZUNIA_OSMOSIS_ROUTER`    | SQS router base URL used for quoting |
+ * | `ZUNIA_XCS_CONTRACT`      | crosschain-swaps contract override (default: the shipped candidate) |
  * | `ZUNIA_PFM_CHAINS`        | comma-separated chain ids known to run PFM |
  * | `ZUNIA_IBC_HOOKS_CHAINS`  | comma-separated chain ids known to run ibc-hooks |
+ *
+ * `ZUNIA_XCS_CHAIN_ID` and `ZUNIA_OSMOSIS_ROUTER` fed the retired
+ * `/api/interchain/quote` and `/api/interchain/config` routes and are no
+ * longer read: the venue is Osmosis (`SWAP_VENUE_CHAIN_ID`) and the swap
+ * engine's router endpoints are `SWAP_ROUTER_ENDPOINTS` (src/config/interchain.ts).
  */
 
 import "server-only";
-import { OSMOSIS_ROUTER_ENDPOINTS } from "@zunialab/interchain";
 
 export const XCS_CONTRACT_KEY = "ZUNIA_XCS_CONTRACT";
-export const XCS_CHAIN_KEY = "ZUNIA_XCS_CHAIN_ID";
-export const ROUTER_KEY = "ZUNIA_OSMOSIS_ROUTER";
 
 function envList(key: string): string[] {
   return (process.env[key] ?? "")
@@ -37,29 +36,9 @@ function envList(key: string): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-/** The configured contract address, or `null` when the key is unset. */
+/** The configured contract address override, or `null` when the key is unset. */
 export function xcsContractAddress(): string | null {
   return process.env[XCS_CONTRACT_KEY]?.trim() || null;
-}
-
-/** Chain the crosschain-swaps contract runs on. */
-export function xcsChainId(): string {
-  return process.env[XCS_CHAIN_KEY]?.trim() || "osmosis-1";
-}
-
-/**
- * Base URL of the router used for quoting.
- *
- * Falls back to the venue's own published router, which the engine ships as
- * `OSMOSIS_ROUTER_ENDPOINTS`. This is a read made from the server, so no
- * visitor IP reaches it; the alternative is LCD-only quoting, which needs a
- * candidate pool list the chain cannot produce, and would leave every quote
- * permanently unavailable.
- */
-export function routerEndpoint(): string | null {
-  const configured = process.env[ROUTER_KEY]?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  return OSMOSIS_ROUTER_ENDPOINTS[0] ?? null;
 }
 
 /**

@@ -6,37 +6,36 @@
  * Two facts, kept apart, because collapsing them is how a UI reports success
  * for a token that is still in a bridge contract:
  *
- * - the transaction on the source chain, which says whether the contract call
- *   was accepted at all;
- * - for a cross-chain transfer, the ICS721 packet, which says whether the
- *   destination actually received it.
+ * - the transaction on the source chain: was the contract call accepted;
+ * - for a cross-chain transfer, the ICS721 packet: did the destination
+ *   receive it.
  *
  * A same-chain transfer has no packet and the transaction is the whole story.
- * A cross-chain transfer whose transaction succeeded is at the halfway point:
- * the token is escrowed and the voucher has not been minted yet. Every state
- * below names what the user's token is doing right now, including `timeout`,
- * where the bridge gives it back.
- *
- * Nothing is announced before it is read. Before the first poll answers, this
- * says the transaction was broadcast — which is the only thing that is true.
+ * A cross-chain transfer whose transaction succeeded is halfway: the token is
+ * escrowed and the voucher not minted yet. Every state names where the token
+ * is right now, including a timeout, where the bridge gives it back. Nothing
+ * is announced before it is read: until the first answer, the transaction
+ * was broadcast, which is all that is known.
  */
 
-import { useCallback, useState } from "react";
-import { Button, Callout, Pill, SectionLabel, Skeleton } from "@zunialab/ui";
-import { fillTemplate } from "@/lib/nft/parse-config";
+import { Button, Callout, Card, CardBody, CardHeader, CopyButton, ExternalLink, InlineError, Skeleton, StatusBadge } from "@/components/ui";
+import { shortenAddress } from "@/lib/format";
 import { useNftTrack } from "@/lib/nft/hooks";
+import { fillTemplate } from "@/lib/nft/parse-config";
 import type { NftTrackWire } from "@/lib/nft/wire";
 
 export interface NftTransferProgressProps {
-  readonly chainId: string;
-  readonly chainName: string;
-  readonly txHash: string;
-  readonly destChainId: string | null;
-  readonly destChainName: string | null;
-  readonly bridgeContract: string | null;
-  readonly recipient: string;
-  /** `ZUNIA_EXPLORER_TX` for this chain. Null renders the hash as plain text. */
-  readonly txExplorerTemplate: string | null;
+  chainId: string;
+  chainName: string;
+  txHash: string;
+  destChainId: string | null;
+  destChainName: string | null;
+  bridgeContract: string | null;
+  recipient: string;
+  /** This chain's tx explorer template; null leaves the hash as text. */
+  txExplorerTemplate: string | null;
+  /** Re-reads the token from the chain (its owner). */
+  onReread: () => void;
 }
 
 export function NftTransferProgress({
@@ -48,179 +47,127 @@ export function NftTransferProgress({
   bridgeContract,
   recipient,
   txExplorerTemplate,
+  onReread,
 }: NftTransferProgressProps) {
-  const [copied, setCopied] = useState(false);
-  const trace = useNftTrack({
-    chainId,
-    hash: txHash,
-    destChainId,
-    bridgeContract,
-  });
-
-  const copy = useCallback(() => {
-    void navigator.clipboard
-      ?.writeText(txHash)
-      .then(() => setCopied(true))
-      .catch(() => setCopied(false));
-  }, [txHash]);
-
-  const explorerUrl = txExplorerTemplate
-    ? fillTemplate(txExplorerTemplate, { hash: txHash, chainId })
-    : null;
+  const trace = useNftTrack({ chainId, hash: txHash, destChainId, bridgeContract });
+  const explorerUrl = txExplorerTemplate ? fillTemplate(txExplorerTemplate, { hash: txHash, chainId }) : null;
+  const state = trace.data ? stateOf(trace.data) : null;
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <SectionLabel>Transaction on {chainName}</SectionLabel>
-
-      <p className="m-0 font-mono text-[length:var(--z-type-meta)] break-all text-fg">
-        {txHash}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={copy}>
-          {copied ? "Copied" : "Copy hash"}
-        </Button>
-        {explorerUrl ? (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={explorerUrl} target="_blank" rel="noreferrer noopener">
-              Open in explorer
-            </a>
-          </Button>
-        ) : (
-          <span className="self-center font-mono text-[length:var(--z-type-micro)] text-fg-dim">
-            No explorer is configured for {chainName}.
+    <Card as="section" aria-label="Transfer status">
+      <CardHeader
+        title="Transfer status"
+        subtitle={`Transaction on ${chainName}`}
+        icon="activity"
+        refreshing={trace.loading && trace.data !== null}
+        actions={state ? <StatusBadge tone={state.tone}>{state.label}</StatusBadge> : null}
+      />
+      <CardBody className="flex flex-col gap-3">
+        <div className="flex min-w-0 items-center gap-2 rounded-[var(--d-radius-inner)] bg-[var(--d-card-2)] px-3 py-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg" title={txHash}>
+            {txHash}
           </span>
-        )}
-      </div>
-
-      {trace.loading && !trace.data ? (
-        <div aria-busy="true">
-          <span className="sr-only">Reading the transaction</span>
-          <Skeleton className="h-20 w-full rounded-[14px]" />
+          <CopyButton value={txHash} label="transaction hash" />
+          {explorerUrl ? (
+            <ExternalLink href={explorerUrl} className="shrink-0 text-[12.5px]">
+              Explorer
+            </ExternalLink>
+          ) : null}
         </div>
-      ) : null}
+        {!explorerUrl ? <p className="text-[12px] text-fg-dim">No explorer is configured for {chainName}, so the hash is shown as text.</p> : null}
 
-      {trace.status === "error" ? (
-        <Callout tone="warning" title="Status unavailable">
-          {trace.error?.message} The transaction was broadcast; this is the read
-          that failed.{" "}
-          <button
-            type="button"
-            onClick={trace.reload}
-            className="underline underline-offset-2"
-          >
-            Check again
-          </button>
-        </Callout>
-      ) : null}
-
-      {trace.data ? (
-        <Outcome
-          trace={trace.data}
-          destChainName={destChainName}
-          destChainId={destChainId}
-          recipient={recipient}
-        />
-      ) : null}
-
-      {trace.data?.notes.map((note) => (
-        <p
-          key={note}
-          className="m-0 font-mono text-[length:var(--z-type-micro)] leading-relaxed text-fg-dim"
-        >
-          {note}
-        </p>
-      ))}
-    </div>
+        {trace.loading && !trace.data ? (
+          <div aria-busy="true">
+            <span className="sr-only">Reading the transaction</span>
+            <Skeleton className="h-16 w-full rounded-[var(--d-radius-inner)]" />
+          </div>
+        ) : null}
+        {trace.status === "error" ? (
+          <InlineError
+            title="Status unavailable"
+            message={`${trace.error?.message ?? "The read failed"}. The transaction was broadcast; this is the read that failed.`}
+            onRetry={trace.reload}
+          />
+        ) : null}
+        {trace.data ? <Outcome trace={trace.data} destination={destChainName ?? destChainId ?? "the destination chain"} recipient={recipient} /> : null}
+        {trace.data?.notes.map((note) => (
+          <p key={note} className="text-[12.5px] leading-snug text-fg-dim">
+            {note}
+          </p>
+        ))}
+        <Button size="sm" variant="secondary" iconLeft="refresh" className="self-start" onClick={onReread}>
+          Re-read this token from the chain
+        </Button>
+      </CardBody>
+    </Card>
   );
 }
 
-/** One callout per real state, each naming where the token is. */
-function Outcome({
-  trace,
-  destChainName,
-  destChainId,
-  recipient,
-}: {
-  readonly trace: NftTrackWire;
-  readonly destChainName: string | null;
-  readonly destChainId: string | null;
-  readonly recipient: string;
-}) {
-  const destination = destChainName ?? destChainId ?? "the destination chain";
+function stateOf(trace: NftTrackWire): { label: string; tone: "success" | "warning" | "danger" | "neutral" } {
+  if (trace.tx.state === "failed") return { label: "Rejected", tone: "danger" };
+  if (trace.tx.state !== "success") return { label: "Waiting for a block", tone: "neutral" };
+  const packet = trace.packet;
+  if (!packet) return { label: "Transferred", tone: "success" };
+  if (packet.fundsRefunded || packet.status === "timeout") return { label: "Returned", tone: "warning" };
+  if (packet.status === "failed" || packet.failure === "ack-error") return { label: "Rejected there", tone: "danger" };
+  if (packet.status === "acknowledged" || packet.status === "received") return { label: "Voucher minted", tone: "success" };
+  return { label: "In flight", tone: "neutral" };
+}
 
+/** One callout per real state, each naming where the token is. */
+function Outcome({ trace, destination, recipient }: { trace: NftTrackWire; destination: string; recipient: string }) {
+  const who = shortenAddress(recipient, 12, 6);
   if (trace.tx.state === "failed") {
     return (
       <Callout tone="danger" title="Rejected by the chain">
-        {trace.tx.rawLog ||
-          `Result code ${trace.tx.code ?? "unknown"}.`}{" "}
-        Nothing moved: the token is still yours, in the same collection.
+        {trace.tx.rawLog || `Result code ${trace.tx.code ?? "unknown"}.`} Nothing moved: the token is still yours, in the same collection.
       </Callout>
     );
   }
-
   if (trace.tx.state !== "success") {
     return (
       <Callout tone="neutral" title="Waiting for a block">
-        Broadcast accepted. The node has not indexed it yet, which is normal for
-        the first few seconds.
+        Broadcast accepted. The node has not indexed it yet, which is normal for the first few seconds.
       </Callout>
     );
   }
-
-  if (trace.packet === null) {
+  const packet = trace.packet;
+  if (packet === null) {
     return (
       <Callout tone="success" title="Transferred">
-        In block {trace.tx.height ?? "—"}. {recipient} now owns this token.
+        In block {trace.tx.height ?? "—"}. {who} now owns this token.
       </Callout>
     );
   }
-
-  const packet = trace.packet;
-
   if (packet.fundsRefunded || packet.status === "timeout") {
     return (
-      <Callout tone="warning" title="The packet did not arrive; you got the token back">
-        Packet {packet.sequence} on {packet.sourceChannelId} timed out, so the
-        bridge released the escrow. The token is yours again on this chain and
-        no voucher was minted on {destination}.
+      <Callout tone="warning" title="The packet did not arrive; the token came back">
+        Packet {packet.sequence} on {packet.sourceChannelId} timed out, so the bridge released the escrow. The token is yours again on this chain
+        and no voucher was minted on {destination}.
       </Callout>
     );
   }
-
   if (packet.status === "failed" || packet.failure === "ack-error") {
     return (
       <Callout tone="danger" title="The destination rejected the packet">
         {packet.error ?? "The receiving chain returned an error acknowledgement."}{" "}
-        {packet.fundsRefunded
-          ? "The bridge has released the escrow."
-          : "Check whether the bridge has released the escrow before signing anything else."}
+        {packet.fundsRefunded ? "The bridge has released the escrow." : "Check that the bridge released the escrow before signing anything else."}
       </Callout>
     );
   }
-
   if (packet.status === "acknowledged" || packet.status === "received") {
     return (
       <Callout tone="success" title={`A voucher was minted on ${destination}`}>
-        Packet {packet.sequence} was delivered
-        {packet.receiveTxHash ? ` in ${packet.receiveTxHash}` : ""}. {recipient}{" "}
-        holds a voucher NFT backed by your token, which stays escrowed in the
-        bridge contract on this chain until the voucher is sent back.
+        Packet {packet.sequence} was delivered{packet.receiveTxHash ? ` in ${packet.receiveTxHash.slice(0, 10)}…` : ""}. {who} holds a voucher NFT backed by
+        your token, which stays escrowed in the bridge contract here until the voucher is sent back.
       </Callout>
     );
   }
-
   return (
-    <div className="flex flex-col gap-2">
-      <Callout tone="neutral" title="In flight">
-        Your token is escrowed in the bridge contract on this chain. Packet{" "}
-        {packet.sequence} left on {packet.sourceChannelId} and{" "}
-        {trace.destinationQueried
-          ? `${destination} has not acknowledged it yet.`
-          : `${destination} could not be queried, so only this chain's side is known.`}
-      </Callout>
-      <Pill tone="neutral">
-        {packet.sourcePort} · packet {packet.sequence}
-      </Pill>
-    </div>
+    <Callout tone="neutral" title="In flight">
+      Your token is escrowed in the bridge contract on this chain. Packet {packet.sequence} left on {packet.sourceChannelId} ({packet.sourcePort}),
+      and{" "}
+      {trace.destinationQueried ? `${destination} has not acknowledged it yet.` : `${destination} could not be asked, so only this chain's side is known.`}
+    </Callout>
   );
 }

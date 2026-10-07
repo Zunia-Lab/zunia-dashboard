@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
+import { syncPushPrivacy } from "@/lib/data/push";
 import { useStoredValue } from "@/lib/useStoredValue";
 
 const HIDE_KEY = "zunia.dashboard.hideAmounts";
@@ -56,6 +57,13 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
     () => setHideAmounts((prev) => !prev),
     [setHideAmounts],
   );
+
+  // Privacy mode covers OS notifications too: the service worker masks a push
+  // with no tab open, so it needs the setting where it can read it. Re-run on
+  // every change (this tab's toggle, another tab's through `storage`).
+  useEffect(() => {
+    void syncPushPrivacy();
+  }, [hideAmounts]);
 
   const value = useMemo<Prefs>(
     () => ({

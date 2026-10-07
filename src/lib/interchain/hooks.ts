@@ -3,7 +3,8 @@
 /**
  * Async state for the interchain screens.
  *
- * One generic loader plus four thin wrappers. The generic is here rather than
+ * One generic loader plus thin wrappers (plan, trace, channel check; the NFT
+ * hooks reuse the loader). The generic is here rather than
  * in `useJson.ts` because these are POSTs with structured bodies, they are
  * debounced (a plan is re-requested as the user types an amount), and one of
  * them polls until the packet reaches a terminal state.
@@ -16,28 +17,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  checkChannel,
-  fetchBalances,
-  fetchPlan,
-  fetchQuote,
-  fetchSwapConfig,
-  fetchTrace,
-  fetchTxStatus,
-  type PlanInput,
-  type QuoteInput,
-  type TrackInput,
-} from "./client";
-import type {
-  BalanceWire,
-  ChannelCheckWire,
-  InterchainFailure,
-  PlanResponseBody,
-  RouteTraceWire,
-  SwapConfigWire,
-  SwapQuoteWire,
-  TxStatusWire,
-} from "./wire";
+import { checkChannel, fetchPlan, fetchTrace, type PlanInput, type TrackInput } from "./client";
+import type { ChannelCheckWire, InterchainFailure, PlanResponseBody, RouteTraceWire } from "./wire";
 
 export type AsyncStatus = "idle" | "loading" | "error" | "ready";
 
@@ -165,35 +146,6 @@ export function useAsyncResource<T>(
   }, [key, nonce, settled, reload]);
 }
 
-/** Is cross-chain swap configured and verified for this deployment? */
-export function useSwapConfig(): AsyncResource<SwapConfigWire> {
-  return useAsyncResource<SwapConfigWire>("swap-config", async (signal) => {
-    const response = await fetchSwapConfig(signal);
-    return response.ok ? { ok: true, data: response.config } : response;
-  });
-}
-
-export interface BalancesState {
-  readonly balances: readonly BalanceWire[];
-  readonly notes: readonly string[];
-}
-
-export function useBalances(
-  chainId: string | null,
-  address: string | null,
-): AsyncResource<BalancesState> {
-  const key = chainId && address ? `${chainId}|${address}` : null;
-  return useAsyncResource<BalancesState>(key, async (signal) => {
-    if (!chainId || !address) {
-      return { ok: false, code: "bad-request", message: "No account connected." };
-    }
-    const response = await fetchBalances({ chainId, address }, signal);
-    return response.ok
-      ? { ok: true, data: { balances: response.balances, notes: response.notes } }
-      : response;
-  });
-}
-
 /**
  * Plan a route. Debounced, because the amount is typed and each keystroke would
  * otherwise cost a channel-discovery pass.
@@ -219,21 +171,6 @@ export function usePlan(input: PlanInput | null): AsyncResource<PlanResponseBody
           discoveryFailures: response.discoveryFailures,
         },
       };
-    },
-    { debounceMs: 450 },
-  );
-}
-
-export function useQuote(input: QuoteInput | null): AsyncResource<SwapQuoteWire> {
-  const key = input ? JSON.stringify(input) : null;
-  return useAsyncResource<SwapQuoteWire>(
-    key,
-    async (signal) => {
-      if (!input) {
-        return { ok: false, code: "bad-request", message: "Nothing to quote." };
-      }
-      const response = await fetchQuote(input, signal);
-      return response.ok ? { ok: true, data: response.quote } : response;
     },
     { debounceMs: 450 },
   );
@@ -280,39 +217,6 @@ export function useTrace(
     const timer = window.setInterval(reload, pollMs);
     return () => window.clearInterval(timer);
   }, [key, done, pollMs, reload, status]);
-
-  return resource;
-}
-
-/**
- * Poll one transaction until it is in a block.
- *
- * Stops on success or failure. `not-found` keeps polling: for the first few
- * seconds after a broadcast that is the ordinary answer, and treating it as a
- * failure is how a wallet tells someone their money vanished when it did not.
- */
-export function useTxStatus(
-  params: { chainId: string; hash: string } | null,
-  options: { readonly pollMs?: number } = {},
-): AsyncResource<TxStatusWire> {
-  const pollMs = options.pollMs ?? 5_000;
-  const key = params ? `${params.chainId}|${params.hash}` : null;
-  const resource = useAsyncResource<TxStatusWire>(key, async (signal) => {
-    if (!params) {
-      return { ok: false, code: "bad-request", message: "Nothing to check." };
-    }
-    const response = await fetchTxStatus(params, signal);
-    return response.ok ? { ok: true, data: response.status } : response;
-  });
-
-  const { data, reload } = resource;
-  const settled = data?.state === "success" || data?.state === "failed";
-
-  useEffect(() => {
-    if (key === null || settled) return;
-    const timer = window.setInterval(reload, pollMs);
-    return () => window.clearInterval(timer);
-  }, [key, settled, pollMs, reload]);
 
   return resource;
 }

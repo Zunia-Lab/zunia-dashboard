@@ -1,25 +1,42 @@
 import type { Metadata, Viewport } from "next";
 import { ClientProviders } from "@/components/ClientProviders";
+import { THEME_BOOT_SCRIPT, THEME_COLORS } from "@/components/shell/theme-boot";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
-const SITE_URL = "https://wallet.zunialab.com";
+const TITLE = "Zunia — Cosmos portfolio, staking & swap dashboard";
 const DESCRIPTION =
-  "Portfolio and activity for your Zunia wallet. Keys stay in the extension or on your phone.";
+  "Every Cosmos chain in one decision desk: balances, staking, governance, swaps and IBC across your networks, analysed and compared. Non-custodial: your keys stay in your wallet.";
 
+/**
+ * Site-wide defaults. Pages set their own title (through the template),
+ * description, canonical URL and Open Graph; public pages opt in to indexing
+ * with `robots: { index: true }`. The default keeps wallet pages out of
+ * search while letting crawlers follow links to the public ones.
+ *
+ * No manifest link here: `app/manifest.ts` is served and linked by Next.
+ * The Open Graph and Twitter images come from `app/opengraph-image.tsx` and
+ * `app/twitter-image.tsx`. `metadataBase` is the public origin
+ * (`@/lib/site`, app.zunialab.com), so every relative canonical, `og:url` and
+ * image URL a page sets comes out absolute on it, whichever host served the
+ * request.
+ */
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Zunia Wallet",
+    default: TITLE,
     template: "%s · Zunia",
   },
   description: DESCRIPTION,
   applicationName: "Zunia",
-  manifest: "/manifest.webmanifest",
+  category: "finance",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Zunia",
   },
+  // Addresses and amounts are not phone numbers: iOS must not linkify them.
+  formatDetection: { telephone: false, address: false, email: false },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -32,35 +49,39 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Zunia",
-    url: SITE_URL,
-    title: "Zunia Wallet",
+    url: "/",
+    title: TITLE,
     description: DESCRIPTION,
-    locale: "en",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Zunia Wallet",
+    site: "@ZuniaLab",
+    creator: "@ZuniaLab",
+    title: TITLE,
     description: DESCRIPTION,
   },
-  // Gated product shell: allow preview fetchers, keep pages out of search.
   robots: {
     index: false,
-    follow: false,
-    googleBot: { index: false, follow: false },
+    follow: true,
+    googleBot: { index: false, follow: true },
   },
 };
 
 export const viewport: Viewport = {
+  // The boot script repaints these with the theme actually shown (dark by
+  // default, whatever the OS prefers); these values only cover a disabled
+  // script.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#F1F0EE" },
-    { media: "(prefers-color-scheme: dark)", color: "#0B0A09" },
+    { media: "(prefers-color-scheme: light)", color: THEME_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLORS.dark },
   ],
   width: "device-width",
   initialScale: 1,
+  // The frame pads itself with env(safe-area-inset-*); without cover those
+  // insets are always 0 and an installed iOS app draws under the notch.
+  viewportFit: "cover",
 };
-
-/** Apply stored / system theme before paint to avoid a dark flash. */
-const THEME_BOOT = `(function(){try{var k="zunia-theme";var t=localStorage.getItem(k);var d=window.matchMedia("(prefers-color-scheme: dark)").matches;var r=t==="light"||t==="dark"?t:d?"dark":"light";var el=document.documentElement;el.setAttribute("data-theme",r);el.classList.toggle("zunia-dark",r==="dark");el.classList.toggle("zunia-light",r==="light");el.style.colorScheme=r;}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -68,15 +89,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className="h-dvh overflow-hidden antialiased"
-      suppressHydrationWarning
-    >
+    // The document scrolls (no viewport-height lock): sticky bars, scroll
+    // restoration and full-page captures work as on any web page.
+    <html lang="en" className="antialiased" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+        {/* Theme and sidebar width before the first paint (see theme-boot.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
-      <body className="zunia-root flex h-dvh min-h-0 flex-col overflow-hidden">
+      <body className="zunia-root min-h-dvh">
         <ClientProviders>{children}</ClientProviders>
       </body>
     </html>

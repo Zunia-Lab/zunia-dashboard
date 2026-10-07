@@ -1,20 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Button,
-  Callout,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogTrigger,
-} from "@zunialab/ui";
-import {
-  ConnectPairingModal,
-  ConnectWithZuniaButton,
-} from "@zunialab/sdk-react";
-import { useWallet } from "@/providers/WalletProvider";
+/**
+ * The "Connect wallet" button: opens the connect modal (`useConnectModal`).
+ *
+ * Props kept from the pre-v2 component (`size`, `fullWidth`, `label`) so the
+ * top bar and any page that rendered it keep working. Styled as the primary
+ * crimson button (white on `--z-button-gradient`), never white on the bright
+ * brand ramp, which fails contrast at its gold end.
+ */
+
+import { useConnectModal } from "@/components/connect/ConnectModal";
+import { FOCUS_RING } from "@/components/connect/WalletOptions";
+import { Icon } from "@/components/icons";
+import { useWallet } from "@/lib/connect/context";
+import { cn } from "@/lib/cn";
+
+const SIZES = {
+  sm: "h-9 px-3.5 text-[13px] gap-1.5",
+  md: "h-10 px-4 text-[14px] gap-2",
+  lg: "h-11 px-5 text-[14.5px] gap-2",
+} as const;
 
 export function ConnectWallet({
   size = "md",
@@ -25,109 +30,24 @@ export function ConnectWallet({
   fullWidth?: boolean;
   label?: string;
 } = {}) {
-  const {
-    busy,
-    error,
-    zuniaAvailable,
-    keplrAvailable,
-    pairing,
-    sessionStatus,
-    connectWithExtension,
-    connectWithKeplr,
-    connectWithNativeWs,
-    connectWithWalletConnect,
-  } = useWallet();
-  const [open, setOpen] = useState(false);
-  const [pairingOpen, setPairingOpen] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-
-  async function run(fn: () => Promise<void> | void, showPairing = false) {
-    setLocalError(null);
-    if (showPairing) setPairingOpen(true);
-    try {
-      await fn();
-      setOpen(false);
-      setPairingOpen(false);
-    } catch (e) {
-      setLocalError(e instanceof Error ? e.message : "Connect failed");
-      if (showPairing) setPairingOpen(true);
-    }
-  }
-
+  const modal = useConnectModal();
+  const { busy, restoring } = useWallet();
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <ConnectWithZuniaButton size={size} installed fullWidth={fullWidth}>
-            {label}
-          </ConnectWithZuniaButton>
-        </DialogTrigger>
-        <DialogContent className="max-w-md">
-          <DialogTitle>Connect</DialogTitle>
-          <DialogDescription>
-            Zunia, Keplr and WalletConnect keep keys on your device. The dashboard
-            never asks for a recovery phrase.
-          </DialogDescription>
-          <Callout
-            tone="info"
-            className="mt-3 w-full"
-            title="Phrases stay in the wallet apps"
-          >
-            Create or import only in the extension or mobile app.
-          </Callout>
-          <div className="mt-4 flex flex-col gap-3">
-            <ConnectWithZuniaButton
-              size="md"
-              installed={zuniaAvailable}
-              loading={busy && sessionStatus === "connecting"}
-              label="Connect with Zunia (extension)"
-              onClick={() => {
-                if (!zuniaAvailable) {
-                  window.open(
-                    "https://zunialab.com",
-                    "_blank",
-                    "noopener,noreferrer",
-                  );
-                  return;
-                }
-                return run(() => connectWithExtension());
-              }}
-            />
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => run(() => connectWithNativeWs(), true)}
-            >
-              Connect with Zunia (mobile QR)
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy || !keplrAvailable}
-              onClick={() => run(() => connectWithKeplr())}
-            >
-              {keplrAvailable ? "Keplr" : "Keplr not detected"}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => run(() => connectWithWalletConnect(), true)}
-            >
-              WalletConnect
-            </Button>
-            {(localError || error) && (
-              <p className="font-mono text-[13px] text-[var(--z-danger)]">
-                {localError || error}
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-      <ConnectPairingModal
-        open={pairingOpen}
-        onOpenChange={setPairingOpen}
-        status={sessionStatus}
-        pairing={pairing}
-      />
-    </>
+    <button
+      type="button"
+      onClick={() => modal.open()}
+      aria-busy={busy || restoring || undefined}
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] font-medium tracking-[-0.01em]",
+        "bg-[image:var(--z-button-gradient)] text-[var(--z-button-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(60,4,8,0.24)]",
+        "transition-[filter] duration-[160ms] hover:brightness-110 active:brightness-95",
+        SIZES[size],
+        fullWidth && "w-full",
+        FOCUS_RING,
+      )}
+    >
+      <Icon name="wallet" size={size === "sm" ? 15 : 16} />
+      {restoring ? "Restoring…" : label}
+    </button>
   );
 }

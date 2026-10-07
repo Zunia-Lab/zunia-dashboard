@@ -1,15 +1,35 @@
 "use client";
 
+/**
+ * The legacy portfolio shape, served from the new `/api/portfolio`.
+ *
+ * Overview, Staking, the asset page and the notification feed were written
+ * against `PortfolioSnapshot` (one holding per chain, native coin only). They
+ * keep working on the multi-asset route through this adapter until Phase B
+ * rebuilds them on `@/lib/data/portfolio`. New code should use that module.
+ *
+ * What the adapter keeps and what changed:
+ * - still one holding per chain (pages key rows by chain id): the chain's
+ *   native coin amounts, with `value` now the priced value of *everything*
+ *   the account holds on that chain (IBC tokens included), so the holdings
+ *   still sum to `total`;
+ * - `total` is the priced value; unpriced assets are left out, never valued at
+ *   zero, exactly as before;
+ * - a chain that could not be read keeps its row with `error` set;
+ * - chains the wallet cannot name an address on are in `skipped`.
+ */
+
 import { useMemo } from "react";
-import { useChainScope } from "@/lib/useChainScope";
+import { findChain } from "@/lib/chains";
+import { usePortfolio as usePortfolioV2 } from "@/lib/data/portfolio";
+import type { PortfolioResponse } from "@/lib/token/wire";
 import {
   DEFAULT_FOLLOWED,
   FOLLOWED_KEY,
   useFollowedChains,
 } from "@/lib/useFollowedChains";
-import { useJsonState, type JsonError } from "@/lib/useJson";
+import type { JsonError } from "@/lib/useJson";
 import { useWallet } from "@/providers/WalletProvider";
-import { usePrefs } from "@/providers/PrefsProvider";
 
 export { DEFAULT_FOLLOWED, FOLLOWED_KEY, useFollowedChains };
 
@@ -58,93 +78,46 @@ export interface PortfolioResult {
   connected: boolean;
 }
 
-function numberOr(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function nullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function baseUnits(value: unknown): string {
-  return typeof value === "string" && /^-?\d+$/.test(value) ? value : "0";
-}
-
-/**
- * One holding, or null when the row cannot be rendered. Rows are dropped rather
- * than passed through half-typed: AssetRow prints symbol / amount / value
- * directly, so a missing field would surface to the user as "undefined".
- */
-function readHolding(raw: unknown): ChainHolding | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const row = raw as Record<string, unknown>;
-  if (typeof row.chainId !== "string" || typeof row.symbol !== "string") {
-    return null;
-  }
+/** The legacy one-row-per-chain view of a multi-asset answer. */
+export function legacySnapshot(data: PortfolioResponse, skipped: readonly string[]): PortfolioSnapshot {
+  const holdings: ChainHolding[] = data.chains.map((chain) => {
+    // The staking coin is the asset whose ticker the chain row shows.
+    const stakingDenom = findChain(chain.chainId)?.coinMinimalDenom;
+    const own = data.assets.filter((asset) => asset.chainId === chain.chainId && asset.identity.decimals !== null);
+    const native =
+      own.find((asset) => asset.identity.denom === stakingDenom) ?? own.find((asset) => asset.identity.kind === "native");
+    const holding: ChainHolding = {
+      chainId: chain.chainId,
+      chainName: chain.chainName,
+      symbol: native?.identity.ticker ?? chain.nativeSymbol,
+      address: chain.address,
+      decimals: native?.identity.decimals ?? 6,
+      available: native?.amounts.liquid ?? "0",
+      staked: native?.amounts.staked ?? "0",
+      rewards: native?.amounts.rewards ?? "0",
+      amount: native?.total ?? 0,
+      price: native?.price?.price ?? null,
+      change24h: native?.price?.change24h ?? null,
+      value: chain.value,
+    };
+    const icon = chain.iconUrl ?? native?.identity.logoUrl;
+    if (icon) holding.iconUrl = icon;
+    if (chain.status === "error") holding.error = chain.error ?? "Chain unreachable";
+    return holding;
+  });
+  holdings.sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
   return {
-    chainId: row.chainId,
-    chainName:
-      typeof row.chainName === "string" ? row.chainName : row.chainId,
-    symbol: row.symbol,
-    iconUrl: typeof row.iconUrl === "string" ? row.iconUrl : undefined,
-    address: typeof row.address === "string" ? row.address : "",
-    decimals: numberOr(row.decimals, 6),
-    available: baseUnits(row.available),
-    staked: baseUnits(row.staked),
-    rewards: baseUnits(row.rewards),
-    amount: numberOr(row.amount, 0),
-    price: nullableNumber(row.price),
-    change24h: nullableNumber(row.change24h),
-    value: nullableNumber(row.value),
-    error: typeof row.error === "string" ? row.error : undefined,
-  };
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
-}
-
-/**
- * /api/portfolio answers 200 either with a snapshot or with a placeholder
- * ({ error, stub }), so the aggregates the pages render are checked here
- * instead of trusted. A payload without them is a failed read, not a wallet
- * holding nothing.
- *
- * Every field a consumer reads is narrowed or defaulted rather than asserted:
- * the previous `value as unknown as PortfolioSnapshot` let a payload with the
- * four checked fields and nothing else through, and useNotifications then
- * rendered "Across undefined chains".
- */
-function readSnapshot(raw: unknown): PortfolioSnapshot | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const value = raw as Record<string, unknown>;
-  if (
-    typeof value.total !== "number" ||
-    typeof value.staked !== "number" ||
-    typeof value.claimable !== "number" ||
-    !Array.isArray(value.holdings)
-  ) {
-    return null;
-  }
-  return {
-    total: value.total,
-    staked: value.staked,
-    claimable: value.claimable,
-    change24h:
-      typeof value.change24h === "number" && Number.isFinite(value.change24h)
-        ? value.change24h
-        : null,
-    pricedChains: numberOr(value.pricedChains, 0),
-    unpricedChains: numberOr(value.unpricedChains, 0),
-    holdings: value.holdings
-      .map(readHolding)
-      .filter((row): row is ChainHolding => row !== null),
-    skipped: stringArray(value.skipped),
-    currency: typeof value.currency === "string" ? value.currency : undefined,
-    stub: value.stub === true,
-    source: typeof value.source === "string" ? value.source : undefined,
+    total: data.totals.pricedValue,
+    staked: data.totals.staked,
+    claimable: data.totals.rewards,
+    change24h: data.totals.change24hPct,
+    pricedChains: data.chains.filter((chain) => chain.status === "ok" && (chain.value ?? 0) > 0).length,
+    unpricedChains: data.chains.filter((chain) => chain.status === "ok" && chain.assetCount > 0 && chain.value === null)
+      .length,
+    holdings,
+    skipped: [...skipped],
+    currency: data.currency,
+    source: "public-lcd",
   };
 }
 
@@ -154,67 +127,59 @@ function readSnapshot(raw: unknown): PortfolioSnapshot | null {
  */
 export function usePortfolio(): PortfolioResult {
   const { account } = useWallet();
-  const { scopedChainIds } = useChainScope();
-  const { currency } = usePrefs();
+  const state = usePortfolioV2();
+  const { data, error, status, accounts } = state;
 
-  const url = account
-    ? `/api/portfolio?${new URLSearchParams({
-        address: account.address,
-        chainId: account.chainId,
-        chains: scopedChainIds.join(","),
-        currency,
-      }).toString()}`
-    : null;
-
-  const { data, error, loading } = useJsonState<unknown>(url);
-
-  return useMemo(() => {
+  return useMemo<PortfolioResult>(() => {
     const connected = Boolean(account);
     if (!connected) {
+      return { snapshot: null, status: "idle", loading: false, error: null, sample: false, connected };
+    }
+    if (data) {
       return {
-        snapshot: null,
-        status: "idle",
+        snapshot: legacySnapshot(data, accounts.skipped),
+        status: "ready",
         loading: false,
         error: null,
         sample: false,
         connected,
       };
     }
-    if (loading) {
-      return {
-        snapshot: null,
-        status: "loading",
-        loading: true,
-        error: null,
-        sample: false,
-        connected,
-      };
-    }
-
-    const snapshot = readSnapshot(data);
-    if (!snapshot) {
+    if (status === "error") {
       return {
         snapshot: null,
         status: "error",
         loading: false,
-        error: error ?? {
-          kind: "parse",
-          message: "Portfolio read returned no balances",
-        },
+        error: error
+          ? { kind: error.kind, message: error.message, ...(error.status !== undefined ? { status: error.status } : {}) }
+          : { kind: "parse", message: "Portfolio read returned no balances" },
         sample: false,
         connected,
       };
     }
-
-    return {
-      snapshot,
-      status: "ready",
-      loading: false,
-      error: null,
-      sample: snapshot.stub === true || snapshot.source === "stub",
-      connected,
-    };
-  }, [account, data, error, loading]);
+    if (status === "idle") {
+      // Connected, but no scoped chain has an address to read.
+      return {
+        snapshot: {
+          total: 0,
+          staked: 0,
+          claimable: 0,
+          change24h: null,
+          pricedChains: 0,
+          unpricedChains: 0,
+          holdings: [],
+          skipped: accounts.skipped,
+          source: "public-lcd",
+        },
+        status: "ready",
+        loading: false,
+        error: null,
+        sample: false,
+        connected,
+      };
+    }
+    return { snapshot: null, status: "loading", loading: true, error: null, sample: false, connected };
+  }, [account, data, error, status, accounts.skipped]);
 }
 
 /**

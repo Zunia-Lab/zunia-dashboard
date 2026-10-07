@@ -1,9 +1,14 @@
 import { ImageResponse } from "next/og";
-import { BrandMark, BRAND_BG } from "@/lib/brand-mark";
+import { ZuniaMark } from "@/components/landing/ZuniaMark";
+import { BRAND_BG } from "@/lib/brand-mark";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 
+/**
+ * Home-screen icon: the gradient mark on the dark tile, square and opaque —
+ * iOS rounds the corners itself, and transparent corners would show black.
+ */
 export default function AppleIcon() {
   return new ImageResponse(
     (
@@ -15,10 +20,10 @@ export default function AppleIcon() {
           alignItems: "center",
           justifyContent: "center",
           background: BRAND_BG,
-          borderRadius: 36,
+          backgroundImage: "radial-gradient(circle at 50% 42%, rgba(255,78,18,0.16) 0%, transparent 62%)",
         }}
       >
-        <BrandMark size={108} />
+        <ZuniaMark id="apple-icon" size={92} />
       </div>
     ),
     { ...size },

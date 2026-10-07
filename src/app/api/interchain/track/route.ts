@@ -14,7 +14,13 @@
  * - `stalled`   — nothing has failed; it is simply late. Funds safe, wait.
  * - `swap-delivery-failed` — the swap ran and the payout did not land. The
  *   output sits in the crosschain-swaps contract and only the recovery address
- *   can pull it out. This is the one that needs the user.
+ *   can pull it out. This is the one that needs the user. The contract the
+ *   recovery names is the one the swap engine's venue check verified on chain
+ *   (`recoveryContractFor`), never an unchecked setting.
+ *
+ * Polled every 6 s per transfer in flight (the tracker page, the activity
+ * packet view, the live menu's watcher), so the rate limit leaves room for
+ * several at once. The body carries the plan and its memo, hence 64 KB.
  */
 
 import { NextRequest } from "next/server";
@@ -24,7 +30,9 @@ import {
   type RoutePlan,
 } from "@zunialab/interchain";
 import { describeError, lcdResolver } from "@/lib/server/interchain";
-import { swapVenueConfig } from "@/lib/server/swap-venue";
+import { boundedBody, foreignOrigin, overLimit } from "@/lib/server/interchain-request";
+import { recoveryContractFor } from "@/lib/server/interchain-rules";
+import { swapVenue } from "@/lib/server/swap/venue";
 
 export const runtime = "nodejs";
 
@@ -35,6 +43,9 @@ interface TrackBody {
   sourcePacketSequence?: unknown;
   recoveryAddress?: unknown;
 }
+
+/** Longer than any plan the planner builds (`maxHops` is 3–4). */
+const MAX_HOPS = 8;
 
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -57,7 +68,8 @@ function readPlan(value: unknown): RoutePlan | null {
   const sourceChainId = str(row.sourceChainId);
   const destChainId = str(row.destChainId);
   if (!sourceChainId || !destChainId) return null;
-  if (!Array.isArray(row.hops) || row.hops.length === 0) return null;
+  // A route is a handful of hops; each one tracked is a chain read.
+  if (!Array.isArray(row.hops) || row.hops.length === 0 || row.hops.length > MAX_HOPS) return null;
 
   const hops: RoutePlan["hops"][number][] = [];
   for (const entry of row.hops) {
@@ -96,13 +108,16 @@ function readPlan(value: unknown): RoutePlan | null {
   };
 }
 
+const MAX_BODY_BYTES = 65_536;
+
 export async function POST(req: NextRequest) {
-  let body: TrackBody;
-  try {
-    body = (await req.json()) as TrackBody;
-  } catch {
-    return bad("The request body was not JSON.");
-  }
+  const foreign = foreignOrigin(req);
+  if (foreign) return foreign;
+  const limited = overLimit(req, { scope: "interchain-track", capacity: 60, refillPerSecond: 1 });
+  if (limited) return limited;
+  const parsed = await boundedBody(req, MAX_BODY_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as TrackBody;
 
   const plan = readPlan(body.plan);
   if (!plan) return bad("The route plan was missing or unreadable.");
@@ -115,10 +130,11 @@ export async function POST(req: NextRequest) {
   const sourcePacketSequence = str(body.sourcePacketSequence);
   const recoveryAddress = str(body.recoveryAddress);
 
-  // Only supplied when the plan actually contains a swap; the contract address
-  // is what turns "your funds are recoverable" into a button that can be built.
+  // Only looked up when the plan actually contains a swap; the verified
+  // contract address is what turns "your funds are recoverable" into a button
+  // that can be built.
   const needsVenue = plan.hops.some((hop) => hop.kind === "swap");
-  const venue = needsVenue ? await swapVenueConfig() : null;
+  const swapContract = needsVenue ? recoveryContractFor(plan.hops, await swapVenue()) : null;
 
   try {
     const trace = await trackRoute(plan, sourceTxHash, lcdResolver, {
@@ -129,7 +145,7 @@ export async function POST(req: NextRequest) {
       ...(sourcePacketSequence && /^\d+$/.test(sourcePacketSequence)
         ? { sourcePacketSequence }
         : {}),
-      ...(venue?.contractAddress ? { swapContract: venue.contractAddress } : {}),
+      ...(swapContract ? { swapContract } : {}),
       ...(recoveryAddress ? { recoveryAddress } : {}),
       // Polling: a short cache keeps a 5-second poll from re-reading the same
       // committed transaction on every tick without pinning a stale answer.

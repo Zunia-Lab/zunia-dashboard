@@ -34,6 +34,10 @@ yarn-error.log*
 .env*
 !.env.example
 
+# runtime data written by the server (push subscriptions and watched
+# addresses; ZUNIA_DASHBOARD_DATA_DIR defaults here in development)
+.data/
+
 # vercel
 .vercel
 

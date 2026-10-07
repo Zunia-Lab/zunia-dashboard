@@ -1,0 +1,149 @@
+/**
+ * Chain errors in plain words. The raw logs are real ones: the first three
+ * were returned by cosmoshub-4 and safrochain-1 to this app's own routes on
+ * 2026-10-07, the rest are the SDK's and Osmosis's own messages.
+ */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { cleanChainLog, explainError, explainTxError, isSimulationRefusal, TxError } from "../errors";
+
+test("insufficient funds (simulation on cosmoshub-4)", () => {
+  const e = explainTxError(
+    "failed to execute message; message index: 0: spendable balance 24840473uatom is smaller than 999999999999999999uatom: insufficient funds [cosmos/cosmos-sdk@v0.53.6/x/bank/keeper/send.go:298] with gas used: '72794'",
+  );
+  assert.equal(e.kind, "insufficient-funds");
+  assert.match(e.message, /not enough balance/);
+  assert.match(e.detail!, /spendable balance/);
+  assert.equal(e.retryable, false);
+});
+
+test("sequence mismatch keeps the sequence the chain expects (simulation on safrochain-1)", () => {
+  const e = explainTxError(
+    "account sequence mismatch, expected 5, got 10: incorrect account sequence [cosmos/cosmos-sdk@v0.50.14/x/auth/ante/sigverify.go:290] with gas used: '17493'",
+  );
+  assert.equal(e.kind, "sequence-mismatch");
+  assert.equal(e.expectedSequence, "5");
+  assert.equal(e.retryable, true);
+});
+
+test("signature refused (broadcast with a bad signature, code 4)", () => {
+  const e = explainTxError(
+    "signature verification failed; please verify account number (49692) and chain-id (safrochain-1): unauthorized",
+    { code: 4, codespace: "sdk" },
+  );
+  assert.equal(e.kind, "unauthorized");
+  assert.match(e.message, /could not verify the signature/);
+});
+
+test("out of gas, insufficient fee, slippage, expiry", () => {
+  assert.equal(explainTxError("out of gas in location: WritePerByte; gasWanted: 100, gasUsed: 2000: out of gas").kind, "out-of-gas");
+  assert.match(explainTxError("out of gas in location: x").message, /fee was still charged/);
+  assert.equal(explainTxError("insufficient fees; got: 10uosmo required: 400uosmo: insufficient fee").kind, "insufficient-fee");
+  assert.equal(
+    explainTxError("failed to execute message; message index: 0: token amount calculated (352436) is lesser than min amount (704872)").kind,
+    "slippage",
+  );
+  assert.equal(explainTxError("tx timeout height 100 is lower than current height 120").kind, "expired");
+  assert.equal(explainTxError("context deadline exceeded").kind, "network-timeout");
+  assert.equal(explainTxError("tx already in mempool").kind, "already-in-mempool");
+});
+
+test("an account the chain has never seen (code 9, seen live on cosmoshub-4)", () => {
+  const e = explainTxError("account cosmos1r06s88t3s8jrg26rqqtu58crrncj7xzy5hp9un does not exist: unknown address", { code: 9, codespace: "sdk" });
+  assert.equal(e.kind, "no-account");
+  assert.match(e.message, /never received funds/);
+  assert.equal(explainTxError("account cosmos1x does not exist: unknown address").kind, "no-account");
+});
+
+test("the SDK code decides in the core codespace; the log decides elsewhere", () => {
+  assert.equal(explainTxError("whatever", { code: 13, codespace: "sdk" }).kind, "insufficient-fee");
+  assert.equal(explainTxError("whatever", { code: 5 }).kind, "insufficient-funds");
+  // Code 5 in another module's codespace is not "insufficient funds".
+  assert.equal(explainTxError("execute wasm contract failed: Generic error", { code: 5, codespace: "wasm" }).kind, "unknown");
+});
+
+test("an unknown error keeps the chain's words; an empty one still says something", () => {
+  const e = explainTxError("execute wasm contract failed: Generic error: nope");
+  assert.equal(e.kind, "unknown");
+  assert.equal(e.message, "execute wasm contract failed: Generic error: nope");
+  assert.equal(e.detail, null);
+  assert.equal(explainTxError("   ").message, "The chain refused this transaction.");
+});
+
+test("long logs are bounded", () => {
+  const e = explainTxError(`insufficient funds ${"x".repeat(5_000)}`);
+  assert.ok(e.detail!.length <= 601);
+});
+
+test("wallet errors go through the same classifier", () => {
+  assert.equal(explainError(new Error("Request rejected")).kind, "user-rejected");
+  assert.equal(explainError(Object.assign(new Error("nope"), { code: "USER_REJECTED" })).kind, "user-rejected");
+  const wrapped = new TxError(explainTxError("out of gas"), "ABC");
+  assert.equal(explainError(wrapped).kind, "out-of-gas");
+  assert.equal(wrapped.txHash, "ABC");
+});
+
+/*
+ * Simulation answers seen live on 2026-10-07 (cosmoshub-4 SDK v0.53.6,
+ * safrochain-1 wasmd v0.54.1): a transaction the chain ran and refused comes
+ * back as HTTP 500 {"code":2,…}, the status a crashed node gives too.
+ */
+const INACTIVE_PROPOSAL =
+  "failed to execute message; message index: 0: 1: inactive proposal [cosmos/cosmos-sdk@v0.53.6/x/gov/keeper/vote.go:24] with gas used: '71619'";
+const NO_CONTRACT =
+  "failed to execute message; message index: 0: address addr_safro1q4c4p0n66crlkgagr76mjtnmt4d8pdlq3gcr9j: no such contract [!cosm!wasm/wasmd@v0.54.1/x/wasm/types/errors.go:156] with gas used: '35711'";
+const STALE_SEQUENCE =
+  "account sequence mismatch, expected 366, got 300: incorrect account sequence [cosmos/cosmos-sdk@v0.53.6/x/auth/ante/sigverify.go:364] with gas used: '13160'";
+
+test("a simulation the chain ran and refused is a refusal, whatever the HTTP status", () => {
+  assert.equal(isSimulationRefusal(500, INACTIVE_PROPOSAL, 2), true);
+  assert.equal(isSimulationRefusal(500, NO_CONTRACT, 2), true);
+  assert.equal(isSimulationRefusal(500, STALE_SEQUENCE, 2), true);
+  // Older SDKs: "With gas wanted: … and gas used: …".
+  assert.equal(isSimulationRefusal(500, "insufficient funds With gas wanted: '0' and gas used: '41234' ", 2), true);
+  assert.equal(isSimulationRefusal(400, "", null), true);
+});
+
+test("a node failing is not a refusal (the flow falls back to a fixed gas limit)", () => {
+  assert.equal(isSimulationRefusal(500, "", null), false);
+  assert.equal(isSimulationRefusal(502, "", null), false);
+  assert.equal(isSimulationRefusal(500, "rpc error: code = Unavailable desc = connection refused", 14), false);
+  assert.equal(isSimulationRefusal(429, "", null), false);
+  // A recognised cause without a gRPC-coded body is an HTML/proxy page, not the chain.
+  assert.equal(isSimulationRefusal(503, "insufficient funds", null), false);
+});
+
+test("an unknown refusal shows the chain's words without source paths or the gas trailer", () => {
+  assert.equal(cleanChainLog(INACTIVE_PROPOSAL), "1: inactive proposal");
+  assert.equal(
+    cleanChainLog(NO_CONTRACT),
+    "address addr_safro1q4c4p0n66crlkgagr76mjtnmt4d8pdlq3gcr9j: no such contract",
+  );
+  const e = explainTxError(INACTIVE_PROPOSAL);
+  assert.equal(e.kind, "unknown");
+  assert.equal(e.message, "1: inactive proposal");
+  assert.match(e.detail!, /vote\.go:24/, "the raw text stays available for a details fold");
+  // Known kinds keep their own copy; the chain's text is the detail.
+  const stale = explainTxError(STALE_SEQUENCE);
+  assert.equal(stale.kind, "sequence-mismatch");
+  assert.equal(stale.expectedSequence, "366");
+});
+
+test("TxError says whether the transaction reached a block", () => {
+  assert.equal(new TxError(explainTxError("out of gas"), "ABC", true).onChain, true);
+  assert.equal(new TxError(explainTxError("insufficient fee"), "ABC").onChain, false);
+});
+
+test("wallet error codes (phone SDK, Zunia extension) get plain words", () => {
+  const code = (c: string, m: string) => Object.assign(new Error(m), { code: c });
+  const timeout = explainError(code("TIMEOUT", "The wallet did not answer in time"));
+  assert.equal(timeout.kind, "wallet-timeout");
+  assert.match(timeout.message, /open the app on your phone/);
+  assert.equal(timeout.retryable, true);
+  for (const c of ["NOT_CONNECTED", "SESSION_EXPIRED", "DISCONNECTED"]) {
+    assert.equal(explainError(code(c, "Pair a wallet first")).kind, "wallet-disconnected", c);
+  }
+  assert.match(explainError(code("UNKNOWN_CHAIN", "x")).message, /connect again and include it/);
+  assert.equal(explainError(Object.assign(new Error("User rejected the request."), { code: 4001 })).kind, "user-rejected");
+});

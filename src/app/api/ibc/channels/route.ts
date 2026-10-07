@@ -14,15 +14,23 @@
  * ordinary state — a slow or incomplete public endpoint — and the caller's next
  * move is to offer manual channel entry, which needs the reason to explain
  * itself. A 5xx would render as a broken page instead.
+ *
+ * The heaviest read the API exposes — up to a thousand channel rows plus a
+ * connection lookup per row — and no screen calls it (the planner discovers
+ * through `lib/server/interchain.ts`), so its rate limit is the tightest.
  */
 
 import { NextRequest } from "next/server";
 import { isInterchainError } from "@zunialab/interchain";
-import { channelService } from "@/lib/server/interchain";
+import { findServerChain } from "@/lib/server/chains";
+import { channelService, describeError } from "@/lib/server/interchain";
+import { overLimit } from "@/lib/server/interchain-request";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const limited = overLimit(req, { scope: "ibc-channels", capacity: 10, refillPerSecond: 0.2 });
+  if (limited) return limited;
   const source = req.nextUrl.searchParams.get("source")?.trim() ?? "";
   const dest = req.nextUrl.searchParams.get("dest")?.trim() ?? "";
   if (!source || !dest) {
@@ -36,6 +44,14 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const sourceChain = findServerChain(source);
+  if (!sourceChain || !findServerChain(dest)) {
+    return Response.json(
+      { ok: false, code: "unsupported-chain", message: "That chain is not in this build's catalog." },
+      { status: 400 },
+    );
+  }
+
   try {
     const channels = await channelService.findIbcChannels(source, dest);
     return Response.json({ ok: true, channels });
@@ -43,10 +59,7 @@ export async function GET(req: NextRequest) {
     return Response.json({
       ok: false,
       code: isInterchainError(error) ? error.code : "server-error",
-      message:
-        error instanceof Error
-          ? `Could not list channels from ${source}. ${error.message}`
-          : `Could not list channels from ${source}.`,
+      message: describeError(error, `Could not list channels from ${sourceChain.chainName}.`),
     });
   }
 }

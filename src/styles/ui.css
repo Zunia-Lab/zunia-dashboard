@@ -1,0 +1,756 @@
+/*
+ * Component styles for src/components/ui.
+ *
+ * Most styling lives in the components as Tailwind classes. What is here is
+ * what classes cannot say well: Radix open/close states, descendant rules for
+ * tables, pseudo-elements (bloom, grain, scroll shadows) and keyframes.
+ * Everything sits in `@layer components` so a utility passed through
+ * `className` still wins, except the few overrides that must beat the
+ * unlayered rules @zunialab/ui ships (dialog overlay), which are marked.
+ */
+
+/* ------------------------------------------------------------------ cards */
+
+@layer components {
+  .d-card-hero {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Brand bloom from the top-right corner (spec §3).
+     The gradient is sized by its own box, capped at 447px tall: on a tall
+     phone card (Missions is 358×671) an ellipse 85% of the card's height ran
+     the glow down the right edge as a band. Cards up to 447px tall (every
+     transaction hero, KPI tiles, most desktop heroes) draw exactly as
+     before; taller ones keep a corner glow, 380px deep at most. The cap is
+     on the box, not in the gradient: Chromium draws a radial-gradient sized
+     with min(85%, 380px) as no gradient at all. */
+  .d-card-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: min(100%, 447px);
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 85% at 100% 0%, var(--d-bloom-1) 0%, var(--d-bloom-2) 42%, transparent 72%);
+  }
+
+  /* Faint film grain, the same noise the landing gate uses. */
+  .d-card-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: var(--d-grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 180px 180px;
+    mix-blend-mode: overlay;
+  }
+
+  /* A flush body bleeds to the card's edges (tables, lists), keeping the
+     header's padding as the content inset. */
+  .d-card-flush {
+    margin-inline: calc(var(--d-pad) * -1);
+  }
+
+  .d-card-flush:first-child {
+    margin-top: calc(var(--d-pad) * -1);
+  }
+
+  .d-card-flush:last-child {
+    margin-bottom: calc(var(--d-pad) * -1);
+  }
+
+  /* Refetch keeps the previous frame on screen, dimmed (spec §3). */
+  .d-card[data-pending] .d-card-body {
+    opacity: 0.6;
+  }
+
+  .d-card-body {
+    transition: opacity var(--d-dur-fast) var(--d-ease);
+  }
+}
+
+/* --------------------------------------------------------------- overlays */
+
+@layer components {
+  /* Popover, menu, tooltip, combobox: fade + 4px travel from the trigger
+     side (spec §3: 200 ms). Radix keeps the node mounted through the exit
+     animation, so closing fades too. */
+  .d-pop {
+    transform-origin: var(
+      --radix-popover-content-transform-origin,
+      var(--radix-dropdown-menu-content-transform-origin, var(--radix-tooltip-content-transform-origin, center))
+    );
+  }
+
+  .d-pop:is([data-state="open"], [data-state="delayed-open"], [data-state="instant-open"]) {
+    animation: d-pop-in var(--d-dur-pop) var(--d-ease-out) both;
+  }
+
+  .d-pop[data-state="closed"] {
+    animation: d-pop-out 120ms ease-in both;
+  }
+
+  .d-pop[data-side="top"] {
+    --d-pop-from: translateY(4px);
+  }
+
+  .d-pop[data-side="bottom"] {
+    --d-pop-from: translateY(-4px);
+  }
+
+  .d-pop[data-side="left"] {
+    --d-pop-from: translateX(4px);
+  }
+
+  .d-pop[data-side="right"] {
+    --d-pop-from: translateX(-4px);
+  }
+
+  .d-dialog[data-state="open"] {
+    animation: d-dialog-in var(--d-dur-pop) var(--d-ease-out) both;
+  }
+
+  .d-dialog[data-state="closed"] {
+    animation: d-dialog-out 140ms ease-in both;
+  }
+
+  .d-sheet[data-state="open"] {
+    animation: d-sheet-in 260ms var(--d-ease-out) both;
+  }
+
+  .d-sheet[data-state="closed"] {
+    animation: d-sheet-out 180ms ease-in both;
+  }
+
+  .d-sheet[data-side="right"] {
+    --d-sheet-from: translateX(24px);
+  }
+
+  .d-sheet[data-side="left"] {
+    --d-sheet-from: translateX(-24px);
+  }
+
+  .d-sheet[data-side="bottom"] {
+    --d-sheet-from: translateY(32px);
+  }
+}
+
+/* The dialog overlay comes from @zunialab/ui's DialogContent, which renders
+   it without a className hook. It is matched by its own background utility
+   (a stable class of that component), never through the content next to it:
+   on close the content unmounts first (shorter exit), and a rule keyed on
+   that sibling (`:has(+ .d-dialog)`) stopped matching mid-exit, cancelling
+   the overlay's fade. Radix then waited for an animationend that never came
+   and left a dark, click-blocking overlay over the page. Unlayered: its own
+   colour and animation are utilities. */
+.zunia-root > div[data-state][class~="bg-[var(--z-overlay)]"] {
+  background: var(--d-overlay);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.zunia-root > div[data-state="open"][class~="bg-[var(--z-overlay)]"] {
+  animation: d-overlay-in var(--d-dur-pop) var(--d-ease) both;
+}
+
+.zunia-root > div[data-state="closed"][class~="bg-[var(--z-overlay)]"] {
+  animation: d-overlay-out 160ms ease-in both;
+}
+
+@keyframes d-pop-in {
+  from {
+    opacity: 0;
+    transform: var(--d-pop-from, translateY(-4px)) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes d-pop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* Centering is done with Tailwind's `translate` property on the content, so
+   these keyframes only animate the extra offset on `transform`. */
+@keyframes d-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes d-dialog-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes d-sheet-in {
+  from {
+    opacity: 0;
+    transform: var(--d-sheet-from, translateY(32px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes d-sheet-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: var(--d-sheet-from, translateY(32px));
+  }
+}
+
+@keyframes d-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes d-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* On phones a dialog is a bottom sheet: it slides instead of scaling. */
+@layer components {
+  @media (max-width: 639px) {
+    .d-dialog[data-state="open"] {
+      animation: d-sheet-in 260ms var(--d-ease-out) both;
+    }
+
+    .d-dialog[data-state="closed"] {
+      animation: d-sheet-out 180ms ease-in both;
+    }
+  }
+}
+
+/* ------------------------------------------------- segmented, tabs thumbs */
+
+@layer components {
+  .d-seg-thumb,
+  .d-tabs-ink {
+    position: absolute;
+    left: 0;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  [data-ready] > .d-seg-thumb,
+  [data-ready] > .d-tabs-ink {
+    opacity: 1;
+  }
+
+  [data-animate] > .d-seg-thumb,
+  [data-animate] > .d-tabs-ink {
+    transition:
+      transform var(--d-dur-pop) var(--d-ease-out),
+      width var(--d-dur-pop) var(--d-ease-out);
+  }
+
+  /* Before the first measurement (server render, no JS yet) the selected
+     option paints its own thumb, so nothing jumps when the real one lands. */
+  .d-seg:not([data-ready]) > [role="radio"][aria-checked="true"] {
+    background: var(--d-seg-thumb);
+    box-shadow: var(--d-seg-thumb-shadow);
+  }
+
+  .d-tabs:not([data-ready]) > [role="tab"][aria-selected="true"] {
+    box-shadow: inset 0 -2px 0 var(--z-accent);
+  }
+}
+
+/* ------------------------------------------------------------------ table */
+
+@layer components {
+  .d-table-root {
+    --d-table-bg: var(--d-card);
+    position: relative;
+    min-width: 0;
+  }
+
+  .d-table-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  /* While the table fits, the scroller is not a scroll container at all, so
+     a sticky header follows the page scroll instead of its own box. */
+  .d-table-scroll[data-fits] {
+    overflow-x: visible;
+  }
+
+  /* A table wider than its card scrolls sideways in its own box, and a
+     sticky header in a scroll container sticks to that box: the frame's
+     top-bar offset (--d-sticky-top, 56/60px) would only push the header
+     down over the first rows. */
+  .d-table-scroll:not([data-fits]) {
+    --d-sticky-top: 0px;
+  }
+
+  .d-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 14px;
+    line-height: 1.35;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .d-table[data-density="compact"] {
+    --d-row-h: var(--d-row-h-compact);
+    --d-head-h: 32px;
+    font-size: 13.5px;
+  }
+
+  .d-table th {
+    height: var(--d-head-h);
+    padding: 0 var(--d-cell-px);
+    border-bottom: 1px solid var(--d-hairline);
+    background: var(--d-table-bg);
+    color: var(--z-fg-dim);
+    font-family: var(--z-font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .d-table[data-sticky-header] th {
+    position: sticky;
+    top: var(--d-sticky-top);
+    z-index: 2;
+  }
+
+  .d-table td {
+    height: var(--d-row-h);
+    padding: 0 var(--d-cell-px);
+    border-bottom: 1px solid var(--d-hairline);
+    background: var(--d-table-bg);
+    color: var(--z-fg);
+    vertical-align: middle;
+    transition: background-color var(--d-dur-fast) var(--d-ease);
+  }
+
+  .d-table > tbody > tr:last-child > td {
+    border-bottom: 0;
+  }
+
+  .d-table :is(th, td):first-child {
+    padding-left: var(--d-pad);
+  }
+
+  .d-table :is(th, td):last-child {
+    padding-right: var(--d-pad);
+  }
+
+  .d-table :is(th, td)[data-align="right"] {
+    text-align: right;
+  }
+
+  .d-table :is(th, td)[data-align="center"] {
+    text-align: center;
+  }
+
+  /* Row states paint on the cells (a background on <tr> does not reach
+     sticky cells), layered over the table surface so sticky cells stay
+     opaque. */
+  .d-table > tbody > tr:hover > td {
+    background: linear-gradient(var(--d-row-hover), var(--d-row-hover)), var(--d-table-bg);
+  }
+
+  .d-table > tbody > tr[data-selected] > td {
+    background: linear-gradient(var(--d-row-selected), var(--d-row-selected)), var(--d-table-bg);
+  }
+
+  .d-table > tbody > tr[data-selected] > td:first-child {
+    box-shadow: inset 2px 0 0 var(--z-accent);
+  }
+
+  .d-table > tbody > tr[data-interactive] {
+    cursor: pointer;
+  }
+
+  .d-table > tbody > tr:focus-visible {
+    outline: none;
+  }
+
+  .d-table > tbody > tr:focus-visible > td {
+    box-shadow:
+      inset 0 2px 0 var(--z-focus-ring),
+      inset 0 -2px 0 var(--z-focus-ring);
+  }
+
+  .d-table > tbody > tr:focus-visible > td:first-child {
+    box-shadow:
+      inset 2px 0 0 var(--z-focus-ring),
+      inset 0 2px 0 var(--z-focus-ring),
+      inset 0 -2px 0 var(--z-focus-ring);
+  }
+
+  .d-table > tbody > tr:focus-visible > td:last-child {
+    box-shadow:
+      inset -2px 0 0 var(--z-focus-ring),
+      inset 0 2px 0 var(--z-focus-ring),
+      inset 0 -2px 0 var(--z-focus-ring);
+  }
+
+  .d-table [data-sticky-col] {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+
+  .d-table th[data-sticky-col] {
+    z-index: 3;
+  }
+
+  /* Shadow on the sticky column's edge once content scrolls under it. */
+  .d-table-root[data-scroll-left] [data-sticky-edge]::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -14px;
+    bottom: 0;
+    width: 14px;
+    pointer-events: none;
+    background: linear-gradient(to right, color-mix(in srgb, var(--z-fg) 7%, transparent), transparent);
+  }
+
+  /* Edge fades say "there is more this way" even where the OS hides
+     scrollbars until you scroll (macOS overlay bars). */
+  .d-table-root::before,
+  .d-table-root::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 6px;
+    z-index: 4;
+    width: 32px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--d-dur-fast) var(--d-ease);
+  }
+
+  .d-table-root::before {
+    left: 0;
+    background: linear-gradient(to right, var(--d-table-bg), transparent);
+  }
+
+  .d-table-root::after {
+    right: 0;
+    background: linear-gradient(to left, var(--d-table-bg), transparent);
+  }
+
+  .d-table-root[data-scroll-left]:not([data-has-sticky])::before,
+  .d-table-root[data-scroll-right]::after {
+    opacity: 1;
+  }
+
+  .d-th-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0 -4px;
+    padding: 4px;
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    transition: color var(--d-dur-fast) var(--d-ease), background-color var(--d-dur-fast) var(--d-ease);
+  }
+
+  .d-th-sort:hover {
+    color: var(--z-fg);
+    background: var(--d-glass);
+  }
+
+  .d-th-sort[data-active] {
+    color: var(--z-fg);
+  }
+
+  .d-th-sort:focus-visible {
+    outline-offset: 0;
+  }
+
+  .d-table [data-align="right"] .d-th-sort {
+    flex-direction: row-reverse;
+  }
+
+  .d-row-expanded > td {
+    height: auto;
+    padding-top: 12px;
+    padding-bottom: 14px;
+    background: var(--d-card-2);
+  }
+
+  .d-table > tbody > tr.d-row-expanded:hover > td {
+    background: var(--d-card-2);
+  }
+
+  .d-table > tbody > tr[data-expanded] > td {
+    border-bottom-color: transparent;
+  }
+
+  .d-table-cards {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .d-table-cards > li + li {
+    border-top: 1px solid var(--d-hairline);
+  }
+
+  .d-table-card {
+    display: block;
+    width: 100%;
+    padding: 12px var(--d-pad);
+    color: inherit;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+    transition: background-color var(--d-dur-fast) var(--d-ease);
+  }
+
+  .d-table-card[data-interactive]:hover {
+    background: var(--d-row-hover);
+  }
+
+  .d-table-card[data-selected] {
+    background: var(--d-row-selected);
+    box-shadow: inset 2px 0 0 var(--z-accent);
+  }
+
+  .d-table-card:focus-visible {
+    outline-offset: -2px;
+  }
+}
+
+/* ------------------------------------------------------------------ toasts */
+
+@layer components {
+  .d-toaster {
+    position: fixed;
+    z-index: 100;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 8px;
+    top: calc(8px + env(safe-area-inset-top));
+    left: 8px;
+    right: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+
+  @media (min-width: 768px) {
+    .d-toaster {
+      top: auto;
+      left: auto;
+      right: calc(16px + env(safe-area-inset-right));
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      width: 380px;
+      flex-direction: column;
+    }
+  }
+
+  /* An open right sheet or dialog (Overlay.tsx publishes which, and its
+     width): the toaster steps aside instead of covering the sheet's footer,
+     where Back, Close and Confirm live. Phones keep the top toaster and
+     bottom sheets, which do not meet. */
+  @media (min-width: 640px) {
+    :root[data-d-toast-avoid="sheet"] .d-toaster {
+      right: calc(min(var(--d-toast-avoid-w), 100vw - 24px) + 8px);
+    }
+  }
+
+  @media (min-width: 768px) {
+    :root[data-d-toast-avoid="sheet"] .d-toaster {
+      right: calc(min(var(--d-toast-avoid-w), 100vw - 24px) + 16px);
+      width: min(380px, calc(100vw - min(var(--d-toast-avoid-w), 100vw - 24px) - 32px));
+    }
+
+    /* Beside a centred dialog: as wide as the gutter allows, never under
+       260px (a narrow tablet then overlaps the dialog's edge a little). */
+    :root[data-d-toast-avoid="dialog"] .d-toaster {
+      width: max(260px, min(380px, calc((100vw - var(--d-toast-avoid-w)) / 2 - 32px)));
+    }
+  }
+
+  .d-toast {
+    pointer-events: auto;
+    animation: d-toast-in 240ms var(--d-ease-out) both;
+  }
+
+  /* A phone screen fits two toasts before they bury the page: show the two
+     newest (the queue keeps the rest until they expire or are dismissed). */
+  @media (max-width: 767px) {
+    .d-toaster > .d-toast:not(:nth-last-child(-n + 2)) {
+      display: none;
+    }
+  }
+
+  .d-toast[data-leaving] {
+    animation: d-toast-out 160ms ease-in both;
+  }
+
+  @media (min-width: 768px) {
+    .d-toast {
+      --d-toast-from: translateY(10px);
+    }
+  }
+}
+
+@keyframes d-toast-in {
+  from {
+    opacity: 0;
+    transform: var(--d-toast-from, translateY(-10px)) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes d-toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* ---------------------------------------------------------------- misc */
+
+/* Touch targets (spec §3: 44px on mobile). Compact controls keep their
+   drawn size (a 28px chip, an 18px (i)) and get an invisible hit area of at
+   least 44×44 on touch screens, centred on them. Mouse users are unaffected. */
+@layer components {
+  @media (pointer: coarse) {
+    .d-hit {
+      position: relative;
+    }
+
+    .d-hit::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+@layer components {
+  .d-spinner {
+    display: inline-block;
+    flex: none;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+    border-top-color: currentColor;
+    animation: d-spin 0.8s linear infinite;
+  }
+
+  /* The live pulse on status dots (Live, connected). */
+  .d-pulse {
+    position: relative;
+  }
+
+  .d-pulse::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+    opacity: 0;
+    animation: d-pulse 2s var(--d-ease) infinite;
+  }
+}
+
+@keyframes d-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes d-pulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.6);
+  }
+  80%,
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d-pop,
+  .d-dialog,
+  .d-sheet,
+  .d-toast,
+  .zunia-root > div[data-state][class~="bg-[var(--z-overlay)]"] {
+    animation: none !important;
+  }
+
+  .d-pulse::after {
+    animation: none;
+  }
+
+  .d-spinner {
+    animation-duration: 1.6s;
+  }
+
+  [data-animate] > .d-seg-thumb,
+  [data-animate] > .d-tabs-ink,
+  .d-card-body,
+  .d-table td {
+    transition: none;
+  }
+}

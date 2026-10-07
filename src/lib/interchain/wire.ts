@@ -2,9 +2,10 @@
  * The JSON contract between `/api/interchain/*` and the browser.
  *
  * Chain reads happen in the route handlers, never in the browser: the dashboard
- * talks to 332 chains' public REST endpoints and sending a visitor's IP to all
- * of them is the same privacy leak `lib/server/chain-reads.ts` was written to
- * avoid. So the engine (`@zunialab/interchain`) runs server-side and the browser
+ * talks to 332 chains' public REST endpoints, and sending a visitor's IP (and
+ * which addresses it asks about) to all of them is a privacy leak — the reason
+ * every chain read in this dashboard goes through its own `/api` (spec §5). So
+ * the engine (`@zunialab/interchain`) runs server-side and the browser
  * receives inert JSON.
  *
  * Two consequences shape this file:

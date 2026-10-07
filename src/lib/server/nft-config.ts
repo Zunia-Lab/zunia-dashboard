@@ -40,6 +40,7 @@ import {
   parseContractsByChain,
   parseFlag,
   parseGateways,
+  parseIndexerUrl,
   parseIcs721Links,
   parseTemplateByChain,
   type ConfigProblem,
@@ -95,8 +96,11 @@ export function nftConfig(): NftDeploymentConfig {
     process.env[ICS721_CHANNELS_KEY],
     ICS721_CHANNELS_KEY,
   );
-  const ipfs = parseGateways(process.env[NFT_IPFS_KEY], NFT_IPFS_KEY);
-  const arweave = parseGateways(process.env[NFT_ARWEAVE_KEY], NFT_ARWEAVE_KEY);
+  // Loopback gateways and indexers only make sense on a developer's machine;
+  // in production they would point the server at its own private services.
+  const allowLoopback = process.env.NODE_ENV !== "production";
+  const ipfs = parseGateways(process.env[NFT_IPFS_KEY], NFT_IPFS_KEY, { allowLoopback });
+  const arweave = parseGateways(process.env[NFT_ARWEAVE_KEY], NFT_ARWEAVE_KEY, { allowLoopback });
   const nftExplorer = parseTemplateByChain(
     process.env[NFT_EXPLORER_KEY],
     NFT_EXPLORER_KEY,
@@ -108,22 +112,13 @@ export function nftConfig(): NftDeploymentConfig {
     ["hash"],
   );
 
-  const indexerRaw = process.env[NFT_INDEXER_KEY]?.trim() || null;
-  const indexerProblems: ConfigProblem[] = [];
-  let indexerUrl: string | null = null;
-  if (indexerRaw !== null) {
-    // http:// is refused for the same reason the gateways are: this answer
-    // decides which contracts get queried for the user's holdings.
-    if (indexerRaw.startsWith("https://") || indexerRaw.startsWith("http://127.0.0.1")) {
-      indexerUrl = indexerRaw.replace(/\/$/, "");
-    } else {
-      indexerProblems.push({
-        key: NFT_INDEXER_KEY,
-        entry: indexerRaw,
-        reason: "Must be https:// (or a loopback address for local development).",
-      });
-    }
-  }
+  // http:// is refused for the same reason the gateways are: this answer
+  // decides which contracts get queried for the user's holdings. The parser
+  // matches the loopback host exactly (a prefix test would also accept
+  // "http://127.0.0.1.evil.example").
+  const indexer = parseIndexerUrl(process.env[NFT_INDEXER_KEY], NFT_INDEXER_KEY, { allowLoopback });
+  const indexerUrl = indexer.url;
+  const indexerProblems: ConfigProblem[] = [...indexer.problems];
 
   return {
     knownContracts: contracts.byChainId,

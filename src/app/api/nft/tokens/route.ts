@@ -16,7 +16,8 @@
  */
 
 import { NextRequest } from "next/server";
-import { findChain } from "@/lib/chains";
+import { rateLimit } from "@/lib/server/rate-limit";
+import { findServerChain as findChain } from "@/lib/server/chains";
 import { nftConfig } from "@/lib/server/nft-config";
 import {
   LCD_CONCURRENCY,
@@ -53,6 +54,9 @@ function parseIds(raw: string | null): string[] {
 }
 
 export async function GET(req: NextRequest) {
+  // With media=1 one request makes this server fetch up to 24 token URIs chosen by whoever minted the tokens, so the budget is small.
+  const limited = rateLimit(req, { scope: "nft-tokens", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const params = req.nextUrl.searchParams;
   const chainId = params.get("chainId")?.trim() ?? "";
   const contract = params.get("contract")?.trim() ?? "";

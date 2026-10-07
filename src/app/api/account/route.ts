@@ -1,56 +1,105 @@
 /**
- * `account_number` and `sequence` for an amino sign document.
+ * The signer's account number, sequence and on-chain key, for one chain.
  *
- * The unwrapping used to be hand-rolled here, and covered three of the shapes a
- * Cosmos REST gateway can answer with. `@zunialab/interchain`'s `getAccount`
- * covers those plus `/account_info`, the legacy `result.value` envelope, vesting
- * and module wrappers, a gateway that answers 200 with a gRPC status body, and
- * the `null` account a never-used address returns — all of which reach a user
- * as "unauthorized" at signing time if they are read wrong.
+ * GET /api/account?chainId=<catalog id>&address=<bech32 of that chain>
+ * → 200 AccountResponse (see `@/lib/tx/client`), never cached: a stale
+ *   `sequence` produces a signature the chain rejects the moment someone sends
+ *   two transactions in a row.
+ *
+ * Unwrapping is `@zunialab/interchain`'s pure `parseAccount`: `BaseAccount`
+ * arrives wrapped in `EthAccount` (Ethermint and Injective, under different
+ * type URLs), `ModuleAccount`, `BaseVestingAccount` and the
+ * Continuous/Delayed/Periodic/PermanentLocked vesting family, which nests
+ * twice. Reading `account_number` off the outer object yields undefined, which
+ * becomes 0, which is a signature over the wrong document.
+ *
+ * A never-used address is not an error: the node answers 404 (or 200 with a
+ * gRPC NotFound), and the right answer is account 0 / sequence 0 with
+ * `exists: false` — what the chain will assign.
  */
 
-import { NextResponse } from "next/server";
-import { getAccount, isInterchainError } from "@zunialab/interchain";
-import { findChain } from "@/lib/chains";
-import { lcdFor } from "@/lib/server/interchain";
+import type { NextRequest } from "next/server";
+import { isInterchainError, parseAccount } from "@zunialab/interchain";
+import { describeUpstreamError, fetchJson, UpstreamError } from "@/lib/server/http";
+import { restOf } from "@/lib/server/chains";
+import { rateLimit } from "@/lib/server/rate-limit";
+import { privateJson } from "@/lib/server/respond";
+import { badRequest, parseAddress, parseChainId } from "@/lib/server/validate";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const chainId = searchParams.get("chainId")?.trim();
-  const address = searchParams.get("address")?.trim();
-  if (!chainId || !address) {
-    return NextResponse.json(
-      { error: "chainId and address are required" },
-      { status: 400 },
+function outerAccount(body: unknown): Record<string, unknown> | null {
+  if (!body || typeof body !== "object") return null;
+  const root = body as Record<string, unknown>;
+  const account = root.account ?? root.info;
+  return account && typeof account === "object" ? (account as Record<string, unknown>) : null;
+}
+
+export async function GET(req: NextRequest) {
+  const limited = rateLimit(req, { scope: "account", capacity: 40, refillPerSecond: 1 });
+  if (limited) return limited;
+
+  let chain;
+  let address: string;
+  try {
+    chain = parseChainId(req.nextUrl.searchParams.get("chainId"));
+    address = parseAddress(req.nextUrl.searchParams.get("address"), chain);
+  } catch (error) {
+    return badRequest(error);
+  }
+
+  const rest = restOf(chain.chainId);
+  if (!rest) {
+    return Response.json(
+      { error: "no_endpoint", message: `${chain.chainName} has no public REST endpoint in this build's catalog.` },
+      { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
 
-  const chain = findChain(chainId);
-  const lcd = lcdFor(chain);
-  if (!lcd) {
-    return NextResponse.json(
-      { error: `No REST endpoint for chain ${chainId}` },
-      { status: 400 },
-    );
+  let body: unknown = null;
+  let missing = false;
+  try {
+    body = await fetchJson(`${rest}/cosmos/auth/v1beta1/accounts/${address}`, { timeoutMs: 6_000, retries: 1 });
+  } catch (error) {
+    if (error instanceof UpstreamError && error.kind === "http" && error.status === 404) {
+      missing = true;
+    } else {
+      return Response.json(
+        {
+          error: "upstream_failed",
+          message: `Could not read your account on ${chain.chainName}: ${describeUpstreamError(error)}.`,
+        },
+        { status: 503, headers: { "cache-control": "no-store" } },
+      );
+    }
   }
 
   try {
-    const account = await getAccount(lcd, chainId, address);
-    return NextResponse.json({
-      accountNumber: account.accountNumber,
-      sequence: account.sequence,
+    const parsed = missing
+      ? { accountNumber: "0", sequence: "0", pubKey: null }
+      : parseAccount(body, chain.chainId, address);
+    const outer = missing ? null : outerAccount(body);
+    const accountType = typeof outer?.["@type"] === "string" ? (outer["@type"] as string) : null;
+    return privateJson({
+      chainId: chain.chainId,
+      address,
+      accountNumber: parsed.accountNumber,
+      sequence: parsed.sequence,
+      exists: !missing && outer !== null,
+      pubKey: parsed.pubKey ? { typeUrl: parsed.pubKey.typeUrl, key: parsed.pubKey.key } : null,
+      accountType,
+      updatedAt: Date.now(),
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "account fetch failed";
-    return NextResponse.json(
+    // Logged without the address: which chain answers in a shape we do not
+    // read is the useful part, whose account it was is not ours to keep.
+    console.warn("[account] unreadable account record", chain.chainId, isInterchainError(error) ? error.code : "");
+    return Response.json(
       {
-        error: message,
-        ...(isInterchainError(error) ? { code: error.code } : {}),
+        error: "upstream_unreadable",
+        message: `${chain.chainName} answered with an account record Zunia cannot read.`,
       },
-      { status: 502 },
+      { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
 }

@@ -17,7 +17,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { findChain } from "@/lib/chains";
+import { findServerChain as findChain } from "@/lib/server/chains";
 import {
   ics721DestinationsFrom,
   nftConfig,

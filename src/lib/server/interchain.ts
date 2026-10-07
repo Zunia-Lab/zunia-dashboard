@@ -8,9 +8,9 @@
  * because the state test was `includes("OPEN")`. That file is gone; everything
  * chain-facing now comes from the engine.
  *
- * Everything here runs server-side. The browser calls `/api/*`, which is the
- * same rule `chain-reads.ts` follows: the catalog holds 332 chains' public REST
- * endpoints and a visitor's IP has no business being sent to all of them.
+ * Everything here runs server-side. The browser calls `/api/*`, the rule every
+ * chain read in the dashboard follows: the catalog holds 332 chains' public
+ * REST endpoints and a visitor's IP has no business being sent to all of them.
  *
  * The instances are module-level singletons on purpose. The channel service
  * memoises connection-to-chain-id resolution and module probes, and a discovery
@@ -37,11 +37,22 @@ import {
   type ModuleSupportOverride,
   type ChannelLink,
   type ChannelRoute,
+  type IbcChannelCheck,
   type IbcChannelOption,
   type LcdClient,
 } from "@zunialab/interchain";
-import { CHAINS, findChain } from "@/lib/chains";
+import { findChain } from "@/lib/chains";
+import { cached } from "@/lib/server/cache";
+import { SERVER_CHAINS as CHAINS } from "@/lib/server/chains";
 import { pinnedModuleSupport } from "@/lib/server/interchain-config";
+import {
+  clientUsable,
+  createSeedIndex,
+  HOST_VERIFIED_CHANNELS,
+  seedAccepted,
+  tableSeeds,
+} from "@/lib/server/interchain-rules";
+import { IBC_CHANNEL_ROWS } from "@/lib/token/ibc-channels.generated";
 
 /**
  * The catalog, as the engine sees it.
@@ -90,7 +101,7 @@ export const channelService = createIbcChannelService({
   // 200 x 5 rather than the default 100 x 3. Cosmos Hub carries ~1900 channels,
   // almost all of them interchain-accounts ports, and its listing does not
   // start at channel-0 — a walk of 300 rows finds no transfer channel at all.
-  // Even 1000 rows does not reach channel-141, which is why `verifySeedRoutes`
+  // Even 1000 rows does not reach channel-141, which is why `verifySeeds`
   // below exists: enumerating a chain's channels is the wrong way to find one
   // channel, and asking for it by id is the right one.
   pageLimit: 200,
@@ -136,16 +147,50 @@ export const denomResolver = createDenomResolver({
 });
 
 /**
- * The persistable cache of discovered channel pairs, seeded with the engine's
- * table.
+ * Channel seeds: hints for the pairs a channel walk cannot find.
  *
- * In-process only: a serverless instance is short-lived and a stale channel
- * written to a shared store would outlive the reason we trusted it. What it
- * buys is that two plan requests in the same instance do not each walk three
- * pages of the Hub's channel list.
+ * The engine's own table (`SEED_CHANNEL_ROUTES`, Hub↔Osmosis), the
+ * chain-registry table of preferred transfer channels the token engine already
+ * ships (`IBC_CHANNEL_ROWS`, 507 pairs, both directions) and a few checked
+ * channels for pairs that table misses (`HOST_VERIFIED_CHANNELS`), limited to
+ * chains in this catalog. Kept apart from `routeRegistry` on purpose: a seed is a
+ * permanent hint and a registry row is a 24-hour fact, and when the two shared
+ * a store the first successful check overwrote the seed with a "discovered"
+ * row — which, once it went stale a day later, was neither fresh nor a seed,
+ * so Hub→Osmosis stopped planning until the next restart.
+ */
+const inCatalog = (chainId: string) => chainRegistry.get(chainId) !== undefined;
+const SEEDS = createSeedIndex([
+  ...SEED_CHANNEL_ROUTES,
+  ...tableSeeds(IBC_CHANNEL_ROWS, inCatalog),
+  ...tableSeeds(HOST_VERIFIED_CHANNELS, inCatalog),
+]);
+
+/**
+ * Channel pairs this process has verified on chain: seed checks and channel
+ * walks, each row trusted for `DEFAULT_ROUTE_MAX_AGE_MS` (a day).
+ *
+ * Production is one long-lived `next start` process, so this is shared by
+ * every visitor. That is why nothing a request *says* is ever written here —
+ * a channel typed into a plan's overrides stays in that request (it reaches
+ * the planner through the request's own `manualLinks`). It used to be stored
+ * as a `manual` row, the strongest rank the registry has and one it never
+ * prunes: one visitor's typed channel then became every later visitor's route
+ * for that pair ("entered by hand" on a channel nobody had typed), and an
+ * anonymous client could grow the map without bound.
+ *
+ * Only catalog chain pairs are ever discovered, so the rows are bounded by the
+ * catalog; `MAX_REGISTRY_ROWS` is a backstop, not a working limit.
  */
 export const routeRegistry = createRouteRegistry();
-routeRegistry.putMany(SEED_CHANNEL_ROUTES);
+const MAX_REGISTRY_ROWS = 5_000;
+
+function remember(routes: readonly ChannelRoute[]): void {
+  if (routes.length === 0) return;
+  if (routeRegistry.size + routes.length > MAX_REGISTRY_ROWS) routeRegistry.prune(DEFAULT_ROUTE_MAX_AGE_MS);
+  if (routeRegistry.size + routes.length > MAX_REGISTRY_ROWS) return;
+  routeRegistry.putMany(routes);
+}
 
 export interface DiscoveredPair {
   readonly fromChainId: string;
@@ -202,8 +247,101 @@ function routeToLink(route: ChannelRoute): ChannelLink {
   };
 }
 
+/** A verified pair as the registry row it becomes. */
+function verifiedRoute(fromChainId: string, toChainId: string, channelId: string, counterpartyChannelId: string | undefined): ChannelRoute {
+  return {
+    sourceChainId: fromChainId,
+    destChainId: toChainId,
+    channelId,
+    counterpartyChannelId: counterpartyChannelId ?? "",
+    verifiedAt: Date.now(),
+    source: "discovered",
+  };
+}
+
+/**
+ * How long one pair's answer is shared across requests. Found channels also go
+ * into `routeRegistry` for a day; this memo is what stops a pair with *no*
+ * channel (Hub→dYdX has none) from costing a five-page walk on every plan. A
+ * failed or inconclusive check is remembered for a minute only, so an
+ * endpoint blip does not read as "no route" for ten.
+ */
+const PAIR_MEMO_MS = 10 * 60_000;
+const PAIR_ERROR_MEMO_MS = 60_000;
+
+/**
+ * How long one request waits for a pair's discovery. A cold walk of a big
+ * channel list can take a minute or more (it resolves every listed
+ * connection), and nginx gives up on the request at 60 s with an HTML 504 the
+ * browser cannot read. So the request stops waiting first and says the check
+ * is still running; the walk itself carries on (it is shared, see
+ * `discoverLinks`) and fills the registry, so the next plan answers at once.
+ */
+const PAIR_WAIT_MS = 45_000;
+
+/** One pair's discovery outcome. `failure` is shown to the user next to the leg. */
+interface PairOutcome {
+  readonly links: readonly ChannelLink[];
+  readonly failure: string | null;
+}
+
+/** A seed check that could not run (endpoint down), as opposed to one that ran and said no. */
+class Inconclusive extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Inconclusive";
+  }
+}
+
+/** The request stopped waiting for a discovery that is still running. */
+class StillDiscovering extends Error {
+  constructor() {
+    super("still discovering");
+    this.name = "StillDiscovering";
+  }
+}
+
+/**
+ * Wait for `promise` for at most `waitMs`, or until `signal` aborts. The
+ * promise itself keeps running either way: it is a discovery shared with other
+ * requests, which one visitor changing an amount (or one slow walk) must not
+ * cancel for everyone.
+ */
+function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, waitMs: number): Promise<T> {
+  if (signal?.aborted) return Promise.reject(new Error("aborted"));
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => {
+      clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", stop);
+      reject(new StillDiscovering());
+    }, waitMs);
+    signal?.addEventListener("abort", stop, { once: true });
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * Discover transfer channels for a set of chain pairs.
+ *
+ * Per pair: a verified row from the last day answers at once; otherwise the
+ * pair is discovered once for every request asking at the same time
+ * (`discoverPair`, single-flight through the shared cache), so a stampede of
+ * plans after a deploy, or a visitor typing an amount, costs one walk rather
+ * than one per keystroke.
  *
  * Failures are collected rather than thrown. Discovery fails routinely — a
  * public LCD paginates badly, or has no client state for a connection — and the
@@ -224,67 +362,53 @@ export async function discoverLinks(
       if (fromChainId === toChainId || seen.has(key)) return;
       seen.add(key);
 
-      const cached = routeRegistry
+      // Only catalog chains are ever discovered (the plan route refuses
+      // anything else before it gets here); this keeps that true for any
+      // future caller too.
+      if (!chainRegistry.get(fromChainId) || !chainRegistry.get(toChainId)) {
+        failures.push({
+          fromChainId,
+          toChainId,
+          message: `${label(fromChainId)} → ${label(toChainId)} is not a pair of chains this build can read.`,
+        });
+        return;
+      }
+
+      const fresh = routeRegistry
         .getAll(fromChainId, toChainId)
         .filter((route) => isRouteFresh(route, DEFAULT_ROUTE_MAX_AGE_MS));
-      if (cached.length > 0) {
-        links.push(...cached.map(routeToLink));
+      if (fresh.length > 0) {
+        links.push(...fresh.map(routeToLink));
         return;
       }
 
       try {
-        const found = await channelService.findIbcChannels(
-          fromChainId,
-          toChainId,
-          options.signal ? { signal: options.signal } : {},
-        );
-        if (found.length === 0) {
-          const verified = await verifySeedRoutes(
-            fromChainId,
-            toChainId,
-            options.signal,
-          );
-          links.push(...verified.links);
-          if (verified.links.length === 0) {
-            failures.push({
-              fromChainId,
-              toChainId,
-              message: `No open transfer channel from ${label(fromChainId)} to ${label(toChainId)} was found. This chain's endpoint lists its channels in an order that does not reach the transfer ports — enter a channel id if you know one.`,
-            });
-          }
-          return;
-        }
-        const now = Date.now();
-        routeRegistry.putMany(
-          found.map((option) => ({
-            sourceChainId: fromChainId,
-            destChainId: toChainId,
-            channelId: option.channelId,
-            counterpartyChannelId: option.counterpartyChannelId,
-            verifiedAt: now,
-            source: "discovered" as const,
-          })),
-        );
-        links.push(
-          ...found.map((option) => optionToLink(fromChainId, toChainId, option)),
-        );
-      } catch (error) {
-        // Listing is down. A seed row is still worth trying, and asking for one
-        // channel by id is a different request from walking every channel, so
-        // it often works when the listing does not.
-        const verified = await verifySeedRoutes(
-          fromChainId,
-          toChainId,
+        const outcome = await waitFor(
+          cached<PairOutcome>(
+            `ibc:pair:${fromChainId}\u0000${toChainId}`,
+            { ttlMs: PAIR_MEMO_MS, staleMs: 0, errorTtlMs: PAIR_ERROR_MEMO_MS },
+            () => discoverPair(fromChainId, toChainId),
+          ),
           options.signal,
+          PAIR_WAIT_MS,
         );
-        links.push(...verified.links);
+        links.push(...outcome.links);
+        if (outcome.failure) failures.push({ fromChainId, toChainId, message: outcome.failure });
+      } catch (error) {
+        // The visitor left; nobody reads this answer.
+        if (options.signal?.aborted) return;
         failures.push({
           fromChainId,
           toChainId,
-          message: describeError(
-            error,
-            `Could not list channels from ${label(fromChainId)} to ${label(toChainId)}.`,
-          ),
+          message:
+            error instanceof StillDiscovering
+              ? `Zunia is still reading ${label(fromChainId)}'s channel list for a route to ${label(toChainId)}. The first check of a pair can take a minute or two; try again shortly and it will answer at once.`
+              : error instanceof Inconclusive
+              ? error.message
+              : describeError(
+                  error,
+                  `Could not list channels from ${label(fromChainId)} to ${label(toChainId)}.`,
+                ),
         });
       }
     }),
@@ -294,44 +418,100 @@ export async function discoverLinks(
 }
 
 /**
- * Confirm the channels we already believe in, one lookup each.
+ * Find the usable transfer channels for one direction.
  *
- * Enumerating a chain's channels is the wrong shape of question for "which
- * channel goes to Osmosis": Cosmos Hub answers with ~1900 rows starting at
- * channel-370, nearly all interchain-accounts ports, and the transfer channel
- * to Osmosis is not among the first thousand. Asking for `channel-141` by id
- * answers instantly and tells us its counterparty.
+ * 1. **Seeds first.** When the chain registry (or the engine's table) names a
+ *    channel for the pair, it is asked for by id (`verifySeeds`): one channel
+ *    read, a connection lookup and two client-status reads, about a second.
+ *    That is the only way to find a hub chain's channels at all — Cosmos Hub
+ *    lists ~1,900 channels starting at channel-370 and Osmosis over 100,000,
+ *    nearly all interchain-account ports, so the walk below reaches no
+ *    transfer channel — and it is also the canonical channel, the one a
+ *    token's well-known `ibc/…` name on the destination comes from. Pairs the
+ *    walk does find took 35–100 s cold (Celestia, Akash, Juno to Osmosis),
+ *    because the walk resolves every listed connection; a passing seed skips
+ *    it.
+ * 2. **Then the walk**, for pairs the table does not name (or whose seed did
+ *    not check out): every open transfer channel the source lists toward the
+ *    destination, minus those whose light client is known to be expired or
+ *    frozen.
  *
- * So when discovery finds nothing, the seed table and anything the user has
- * typed before are checked directly. A channel that comes back open, on the
- * transfer port, with a client targeting the destination, is genuinely
- * verified — that is the same evidence discovery would have produced. One that
- * does not is dropped rather than offered as a maybe.
+ * Every link returned is verified on chain; nothing unchecked is offered.
  */
-async function verifySeedRoutes(
+async function discoverPair(fromChainId: string, toChainId: string): Promise<PairOutcome> {
+  const seeds = SEEDS.get(fromChainId, toChainId);
+  let inconclusive = false;
+  if (seeds.length > 0) {
+    const verified = await verifySeeds(fromChainId, toChainId, seeds);
+    if (verified.links.length > 0) return { links: verified.links, failure: null };
+    inconclusive = verified.inconclusive;
+  }
+
+  const found = await channelService.findIbcChannels(fromChainId, toChainId, {});
+  const live = await withLiveClients(fromChainId, toChainId, found);
+  if (live.length > 0) {
+    remember(live.map((option) => verifiedRoute(fromChainId, toChainId, option.channelId, option.counterpartyChannelId)));
+    return { links: live.map((option) => optionToLink(fromChainId, toChainId, option)), failure: null };
+  }
+
+  if (inconclusive) {
+    // The registry names a channel we could not check right now. Saying "no
+    // route" would be wrong, and remembering it for ten minutes worse.
+    throw new Inconclusive(
+      `${label(fromChainId)} did not answer when its channel to ${label(toChainId)} was checked, so the route could not be confirmed. Try again in a moment, or enter a channel id if you know one.`,
+    );
+  }
+  if (found.length > 0) {
+    return {
+      links: [],
+      failure: `Every open transfer channel from ${label(fromChainId)} to ${label(toChainId)} has an expired or frozen light client, so a transfer over it would fail. Enter a channel id if you know a working one.`,
+    };
+  }
+  return {
+    links: [],
+    failure: `No open transfer channel from ${label(fromChainId)} to ${label(toChainId)} was found. This chain's endpoint lists its channels in an order that does not reach the transfer ports — enter a channel id if you know one.`,
+  };
+}
+
+/**
+ * Confirm seeded channels, one lookup by id each.
+ *
+ * A seed is offered only when the chain shows all of it (`seedAccepted`): the
+ * channel is open on the transfer port, its client is a client *of the
+ * destination* (an unresolvable client is not good enough for a channel that
+ * will be labelled verified), its counterparty is the channel the registry
+ * names, and neither end's light client is known to be expired or frozen
+ * (`clientUsable`). A seed that fails is dropped, never offered as a maybe:
+ * an unchecked seed presented as a route is how a closed channel gets used.
+ *
+ * `inconclusive` reports a check that could not run at all, which the caller
+ * treats as "try again" rather than "there is no channel".
+ */
+async function verifySeeds(
   fromChainId: string,
   toChainId: string,
-  signal: AbortSignal | undefined,
-): Promise<{ links: ChannelLink[] }> {
-  const candidates = routeRegistry
-    .getAll(fromChainId, toChainId)
-    .filter((route) => route.source !== "discovered");
-  if (candidates.length === 0) return { links: [] };
-
-  const links: ChannelLink[] = [];
-  const now = Date.now();
-  for (const candidate of candidates) {
-    try {
-      const check = await channelService.validateIbcChannel(
-        fromChainId,
-        candidate.channelId,
-        toChainId,
-        signal ? { signal } : {},
-      );
-      if (!check.ok) continue;
-      const counterparty =
-        check.counterpartyChannelId ?? candidate.counterpartyChannelId;
-      links.push({
+  seeds: readonly ChannelRoute[],
+): Promise<{ links: ChannelLink[]; inconclusive: boolean }> {
+  let inconclusive = false;
+  const checked = await Promise.all(
+    seeds.map(async (seed): Promise<ChannelLink | null> => {
+      let check: IbcChannelCheck;
+      try {
+        check = await channelService.validateIbcChannel(fromChainId, seed.channelId, toChainId, {});
+      } catch {
+        inconclusive = true;
+        return null;
+      }
+      // `unknown` is "could not read it"; an `ok` with no counterparty chain is
+      // "could not resolve its client". Neither is a no.
+      if ((!check.ok && check.state === "unknown") || (check.ok && !check.counterpartyChainId)) {
+        inconclusive = true;
+        return null;
+      }
+      if (!seedAccepted(seed, check, toChainId)) return null;
+      const counterparty = check.counterpartyChannelId || seed.counterpartyChannelId || undefined;
+      if (!(await clientsLive(fromChainId, check.channelId, toChainId, counterparty))) return null;
+      return {
         sourceChainId: fromChainId,
         destChainId: toChainId,
         channelId: check.channelId,
@@ -340,46 +520,79 @@ async function verifySeedRoutes(
         counterpartyPortId: TRANSFER_PORT,
         source: "verified",
         state: check.state,
-      });
-      routeRegistry.put({
-        sourceChainId: fromChainId,
-        destChainId: toChainId,
-        channelId: check.channelId,
-        counterpartyChannelId: counterparty ?? "",
-        verifiedAt: now,
-        source: "discovered",
-      });
-    } catch {
-      // One unverifiable candidate must not lose the others, and it is not
-      // offered: an unchecked seed presented as a route is how a closed channel
-      // gets used.
-    }
-  }
-  return { links };
+      };
+    }),
+  );
+  const links = checked.filter((link): link is ChannelLink => link !== null);
+  remember(links.map((link) => verifiedRoute(fromChainId, toChainId, link.channelId, link.counterpartyChannelId)));
+  return { links, inconclusive };
 }
 
-/** Record a channel the user typed, so later plans in this instance can use it. */
-export function rememberManualChannel(params: {
-  readonly fromChainId: string;
-  readonly toChainId: string;
-  readonly channelId: string;
-  readonly counterpartyChannelId?: string;
-}): void {
+/** The walk's options whose light clients are not known to be dead, lowest channel number first. */
+async function withLiveClients(
+  fromChainId: string,
+  toChainId: string,
+  options: readonly IbcChannelOption[],
+): Promise<IbcChannelOption[]> {
+  const ordered = [...options]
+    .sort((a, b) => a.channelId.localeCompare(b.channelId, undefined, { numeric: true }))
+    // The planner keeps a few per pair; checking more only costs reads.
+    .slice(0, 8);
+  const live = await Promise.all(
+    ordered.map((option) => clientsLive(fromChainId, option.channelId, toChainId, option.counterpartyChannelId || undefined)),
+  );
+  return ordered.filter((_, index) => live[index]);
+}
+
+/** Whether neither end of a channel has a light client known to be expired or frozen. */
+async function clientsLive(
+  fromChainId: string,
+  channelId: string,
+  toChainId: string,
+  counterpartyChannelId: string | undefined,
+): Promise<boolean> {
+  const [here, there] = await Promise.all([
+    clientStatus(fromChainId, channelId),
+    counterpartyChannelId ? clientStatus(toChainId, counterpartyChannelId) : Promise.resolve(null),
+  ]);
+  return clientUsable(here) && clientUsable(there);
+}
+
+/**
+ * The status of the light client behind a transfer channel (`Active`,
+ * `Expired`, `Frozen`), or `null` when it cannot be read. Cached ten minutes:
+ * a client's status changes on the scale of days.
+ */
+async function clientStatus(chainId: string, channelId: string): Promise<string | null> {
+  const lcd = lcdFor(chainRegistry.get(chainId));
+  if (!lcd) return null;
   try {
-    routeRegistry.put({
-      sourceChainId: params.fromChainId,
-      destChainId: params.toChainId,
-      channelId: params.channelId,
-      counterpartyChannelId: params.counterpartyChannelId ?? "",
-      // Never verified by us; the registry keeps that distinction and the UI
-      // renders a manual channel as unchecked.
-      verifiedAt: 0,
-      source: "manual",
-    });
+    return await cached<string | null>(
+      `ibc:client-status:${chainId}\u0000${channelId}`,
+      { ttlMs: 10 * 60_000, staleMs: 0, errorTtlMs: 60_000 },
+      async () => {
+        const state = await lcd.getJson(
+          `/ibc/core/channel/v1/channels/${encodeURIComponent(channelId)}/ports/${TRANSFER_PORT}/client_state`,
+          { timeoutMs: 6_000, retries: 0 },
+        );
+        const identified = record(record(state)?.identified_client_state);
+        const clientId = typeof identified?.client_id === "string" ? identified.client_id : null;
+        if (!clientId || !/^[0-9a-z-]{3,64}$/.test(clientId)) return null;
+        const status = await lcd.getJson(`/ibc/core/client/v1/client_status/${encodeURIComponent(clientId)}`, {
+          timeoutMs: 6_000,
+          retries: 0,
+        });
+        const value = record(status)?.status;
+        return typeof value === "string" ? value : null;
+      },
+    );
   } catch {
-    // `put` rejects a malformed channel id. The caller already validated what
-    // it could; a rejected cache write must not fail the request.
+    return null;
   }
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 /**
@@ -434,11 +647,22 @@ function label(chainId: string): string {
  * A message for the browser.
  *
  * Engine errors carry a `code` the UI branches on; the message is a detail
- * line. An unrecognised throw becomes the caller's fallback text rather than a
- * stack trace, which is both a leak and useless to a user.
+ * line. Transport failures are rebuilt from their structured fields, because
+ * the engine's own text for them embeds the endpoint URL and, for an HTTP
+ * error, the gateway's body verbatim — third-party text that would otherwise
+ * appear inside the wallet's UI unchanged (a compromised community LCD could
+ * put "re-verify your recovery phrase at …" there). The engine's own sentences
+ * ("Osmosis router cannot price X -> Y") are kept. An unrecognised throw
+ * becomes the caller's fallback text rather than a stack trace, which is both
+ * a leak and useless to a user.
  */
 export function describeError(error: unknown, fallback: string): string {
-  if (isInterchainError(error)) return `${fallback} ${error.message}`;
-  if (error instanceof Error && error.message) return `${fallback} ${error.message}`;
-  return fallback;
+  if (!isInterchainError(error)) return fallback;
+  if (error.endpoint !== undefined && error.message.includes(error.endpoint)) {
+    const who = `${error.chainId ? label(error.chainId) : "The chain"}'s public endpoint`;
+    if (error.code === "malformed-response") return `${fallback} ${who} sent an unreadable answer.`;
+    if (error.httpStatus !== undefined) return `${fallback} ${who} answered HTTP ${error.httpStatus}.`;
+    return `${fallback} ${who} did not answer.`;
+  }
+  return `${fallback} ${error.message}`;
 }

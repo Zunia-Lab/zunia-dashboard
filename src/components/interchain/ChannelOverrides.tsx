@@ -15,11 +15,12 @@
  * could not run is shown rather than hidden.
  */
 
-import { useState } from "react";
-import { Button, Callout, Input, SectionLabel } from "@zunialab/ui";
+import { useId, useState } from "react";
+import { Icon } from "@/components/icons";
+import { Button, Callout, Input } from "@/components/ui";
+import { chainName } from "@/components/transfer/names";
 import { useChannelCheck } from "@/lib/interchain/hooks";
 import type { HopOverrideInput } from "@/lib/interchain/client";
-import { findChain } from "@/lib/chains";
 
 export interface ChannelLeg {
   /** Stable key: the directed chain pair. */
@@ -30,10 +31,8 @@ export interface ChannelLeg {
   readonly currentChannelId?: string;
   /** Why this leg needs attention, e.g. a discovery failure. */
   readonly note?: string;
-}
-
-function chainName(chainId: string): string {
-  return findChain(chainId)?.chainName ?? chainId;
+  /** The heading `note` gets while the fields are folded away (default: discovery failed). */
+  readonly noteTitle?: string;
 }
 
 function LegField({
@@ -46,49 +45,40 @@ function LegField({
   readonly onChange: (channelId: string) => void;
 }) {
   const typed = value.trim();
-  const check = useChannelCheck(
-    typed.length > 0
-      ? { source: leg.fromChainId, channel: typed, dest: leg.toChainId }
-      : null,
-  );
+  const check = useChannelCheck(typed.length > 0 ? { source: leg.fromChainId, channel: typed, dest: leg.toChainId } : null);
 
-  const state = (() => {
-    if (typed.length === 0) return "default" as const;
-    if (check.loading || check.status === "idle") return "default" as const;
-    if (check.status === "error") return "error" as const;
-    return check.data?.ok ? ("valid" as const) : ("error" as const);
-  })();
-
-  const hint = (() => {
-    if (typed.length === 0) {
-      return leg.currentChannelId
-        ? `Using ${leg.currentChannelId}. Type a channel id to override it.`
-        : "Type a channel id, e.g. channel-141.";
-    }
-    if (check.loading) return "Checking both sides…";
-    if (check.status === "error") {
-      return check.error?.message ?? "The channel could not be checked.";
-    }
+  const verdict = (() => {
+    if (typed.length === 0) return { tone: "idle" as const, text: leg.currentChannelId ? `Using ${leg.currentChannelId}. Type a channel id to override it.` : "Type a channel id, e.g. channel-141." };
+    if (check.loading || check.status === "idle") return { tone: "idle" as const, text: "Checking both sides…" };
+    if (check.status === "error") return { tone: "bad" as const, text: check.error?.message ?? "The channel could not be checked." };
     const data = check.data;
-    if (!data) return "The channel could not be checked.";
+    if (!data) return { tone: "bad" as const, text: "The channel could not be checked." };
     const counterparty = data.counterparty;
-    if (data.ok && counterparty && !counterparty.ok) {
-      // Not a failure: `unreachable` and `skipped` mean nothing was learned.
-      // Saying so is the honest version of a green tick.
-      return `${data.message} · ${counterparty.message}`;
-    }
-    return data.message;
+    // Not a failure: `unreachable` and `skipped` mean nothing was learned on
+    // the far side. Saying so is the honest version of a green tick.
+    const text = data.ok && counterparty && !counterparty.ok ? `${data.message} · ${counterparty.message}` : data.message;
+    return { tone: data.ok ? ("good" as const) : ("bad" as const), text };
   })();
 
   return (
     <Input
       label={`${chainName(leg.fromChainId)} → ${chainName(leg.toChainId)}`}
+      mono
       placeholder={leg.currentChannelId ?? "channel-141"}
       value={value}
       spellCheck={false}
       autoComplete="off"
-      state={state}
-      hint={hint}
+      error={verdict.tone === "bad" ? verdict.text : undefined}
+      hint={
+        verdict.tone === "good" ? (
+          <span className="inline-flex items-start gap-1 text-[var(--d-pos)]">
+            <Icon name="check" size={13} className="mt-px shrink-0" />
+            {verdict.text}
+          </span>
+        ) : verdict.tone === "idle" ? (
+          verdict.text
+        ) : undefined
+      }
       onChange={(event) => onChange(event.target.value)}
     />
   );
@@ -107,6 +97,7 @@ export function ChannelOverrides({
   readonly defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
 
   if (legs.length === 0) return null;
 
@@ -125,53 +116,40 @@ export function ChannelOverrides({
   };
 
   const setCount = Object.keys(overrides).length;
+  const noted = legs.find((leg) => leg.note);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SectionLabel>Channels</SectionLabel>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          aria-controls="channel-overrides"
-        >
-          {open ? "Hide" : "Set by hand"}
-          {setCount > 0 ? ` (${setCount})` : ""}
+        <span className="text-[12.5px] text-fg-dim">
+          {setCount > 0 ? `${setCount} channel${setCount === 1 ? "" : "s"} set by hand` : "Know the channel? You can set it yourself."}
+        </span>
+        <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls={panelId} iconRight={open ? "chevronUp" : "chevronDown"}>
+          {open ? "Hide channels" : "Set channel by hand"}
         </Button>
       </div>
 
-      {legs.some((leg) => leg.note) && !open ? (
-        <Callout tone="warning" title="Channel discovery is incomplete">
-          {legs.find((leg) => leg.note)?.note}
+      {noted?.note && !open ? (
+        <Callout tone="warning" title={noted.noteTitle ?? "Channel discovery is incomplete"}>
+          {noted.note}
         </Callout>
       ) : null}
 
       {open ? (
-        <div id="channel-overrides" className="flex flex-col gap-4">
-          <p className="text-[length:var(--z-type-meta)] leading-relaxed text-fg-muted">
-            A channel you enter is used as given and marked unchecked in the
-            route. Both ends are queried as you type; an open channel that
-            connects to a different chain is reported, because that case does
-            not fail — it delivers a token the destination has no record of.
+        <div id={panelId} className="flex flex-col gap-3 rounded-[var(--d-radius-inner)] border border-[var(--d-hairline)] px-3.5 py-3">
+          <p className="text-[12.5px] leading-relaxed text-fg-muted">
+            A channel you enter is used as given and marked as set by hand in the route. Both ends are queried as you type: an open
+            channel that connects to a different chain is reported, because that case does not fail, it delivers a token the
+            destination has no record of.
           </p>
           {legs.map((leg) => (
-            <div key={leg.key} className="flex flex-col gap-2">
-              {leg.note ? (
-                <p className="font-mono text-[length:var(--z-type-micro)] leading-relaxed text-[var(--z-warning)]">
-                  {leg.note}
-                </p>
-              ) : null}
-              <LegField
-                leg={leg}
-                value={overrides[leg.key]?.channelId ?? ""}
-                onChange={(channelId) => setLeg(leg, channelId)}
-              />
+            <div key={leg.key} className="flex flex-col gap-1.5">
+              {leg.note ? <p className="text-[12px] leading-snug text-[var(--z-warning)]">{leg.note}</p> : null}
+              <LegField leg={leg} value={overrides[leg.key]?.channelId ?? ""} onChange={(channelId) => setLeg(leg, channelId)} />
             </div>
           ))}
           {setCount > 0 ? (
-            <Button variant="ghost" size="sm" onClick={() => onOverridesChange({})}>
+            <Button variant="ghost" size="sm" className="self-start" onClick={() => onOverridesChange({})}>
               Clear {setCount} manual channel{setCount === 1 ? "" : "s"}
             </Button>
           ) : null}

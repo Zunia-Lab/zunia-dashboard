@@ -1,0 +1,876 @@
+/*
+ * Chart kit: colour tokens and chrome for src/components/charts.
+ *
+ * Categorical slots follow the final order of design spec §8: orange, blue,
+ * aqua, violet, yellow, magenta, then a neutral "Other". Green and red are
+ * never categorical here (they mean good and bad). Validated with the dataviz
+ * validator (OKLab ΔE, Machado 2009 CVD simulation) on our own surfaces:
+ * worst adjacent pair CVD ΔE 16.3 light (#ffffff) / 13.2 dark (#161311 and
+ * #1c1814), normal vision 19.6 / 19.3. Light aqua, yellow and magenta sit
+ * under 3:1 on white (2.82, 2.17, 2.69), which is why every categorical
+ * chart ships a legend with values or a table view (the relief channel): do
+ * not drop the legend to save room.
+ *
+ * Theme scoping mirrors @zunialab/tokens (light on :root, then
+ * [data-theme] / .zunia-* on any element) so a chart never pairs dark marks
+ * with a light surface halfway through a theme switch. The dark block must
+ * follow this one: on <html data-theme="dark"> both match with the same
+ * specificity, and the later one wins.
+ */
+
+:root,
+[data-theme="light"],
+.zunia-light {
+  --viz-1: #eb6834;
+  --viz-2: #2a78d6;
+  --viz-3: #1baf7a;
+  --viz-4: #4a3aa7;
+  --viz-5: #eda100;
+  --viz-6: #e87ba4;
+  --viz-other: #8a8a94;
+
+  /* Single-series brand, from the orange stop of the brand ramp: red is the
+     loss colour (--viz-neg), so a neutral bar (a share, a coverage meter, a
+     liquidity bar next to "Fell") must not wear it. #e05a00 is 3.73:1 on
+     white, enough for bars and 2px lines, and OKLab ΔE 12 from --viz-neg
+     (the old crimson-orange #e2380c was 9, two hue degrees apart). The
+     ramp's far end is darkened from the brand gold (#ffb020 is 1.83:1 on
+     white, a 2px line would vanish) to an amber that keeps the whole stroke
+     at 3:1. */
+  --viz-accent: #e05a00;
+  --viz-accent-2: #dd7a00;
+
+  --viz-pos: var(--z-success);
+  --viz-neg: var(--z-danger);
+  --viz-warn: var(--z-warning);
+  --viz-neutral: var(--z-fg-dim);
+
+  /* Furniture. Grid is one hairline step off the surface; the axis rule and
+     crosshair a step stronger; tick text uses fg-dim (5.7:1) because
+     fg-faint is below text contrast on white. */
+  --viz-surface: var(--z-surface);
+  --viz-grid: rgba(17, 17, 17, 0.08);
+  --viz-axis: var(--z-fg-faint);
+  --viz-baseline: rgba(17, 17, 17, 0.22);
+  --viz-text: var(--z-fg-dim);
+  --viz-text-strong: var(--z-fg);
+  --viz-skeleton: rgba(17, 17, 17, 0.06);
+  --viz-shimmer: rgba(17, 17, 17, 0.05);
+  --viz-hover: rgba(17, 17, 17, 0.04);
+
+  --viz-tooltip-bg: #ffffff;
+  --viz-tooltip-line: rgba(17, 17, 17, 0.12);
+  --viz-tooltip-shadow: 0 12px 32px rgba(17, 17, 17, 0.14), 0 1px 2px rgba(17, 17, 17, 0.08);
+}
+
+[data-theme="dark"],
+.zunia-dark {
+  --viz-1: #d95926;
+  --viz-2: #3987e5;
+  --viz-3: #199e70;
+  --viz-4: #9085e9;
+  --viz-5: #c98500;
+  --viz-6: #d55181;
+  --viz-other: #6e6e78;
+
+  /* The ramp's middle stop (#ff6a10, as in --z-accent-gradient), not its red
+     end: next to --viz-neg (#e85a4a) the old #ff4e12 was ΔE 5, so an "ok"
+     meter and a loss bar read as the same colour. #ff6a10 is 6.45:1 on
+     #161311 and 6.15:1 on #1c1814; #ffb020 10.1:1. */
+  --viz-accent: #ff6a10;
+  --viz-accent-2: #ffb020;
+
+  --viz-pos: var(--z-success);
+  --viz-neg: var(--z-danger);
+  --viz-warn: var(--z-warning);
+  --viz-neutral: var(--z-fg-dim);
+
+  --viz-surface: var(--z-surface);
+  --viz-grid: rgba(241, 240, 238, 0.075);
+  --viz-axis: var(--z-fg-faint);
+  --viz-baseline: rgba(241, 240, 238, 0.2);
+  --viz-text: var(--z-fg-dim);
+  --viz-text-strong: var(--z-fg);
+  --viz-skeleton: rgba(241, 240, 238, 0.06);
+  --viz-shimmer: rgba(241, 240, 238, 0.05);
+  --viz-hover: rgba(241, 240, 238, 0.045);
+
+  --viz-tooltip-bg: #201b17;
+  --viz-tooltip-line: rgba(241, 240, 238, 0.12);
+  --viz-tooltip-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------------------------------------------------------------- frame */
+
+.viz-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.viz-frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.viz-frame svg {
+  display: block;
+  overflow: visible;
+}
+
+/* The focusable, labelled plot. `pan-y` keeps vertical page scroll on touch
+   while a horizontal drag scrubs the crosshair. */
+.viz-plot {
+  position: relative;
+  height: 100%;
+  outline: none;
+  touch-action: pan-y;
+  transition: opacity 160ms var(--z-ease, ease);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.viz-plot:focus-visible {
+  outline: 2px solid var(--z-focus-ring);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Refetch keeps the previous frame, dimmed: no skeleton, no layout jump. */
+[data-pending] .viz-dim {
+  opacity: 0.6;
+}
+
+.viz-dim {
+  transition: opacity 160ms var(--z-ease, ease);
+}
+
+.viz-tick {
+  font-size: 11px;
+  fill: var(--viz-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.viz-axis-caption {
+  font-size: 11px;
+  fill: var(--viz-text);
+  letter-spacing: 0;
+}
+
+.viz-end-label {
+  font-size: 11.5px;
+  letter-spacing: 0;
+}
+
+.viz-end-label__name {
+  fill: var(--z-fg-muted);
+  font-weight: 500;
+}
+
+.viz-end-label__value {
+  fill: var(--viz-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-bar-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: var(--viz-text-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.viz-series {
+  transition: opacity 160ms var(--z-ease, ease);
+}
+
+.viz-series[data-muted] {
+  opacity: 0.22;
+}
+
+.viz-mark {
+  transition: opacity 160ms var(--z-ease, ease), filter 160ms var(--z-ease, ease);
+}
+
+.viz-mark[data-muted] {
+  opacity: 0.35;
+}
+
+.viz-mark[data-active] {
+  filter: brightness(1.12) saturate(1.05);
+}
+
+.viz-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px;
+  text-align: center;
+  color: var(--z-fg-dim);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- tooltip */
+
+.viz-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  min-width: 128px;
+  max-width: min(280px, calc(100% - 8px));
+  padding: 8px 10px 9px;
+  border: 1px solid var(--viz-tooltip-line);
+  border-radius: 10px;
+  background: var(--viz-tooltip-bg);
+  box-shadow: var(--viz-tooltip-shadow);
+  color: var(--z-fg);
+  font-size: 12.5px;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.viz-tooltip__title {
+  margin-bottom: 5px;
+  color: var(--z-fg-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.viz-tooltip__rows {
+  display: grid;
+  grid-template-columns: 12px auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+}
+
+.viz-tooltip__key {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.viz-tooltip__value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--z-fg);
+}
+
+.viz-tooltip__label {
+  overflow: hidden;
+  color: var(--z-fg-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-tooltip__row[data-active] .viz-tooltip__label {
+  color: var(--z-fg-muted);
+}
+
+.viz-tooltip__footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--viz-tooltip-line);
+  color: var(--z-fg-dim);
+  font-size: 11.5px;
+}
+
+/* ---------------------------------------------------------------- legend */
+
+.viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--z-fg-muted);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.viz-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  min-width: 0;
+  transition: opacity 160ms var(--z-ease, ease);
+}
+
+.viz-legend__item[data-muted] {
+  opacity: 0.45;
+}
+
+.viz-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.viz-swatch[data-kind="line"] {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.viz-swatch[data-kind="dot"] {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.viz-legend-block {
+  min-width: 0;
+}
+
+.viz-legend-block__footer {
+  margin-top: 8px;
+  color: var(--z-fg-dim);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.viz-legend-list {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.viz-legend-list__row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  transition: background-color 160ms var(--z-ease, ease), opacity 160ms var(--z-ease, ease);
+}
+
+.viz-legend-list__row[data-active] {
+  background: var(--viz-hover);
+}
+
+.viz-legend-list__row[data-muted] {
+  opacity: 0.55;
+}
+
+.viz-legend-list__label {
+  overflow: hidden;
+  color: var(--z-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-legend-list__value {
+  color: var(--z-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.viz-legend-list__pct {
+  min-width: 3.6em;
+  color: var(--z-fg-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- bar list */
+
+.viz-barlist {
+  position: relative;
+  min-width: 0;
+}
+
+.viz-barlist__list {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(56px, 1fr) auto;
+  column-gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.viz-barlist__head,
+.viz-barlist__row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+.viz-barlist__head {
+  min-height: 18px;
+  font-size: 11px;
+  color: var(--viz-text);
+}
+
+.viz-barlist__row {
+  min-height: 34px;
+  padding: 0 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+  outline: none;
+  cursor: default;
+  transition: background-color 160ms var(--z-ease, ease);
+}
+
+.viz-barlist__row[data-active] {
+  background: var(--viz-hover);
+}
+
+.viz-barlist__row:focus-visible {
+  outline: 2px solid var(--z-focus-ring);
+  outline-offset: -2px;
+}
+
+.viz-barlist__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 22ch;
+  color: var(--z-fg);
+  font-size: 13.5px;
+}
+
+.viz-barlist__label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-barlist__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.viz-barlist__track {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.viz-barlist__bar {
+  height: 10px;
+  min-width: 2px;
+  border-radius: 0 4px 4px 0;
+  transition: filter 160ms var(--z-ease, ease);
+}
+
+.viz-barlist__row[data-active] .viz-barlist__bar {
+  filter: brightness(1.12) saturate(1.05);
+}
+
+.viz-barlist__ref {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--viz-axis);
+  pointer-events: none;
+}
+
+.viz-barlist__head .viz-barlist__track {
+  min-height: 18px;
+}
+
+.viz-barlist__ref-label {
+  position: absolute;
+  bottom: 3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-barlist__value {
+  color: var(--z-fg);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- donut */
+
+.viz-donut {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.viz-donut__layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.viz-donut__layout > :is(.viz-legend-block, .viz-legend-skeleton) {
+  width: 100%;
+}
+
+@container (min-width: 400px) {
+  .viz-donut__layout[data-legend="auto"] {
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .viz-donut__layout[data-legend="auto"] > :is(.viz-legend-block, .viz-legend-skeleton) {
+    flex: 1;
+    width: auto;
+  }
+}
+
+.viz-donut__layout[data-legend="side"] {
+  flex-direction: row;
+  gap: 24px;
+}
+
+.viz-donut__layout[data-legend="side"] > :is(.viz-legend-block, .viz-legend-skeleton) {
+  flex: 1;
+  width: auto;
+}
+
+/* The table twin covers the (hidden) chart and scrolls inside its box. */
+.viz-donut__table {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.viz-donut__figure {
+  position: relative;
+  flex: none;
+}
+
+.viz-donut__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 16%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.viz-donut__center-value {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--z-fg);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-donut__center-caption {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--z-fg-dim);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- stacked bar */
+
+.viz-stackbar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.viz-stackbar__bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  border-radius: 4px;
+  outline: none;
+}
+
+.viz-stackbar__bar:focus-visible {
+  outline: 2px solid var(--z-focus-ring);
+  outline-offset: 4px;
+}
+
+.viz-stackbar__seg {
+  position: relative;
+  flex-basis: 0;
+  flex-shrink: 1;
+  height: 100%;
+  transition: opacity 160ms var(--z-ease, ease), filter 160ms var(--z-ease, ease);
+}
+
+/* The hit target is taller than the 12px mark (28px), and never narrower
+   than 24px: a sliver's grows on both sides, over its neighbours' edges
+   (later segments stack higher, see StackedBar). */
+.viz-stackbar__seg::before {
+  content: "";
+  position: absolute;
+  inset: -8px min(0px, calc((100% - 24px) / 2));
+}
+
+.viz-stackbar__seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.viz-stackbar__seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.viz-stackbar__seg:only-child {
+  border-radius: 4px;
+}
+
+.viz-stackbar__seg[data-muted] {
+  opacity: 0.35;
+}
+
+.viz-stackbar__seg[data-active] {
+  filter: brightness(1.12) saturate(1.05);
+}
+
+/* ---------------------------------------------------------------- sparkline, meter */
+
+.viz-spark {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 0;
+}
+
+.viz-spark svg {
+  display: block;
+  overflow: visible;
+}
+
+.viz-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.viz-meter__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.viz-meter__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--z-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-meter__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--z-fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.viz-meter__status {
+  color: var(--viz-meter-color);
+  flex: none;
+}
+
+.viz-meter__track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--viz-meter-color) 16%, transparent);
+}
+
+.viz-meter[data-size="sm"] .viz-meter__track {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.viz-meter__fill {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--viz-meter-color);
+  transition: width 450ms var(--z-ease, ease);
+}
+
+.viz-meter__marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--viz-surface);
+}
+
+/* ---------------------------------------------------------------- table twin */
+
+.viz-table-wrap {
+  overflow: auto;
+  border-radius: 10px;
+  overscroll-behavior: contain;
+}
+
+.viz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: var(--viz-surface);
+  box-shadow: inset 0 -1px 0 var(--viz-grid);
+  color: var(--z-fg-dim);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  font-family: var(--z-font-mono);
+}
+
+.viz-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--viz-grid);
+  color: var(--z-fg);
+  white-space: nowrap;
+}
+
+.viz-table [data-align="right"] {
+  text-align: right;
+}
+
+.viz-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ---------------------------------------------------------------- skeleton */
+
+.viz-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.viz-skeleton__block {
+  background: var(--viz-skeleton);
+}
+
+.viz-legend-skeleton {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.viz-legend-skeleton__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.viz-skeleton::after,
+.viz-legend-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--viz-shimmer) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  animation: viz-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes viz-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.viz-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viz-plot,
+  .viz-dim,
+  .viz-series,
+  .viz-mark,
+  .viz-legend__item,
+  .viz-legend-list__row,
+  .viz-barlist__row,
+  .viz-barlist__bar,
+  .viz-stackbar__seg,
+  .viz-meter__fill {
+    transition: none;
+  }
+
+  .viz-skeleton::after,
+  .viz-legend-skeleton::after {
+    animation: none;
+  }
+}

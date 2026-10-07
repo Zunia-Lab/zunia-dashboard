@@ -18,7 +18,8 @@
  */
 
 import { NextRequest } from "next/server";
-import { findChain } from "@/lib/chains";
+import { rateLimit } from "@/lib/server/rate-limit";
+import { findServerChain as findChain } from "@/lib/server/chains";
 import { nftConfig } from "@/lib/server/nft-config";
 import {
   describeNftError,
@@ -50,6 +51,9 @@ function parseCsv(raw: string | null): string[] {
 }
 
 export async function GET(req: NextRequest) {
+  // Each call fans out into CW721 queries against public nodes; the budget keeps one client from spending everyone else's.
+  const limited = rateLimit(req, { scope: "nft-collections", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const params = req.nextUrl.searchParams;
   const chainId = params.get("chainId")?.trim() ?? "";
   const address = params.get("address")?.trim() ?? "";

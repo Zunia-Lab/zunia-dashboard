@@ -1,209 +1,140 @@
-import { NextRequest } from "next/server";
-import { bech32 } from "bech32";
-import { proxyIndexer } from "@/lib/api-proxy";
-import { findChain, findChainsByPrefix, type ChainEntry } from "@/lib/chains";
-import { reencodeAddress } from "@/lib/address";
-
-/** One page of the rail is 12 chains; more than that is not a read, it is a fan-out. */
-const MAX_CHAINS = 12;
-
-type HistoryRow = {
-  txHash?: string;
-  hash?: string;
-  summary?: string;
-  timestamp?: string;
-  success?: boolean;
-  kind?: string;
-};
-
-type ActivityItem = {
-  hash: string;
-  summary: string;
-  time: string;
-  success: boolean;
-  kind?: string;
-  chainId?: string;
-};
-
-type ChainResult =
-  | { chainId: string; items: ActivityItem[] }
-  | { chainId: string; failed: true };
-
-function normalize(raw: HistoryRow[]): ActivityItem[] {
-  return raw.map((t) => ({
-    hash: t.txHash ?? t.hash ?? "unknown",
-    summary: t.summary ?? "Transaction",
-    time: t.timestamp ?? "",
-    success: t.success !== false,
-    kind: t.kind,
-  }));
-}
-
 /**
- * bech32 decode is the validation, not a regex: it enforces the charset, the
- * length and the checksum, so a value carrying a quote or a Tendermint query
- * operator cannot reach the indexer, which interpolates the address into
- * `transfer.recipient='…'` unescaped.
+ * `GET /api/activity` — multi-chain transaction history for the accounts
+ * the client names, decoded from public LCD tx search (lib/server/activity).
+ *
+ * Query:
+ * - `accounts` (required): `chainId:address` pairs, comma-separated, at most
+ *   24; every chain must be in the catalog and every address valid bech32
+ *   under that chain's prefix (it is interpolated into the node's query).
+ *   Each chain is asked for its own address: the client resolves them from
+ *   the wallet, so a coin-type-60 chain is never read with a re-encoded one.
+ * - `limit` 1–100 (default 50): rows wanted; a page can hold a few more when
+ *   transactions share the boundary second, or fewer when the read budget ran
+ *   out first (`nextCursor` then still says there is more).
+ * - `kinds`: comma-separated activity kinds to keep.
+ * - `cursor`: `nextCursor` of the previous page (same `accounts`, same order).
+ * - `before`: ISO time, rows strictly older; ignored with `cursor` (which
+ *   carries the `before` of the request that started the paging). Tx search
+ *   cannot seek by time, so the read starts at the chain's tip and walks
+ *   down: continue with `nextCursor` until rows older than `before` arrive.
+ *
+ * Answers `ActivityPage` (lib/activity/types): private (keyed by addresses),
+ * partial when some chains failed (`errors`), 503 only when none could be
+ * read. An entry that names a chain the catalog lacks or an address that is
+ * not that chain's is left out and reported (`errors`, scope `input`), so one
+ * stale followed chain does not blank the whole list; 400 when no entry is
+ * usable. Rate limited per client, one token per account.
  */
-function decodePrefix(address: string): string | null {
-  try {
-    return bech32.decode(address).prefix;
-  } catch {
-    return null;
+
+import type { NextRequest } from "next/server";
+import { accountsKey, decodeCursor, type ActivityCursor } from "@/lib/activity/cursor";
+import { isActivityKind, type ActivityError, type ActivityKind } from "@/lib/activity/types";
+import { ACTIVITY_DEFAULT_LIMIT, ACTIVITY_MAX_ACCOUNTS, ACTIVITY_MAX_LIMIT } from "@/lib/data/activity";
+import { ActivityUnavailableError, readActivity, type ActivityAccount } from "@/lib/server/activity";
+import { rateLimit } from "@/lib/server/rate-limit";
+import { privateJson, upstreamFailure } from "@/lib/server/respond";
+import { badRequest, ParamError, parseAddress, parseChainId, parseIntParam } from "@/lib/server/validate";
+
+const MAX_ACCOUNTS_PARAM = 8_000;
+/** No Cosmos chain in the catalog predates this; anything earlier is a typo. */
+const EARLIEST_BEFORE = Date.UTC(2016, 0, 1);
+
+/** The usable accounts, and what was wrong with the others (throws when none is usable). */
+function parseAccounts(raw: string | null): { accounts: ActivityAccount[]; rejected: ActivityError[] } {
+  const value = (raw ?? "").trim();
+  if (!value) throw new ParamError("accounts_required", "accounts is required: chainId:address,…");
+  if (value.length > MAX_ACCOUNTS_PARAM) throw new ParamError("accounts_too_long", "accounts is too long");
+  const entries = Array.from(new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean)));
+  if (entries.length > ACTIVITY_MAX_ACCOUNTS) {
+    throw new ParamError("accounts_too_many", `At most ${ACTIVITY_MAX_ACCOUNTS} accounts per request`);
   }
+  const accounts: ActivityAccount[] = [];
+  const rejected: ActivityError[] = [];
+  let firstError: unknown = null;
+  for (const entry of entries) {
+    const split = entry.indexOf(":");
+    try {
+      if (split <= 0) throw new ParamError("account_invalid", "Each account is chainId:address");
+      const chain = parseChainId(entry.slice(0, split), "chainId");
+      accounts.push({ chainId: chain.chainId, address: parseAddress(entry.slice(split + 1), chain, "address") });
+    } catch (error) {
+      firstError ??= error;
+      // The entry's chain id is echoed back only when it is shaped like one
+      // (bounded, plain characters); a malformed entry is reported without it.
+      const chainId = split > 0 ? entry.slice(0, split) : "";
+      const known = chainId.length <= 64 && /^[A-Za-z0-9._-]+$/.test(chainId);
+      rejected.push({
+        ...(known ? { chainId } : {}),
+        scope: "input",
+        message: error instanceof ParamError ? error.message : "Invalid account",
+      });
+    }
+  }
+  if (accounts.length === 0) throw firstError ?? new ParamError("accounts_required", "accounts is required: chainId:address,…");
+  return { accounts, rejected };
 }
 
-async function historyForChain(
-  chainId: string,
-  address: string,
-): Promise<ChainResult> {
-  const upstream = await proxyIndexer("/v1/wallets/history", {
-    method: "POST",
-    // This route is unauthenticated, so it must never enter a wallet into the
-    // realtime registry: each entry costs the indexer two persistent CometBFT
-    // websockets plus recurring LCD polls, charged to the dashboard's own API
-    // key. The indexer must honour both markers and serve history read-only;
-    // registration belongs on an authenticated /v1/wallets/subscribe.
-    headers: { "x-zunia-read-only": "1" },
-    body: JSON.stringify({ chainId, address, subscribe: false }),
-  });
-  if (!upstream.ok) return { chainId, failed: true };
+function parseKinds(raw: string | null): ActivityKind[] | null {
+  if (!raw) return null;
+  const kinds = Array.from(new Set(raw.split(",").map((kind) => kind.trim()).filter(Boolean)));
+  for (const kind of kinds) {
+    if (!isActivityKind(kind)) throw new ParamError("kinds_invalid", `Unknown activity kind ${kind.slice(0, 32)}`);
+  }
+  return kinds.length > 0 ? (kinds as ActivityKind[]) : null;
+}
 
-  const body = (await upstream.json().catch(() => null)) as {
-    items?: HistoryRow[];
-    txs?: HistoryRow[];
-  } | null;
-  if (!body) return { chainId, failed: true };
+function parseBefore(raw: string | null): number | null {
+  if (!raw) return null;
+  const at = raw.length <= 40 ? Date.parse(raw) : Number.NaN;
+  if (!Number.isFinite(at) || at < EARLIEST_BEFORE || at > Date.now() + 86_400_000) {
+    throw new ParamError("before_invalid", "before must be an ISO date");
+  }
+  return at;
+}
 
-  return { chainId, items: normalize(body.items ?? body.txs ?? []) };
+function parseCursor(raw: string | null, accounts: ActivityAccount[]): ActivityCursor | null {
+  if (!raw) return null;
+  const cursor = decodeCursor(raw, accounts.length);
+  if (!cursor) throw new ParamError("cursor_invalid", "cursor is not valid");
+  if (cursor.key !== accountsKey(accounts)) {
+    throw new ParamError("cursor_mismatch", "cursor was made for a different account list");
+  }
+  return cursor;
 }
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
-  const address = params.get("address");
-
-  // The scope is which chains to read. It is NOT a claim about which chain the
-  // address came from: the left rail scopes /activity to one chain while the
-  // wallet stays connected elsewhere. Deriving the origin from `chainId` made
-  // every rail selection answer 400 address_prefix_does_not_match_chain, which
-  // the UI then rendered as "Indexer unreachable" — a false cause.
-  const scopeParam = params.get("chains") ?? params.get("chainId") ?? "";
-  const scope = scopeParam
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-
-  if (!address) {
-    return Response.json({ error: "address_required" }, { status: 400 });
-  }
-  const prefix = decodePrefix(address);
-  if (!prefix) {
-    return Response.json({ error: "invalid_bech32_address" }, { status: 400 });
+  let input: Parameters<typeof readActivity>[0];
+  let rejected: ActivityError[];
+  try {
+    const parsed = parseAccounts(params.get("accounts"));
+    const accounts = parsed.accounts;
+    rejected = parsed.rejected;
+    input = {
+      accounts,
+      limit: parseIntParam(params.get("limit"), { min: 1, max: ACTIVITY_MAX_LIMIT, fallback: ACTIVITY_DEFAULT_LIMIT, name: "limit" }),
+      kinds: parseKinds(params.get("kinds")),
+      cursor: parseCursor(params.get("cursor"), accounts),
+      before: parseBefore(params.get("before")),
+    };
+  } catch (error) {
+    return badRequest(error);
   }
 
-  // The origin chain comes from the address itself. `sourceChainId` only picks
-  // between catalog entries that share the prefix (mainnet vs its testnet).
-  const sourceHint = params.get("sourceChainId") ?? params.get("chainId");
-  const source = findChainsByPrefix(prefix, sourceHint)[0];
-  if (!source) {
-    return Response.json(
-      { error: "unknown_address_prefix", prefix },
-      { status: 400 },
-    );
-  }
+  // One token per account: a page fans out to two searches per account.
+  // 96 tokens is four full 24-account pages in a burst, then one every 15 s.
+  const limited = rateLimit(req, { scope: "activity", capacity: 96, refillPerSecond: 1.6, cost: input.accounts.length });
+  if (limited) return limited;
 
-  // The indexer keys history on (chainId, address), so the same bech32 string
-  // sent to twelve chains reads nothing and registers eleven wallets that do
-  // not exist. Re-derive the account's address per chain instead, and drop the
-  // chains whose coin type makes that impossible.
-  const seenChain = new Set<string>();
-  const targets: Array<{ chain: ChainEntry; address: string }> = [];
-  const skipped: string[] = [];
-  // Chains past MAX_CHAINS. Naming them keeps `chains` from asserting a full
-  // picture over a silently truncated read.
-  const truncated: string[] = [];
-  for (const id of scope.length > 0 ? scope : [source.chainId]) {
-    if (seenChain.has(id)) continue;
-    seenChain.add(id);
-    const chain = findChain(id);
-    if (!chain) {
-      skipped.push(id);
-      continue;
+  try {
+    const page = await readActivity(input);
+    const errors = [...rejected, ...(page.errors ?? [])];
+    return privateJson(errors.length > 0 ? { ...page, errors } : page);
+  } catch (error) {
+    if (error instanceof ActivityUnavailableError) {
+      return upstreamFailure(`No chain could be read: ${error.message}`, 503);
     }
-    const derived =
-      chain.chainId === source.chainId
-        ? address
-        : reencodeAddress(address, chain, source);
-    if (!derived) {
-      skipped.push(id);
-      continue;
-    }
-    if (targets.length >= MAX_CHAINS) {
-      truncated.push(id);
-      continue;
-    }
-    targets.push({ chain, address: derived });
+    console.error("[api/activity] read failed", error instanceof Error ? error.name : "unknown");
+    return upstreamFailure("Activity could not be read", 503);
   }
-
-  if (targets.length === 0) {
-    return Response.json(
-      {
-        error: "no_readable_chains",
-        address,
-        sourceChainId: source.chainId,
-        skipped,
-        truncated,
-      },
-      { status: 400 },
-    );
-  }
-
-  const results = await Promise.all(
-    targets.map((target) => historyForChain(target.chain.chainId, target.address)),
-  );
-
-  const failedChains = results
-    .filter((result): result is { chainId: string; failed: true } => "failed" in result)
-    .map((result) => result.chainId);
-
-  if (failedChains.length === targets.length) {
-    return Response.json(
-      {
-        error: "indexer_unreachable",
-        items: [],
-        address,
-        sourceChainId: source.chainId,
-        chains: targets.map((target) => target.chain.chainId),
-        failedChains,
-      },
-      { status: 502 },
-    );
-  }
-
-  const seenHash = new Set<string>();
-  const items = results
-    .flatMap((result) =>
-      "items" in result
-        ? result.items.map((tx) => ({ ...tx, chainId: result.chainId }))
-        : [],
-    )
-    .filter((tx) => {
-      if (seenHash.has(tx.hash)) return false;
-      seenHash.add(tx.hash);
-      return true;
-    });
-
-  // An empty list from a reachable indexer is a real answer. Chains that did
-  // not respond, could not be derived, or fell past the cap are named so the
-  // caller can say so rather than call the result complete.
-  return Response.json({
-    items,
-    address,
-    sourceChainId: source.chainId,
-    chains: targets.map((target) => target.chain.chainId),
-    failedChains,
-    skipped,
-    truncated,
-    source: "indexer",
-  });
 }

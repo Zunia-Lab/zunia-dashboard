@@ -1,0 +1,117 @@
+/*
+ * The coming-soon composition: concentric rings, chevrons on slow orbits,
+ * the mark breathing at the centre. Layers move a few pixels with the
+ * pointer (set from script as transforms); everything here stops under
+ * prefers-reduced-motion.
+ */
+
+/* No max-width here: this unlayered rule would beat the caller's Tailwind
+   max-w-* classes (utilities live in a cascade layer), which size the stage
+   per breakpoint. */
+.stage {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  margin-inline: auto;
+  color: var(--z-fg);
+  pointer-events: none;
+  user-select: none;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  transition: transform 700ms var(--d-ease-out);
+  will-change: transform;
+}
+
+.layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Rotations: each orbit turns around the stage centre at its own pace. */
+.spin {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: spin 60s linear infinite;
+}
+
+.spinSlow {
+  animation-duration: 96s;
+}
+
+.spinFast {
+  animation-duration: 38s;
+}
+
+.reverse {
+  animation-direction: reverse;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The glow and pulse rings reuse the gate's global keyframes (globals.css),
+   which centre themselves with translate(-50%, -50%); the same transform is
+   the resting state for when reduced motion turns those animations off. */
+.glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62%;
+  height: 62%;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46%;
+  height: 46%;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  width: 27%;
+  height: 27%;
+  transform: translate(-50%, -50%);
+  align-items: center;
+  justify-content: center;
+  border-radius: 30%;
+  background: var(--d-card);
+  box-shadow:
+    0 0 0 1px var(--d-hairline-strong),
+    0 22px 48px -18px rgba(255, 27, 12, 0.45);
+}
+
+/* Preview tiles: recognisably the product's shapes, deliberately out of
+   focus, so nobody reads them as a working feature. */
+.sketch {
+  filter: blur(1.2px);
+  opacity: 0.8;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+
+  .layer {
+    transition: none;
+  }
+}

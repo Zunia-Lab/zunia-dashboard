@@ -13,12 +13,17 @@
  * reason. The picker then shows the raw hash, which is honest; showing a
  * guessed symbol for an unresolved voucher is how someone sends the wrong
  * token.
+ *
+ * Rate limited (every call is a bank read plus a trace per voucher), and the
+ * address must be a bech32 account of that chain before it reaches a URL.
  */
 
 import { NextRequest } from "next/server";
 import { isInterchainError } from "@zunialab/interchain";
-import { findChain } from "@/lib/chains";
-import { denomResolver, lcdFor } from "@/lib/server/interchain";
+import { findServerChain as findChain } from "@/lib/server/chains";
+import { denomResolver, describeError, lcdFor } from "@/lib/server/interchain";
+import { overLimit } from "@/lib/server/interchain-request";
+import { ParamError, parseAddress } from "@/lib/server/validate";
 
 export const runtime = "nodejs";
 
@@ -42,6 +47,8 @@ function readBalances(body: unknown): { denom: string; amount: string }[] {
 }
 
 export async function GET(req: NextRequest) {
+  const limited = overLimit(req, { scope: "interchain-balances", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const chainId = req.nextUrl.searchParams.get("chainId")?.trim() ?? "";
   const address = req.nextUrl.searchParams.get("address")?.trim() ?? "";
   if (!chainId || !address) {
@@ -67,6 +74,20 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  try {
+    parseAddress(address, chain);
+  } catch (error) {
+    if (!(error instanceof ParamError)) throw error;
+    return Response.json(
+      {
+        ok: false,
+        code: "bad-request",
+        message: `That is not a ${chain.chainName} address (${chain.bech32Prefix}1…).`,
+      },
+      { status: 400 },
+    );
+  }
+
   let raw: { denom: string; amount: string }[];
   try {
     const body = await lcd.getJson(
@@ -78,10 +99,7 @@ export async function GET(req: NextRequest) {
     return Response.json({
       ok: false,
       code: isInterchainError(error) ? error.code : "server-error",
-      message:
-        error instanceof Error
-          ? `Could not read balances on ${chain.chainName}. ${error.message}`
-          : `Could not read balances on ${chain.chainName}.`,
+      message: describeError(error, `Could not read balances on ${chain.chainName}.`),
     });
   }
 
@@ -104,11 +122,7 @@ export async function GET(req: NextRequest) {
         });
       }
     } catch (error) {
-      notes.push(
-        error instanceof Error
-          ? `Some IBC denoms could not be named: ${error.message}`
-          : "Some IBC denoms could not be named.",
-      );
+      notes.push(describeError(error, "Some IBC denoms could not be named."));
     }
   }
 

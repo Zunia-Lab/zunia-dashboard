@@ -25,6 +25,7 @@
  */
 
 import "server-only";
+import { lookup } from "node:dns/promises";
 import {
   applyNftMetadata,
   discoverNfts,
@@ -41,13 +42,18 @@ import {
   type NftMetadataFetcher,
   type NftToken,
 } from "@zunialab/interchain";
-import { findChain, type ChainEntry } from "@/lib/chains";
+import { findServerChain as findChain, type ServerChainEntry as ChainEntry } from "@/lib/server/chains";
+import {
+  fetchRemoteText,
+  readCapped,
+  type RemoteFetchDeps,
+} from "@/lib/nft/remote-guard";
 import {
   decideNftSupport,
   type NftChainSupport,
   type WasmProbeResult,
 } from "@/lib/nft/support";
-import { lcdFor } from "@/lib/server/interchain";
+import { describeError, lcdFor } from "@/lib/server/interchain";
 import {
   nftConfig,
   NFT_INDEXER_KEY,
@@ -92,6 +98,12 @@ export async function mapLimit<I, O>(
 
 /** Chain reads in flight at once, anywhere in this feature. */
 export const LCD_CONCURRENCY = 4;
+
+/** `signal` (when there is one) or the deadline, whichever fires first. */
+function withDeadline(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  const deadline = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
+}
 
 /* -------------------------------------------------------------------------- *
  * Capability gate
@@ -211,11 +223,16 @@ export async function nftChainSupport(
  * Returns `null` rather than throwing when there is no endpoint; every caller
  * already has a "cannot read this chain" branch and an exception here would
  * only route around it.
+ *
+ * The row is looked up again by id in the server catalog: a caller holding the
+ * browser catalog's row (`@/lib/chains`, which carries no endpoints) would
+ * otherwise get "no REST endpoint" for every chain.
  */
-export function nftContext(chain: ChainEntry): NftChainContext | null {
-  const lcd = lcdFor(chain);
-  if (!lcd) return null;
-  return { chain: chain as ChainInfoLike, lcd };
+export function nftContext(chain: Pick<ChainEntry, "chainId">): NftChainContext | null {
+  const full = findChain(chain.chainId);
+  const lcd = lcdFor(full);
+  if (!full || !lcd) return null;
+  return { chain: full as ChainInfoLike, lcd };
 }
 
 /**
@@ -247,7 +264,16 @@ export function gateOptions(support: NftChainSupport): {
  *
  * The contract is deliberately small — one GET, `{ "contracts": [...] }` — so a
  * deployment can put anything behind it.
+ *
+ * The host is the operator's choice, not a stranger's, so it does not go
+ * through the metadata guard below; it still gets a deadline (a hung index
+ * must not hold the grid's request open), a body cap, and no redirects: an
+ * index has no reason to send the server elsewhere, and following one would
+ * let whoever runs it point this process at a loopback service.
  */
+const INDEXER_TIMEOUT_MS = 8_000;
+const INDEXER_MAX_BYTES = 512 * 1024;
+
 function nftIndexer(config: NftDeploymentConfig): NftIndexer | null {
   const base = config.indexerUrl;
   if (!base) return null;
@@ -255,16 +281,22 @@ function nftIndexer(config: NftDeploymentConfig): NftIndexer | null {
   return {
     name,
     async listContracts(chainId, owner, signal) {
-      const url = `${base}?chainId=${encodeURIComponent(chainId)}&owner=${encodeURIComponent(owner)}`;
+      // Through the URL API rather than string concatenation, so a base that
+      // carries its own query (an access token, a network flag) keeps it.
+      const url = new URL(base);
+      url.searchParams.set("chainId", chainId);
+      url.searchParams.set("owner", owner);
       const response = await fetch(url, {
         headers: { accept: "application/json" },
         cache: "no-store",
-        ...(signal ? { signal } : {}),
+        redirect: "error",
+        signal: withDeadline(signal, INDEXER_TIMEOUT_MS),
       });
       if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
         throw new Error(`${name} answered HTTP ${response.status}`);
       }
-      const body: unknown = await response.json();
+      const body: unknown = JSON.parse(await readCapped(response, INDEXER_MAX_BYTES));
       const rows =
         typeof body === "object" && body !== null && !Array.isArray(body)
           ? (body as { contracts?: unknown }).contracts
@@ -419,73 +451,67 @@ export interface TokenRow {
   readonly error: string | null;
 }
 
+/** One metadata document: big enough for any real one, small enough to buffer. */
+const METADATA_MAX_BYTES = 256 * 1024;
+/** Whole budget for one URL, redirects and DNS included. */
+const METADATA_TIMEOUT_MS = 8_000;
+/** Gateways and CDNs redirect once or twice; a longer chain is a loop or a probe. */
+const METADATA_MAX_REDIRECTS = 3;
+
+/** `dns.lookup` takes no signal; this makes it give up when the request does. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/** The real network, for {@link fetchRemoteText}. */
+const REMOTE_DEPS: RemoteFetchDeps = {
+  fetch: (url, init) => fetch(url, init),
+  // `all: true`: every address the name has, because the guard refuses the
+  // host if any one of them is private (see `assertPublicHost`).
+  resolve: (hostname, signal) => untilAborted(lookup(hostname, { all: true }), signal),
+};
+
 /**
  * A metadata transport with a leash.
  *
  * The engine takes a fetcher rather than calling `fetch` itself precisely so
  * the host owns the timeout, the redirect policy and the size limit — a
  * metadata host is a stranger's server and can serve a gigabyte, hang forever,
- * or redirect to a private address. All three are handled here.
+ * or redirect to a private address. `fetchRemoteText` (lib/nft/remote-guard,
+ * where the rules are unit-tested) checks every hop *before* requesting it:
+ * https only, every resolved address public, at most three redirects followed
+ * by hand, 256 KB. This adds the one deadline that bounds all of it.
+ *
+ * The only cleartext exception is `http://127.0.0.1`, for a local gateway
+ * during development, and it does not exist when `NODE_ENV` is production.
  */
 function metadataFetcher(): NftMetadataFetcher {
-  const MAX_BYTES = 256 * 1024;
-  const TIMEOUT_MS = 8_000;
+  const policy = {
+    allowLoopbackHttp: process.env.NODE_ENV !== "production",
+    maxRedirects: METADATA_MAX_REDIRECTS,
+    maxBytes: METADATA_MAX_BYTES,
+    accept: "application/json",
+  } as const;
 
   return async (url, init) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const onAbort = () => controller.abort();
-    init.signal?.addEventListener("abort", onAbort);
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        redirect: "follow",
-        cache: "no-store",
-        headers: { accept: "application/json" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      // A redirect chain that ends on cleartext undoes the https requirement the
-      // gateway list is validated against.
-      if (!response.url.startsWith("https://") && !response.url.startsWith("http://127.0.0.1")) {
-        throw new Error("Redirected to a non-https URL");
-      }
-      const text = await readCapped(response, MAX_BYTES);
-      return JSON.parse(text) as unknown;
-    } finally {
-      clearTimeout(timer);
-      init.signal?.removeEventListener("abort", onAbort);
-    }
+    const signal = withDeadline(init.signal, METADATA_TIMEOUT_MS);
+    const text = await fetchRemoteText(url, signal, REMOTE_DEPS, policy);
+    return JSON.parse(text) as unknown;
   };
-}
-
-/** Read at most `max` bytes, then give up on the body rather than buffering it. */
-async function readCapped(response: Response, max: number): Promise<string> {
-  const body = response.body;
-  if (!body) return await response.text();
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > max) {
-        throw new Error(`Metadata document exceeded ${max} bytes`);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(joined);
 }
 
 /**
@@ -629,20 +655,16 @@ function resolveImage(
 /**
  * A sentence for the browser.
  *
- * `unsupported-chain` is reworded because the engine's phrasing is developer
- * copy; everything else keeps the engine's message as a detail line after the
- * caller's fallback, the same shape `describeError` uses in `interchain.ts`.
+ * The same rule as `describeError` in `interchain.ts`, which it delegates to:
+ * the engine's own sentences are kept as a detail line after the caller's
+ * fallback, while a transport failure is rebuilt from its fields, because its
+ * text embeds the endpoint URL and the gateway's body verbatim — third-party
+ * text that must not appear inside the wallet's UI. A non-engine throw is the
+ * fallback alone.
  */
 export function describeNftError(error: unknown, fallback: string): string {
-  if (isInterchainError(error)) {
-    if (error.code === "unsupported-chain") {
-      return `${fallback} ${error.message}`;
-    }
-    if (error.code === "reads-disabled") {
-      return "Off-chain metadata was not loaded, because loading it was not asked for.";
-    }
-    return `${fallback} ${error.message}`;
+  if (isInterchainError(error) && error.code === "reads-disabled") {
+    return "Off-chain metadata was not loaded, because loading it was not asked for.";
   }
-  if (error instanceof Error && error.message) return `${fallback} ${error.message}`;
-  return fallback;
+  return describeError(error, fallback);
 }

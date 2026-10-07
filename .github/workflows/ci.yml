@@ -4,23 +4,105 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same branch or PR makes the running check meaningless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: zunia-dashboard
     steps:
-      - uses: actions/checkout@v4
+      # package.json resolves every @zunialab/* package through
+      # `link:../zunia-ui/...` and `link:../zunia-sdk/...` (pnpm.overrides), so
+      # the three repositories are checked out side by side under the
+      # workspace, the same layout as a developer machine and the Hetzner
+      # host. actions/checkout cannot write outside the workspace, which is
+      # why the dashboard itself goes into a subdirectory too.
+      - name: Check out zunia-dashboard
+        uses: actions/checkout@v4
+        with:
+          path: zunia-dashboard
+
+      # Both repositories are public; a private one would need `token:`.
+      - name: Check out zunia-ui
+        uses: actions/checkout@v4
+        with:
+          repository: Zunia-Lab/zunia-ui
+          path: zunia-ui
+
+      - name: Check out zunia-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: Zunia-Lab/zunia-sdk
+          path: zunia-sdk
+
+      # No `version:` here. pnpm comes from "packageManager" in package.json;
+      # giving both is the "Multiple versions of pnpm specified" error that
+      # failed every run from 2026-08-31.
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          package_json_file: zunia-dashboard/package.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm build
+          cache-dependency-path: |
+            zunia-dashboard/pnpm-lock.yaml
+            zunia-ui/pnpm-lock.yaml
+            zunia-sdk/pnpm-lock.yaml
+
+      # The linked packages export only their dist/ output.
+      - name: Build zunia-ui
+        working-directory: zunia-ui
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build zunia-sdk
+        working-directory: zunia-sdk
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # next-env.d.ts and the route types are generated, not committed; tsc
+      # needs them before a build has ever run.
+      - name: Generate Next types
+        run: pnpm exec next typegen
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # The amino golden vectors are vendored under src/lib/tx/__tests__/vectors,
+      # so no zunia-core checkout is needed.
+      - name: Test
+        run: pnpm test
+
+      - uses: actions/cache@v4
+        with:
+          path: zunia-dashboard/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('zunia-dashboard/pnpm-lock.yaml') }}-${{ hashFiles('zunia-dashboard/src/**', 'zunia-dashboard/next.config.ts') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('zunia-dashboard/pnpm-lock.yaml') }}-
+
+      # NEXT_PUBLIC_* values are inlined at build time; build with the
+      # production relay so the bundle CI checks is the one that ships.
+      - name: Build
+        env:
+          NEXT_PUBLIC_ZUNIA_CONNECT_API_BASE: https://api.zunialab.com
+        run: pnpm build

@@ -13,12 +13,17 @@
 
 import { NextRequest } from "next/server";
 import { getTxStatus, isInterchainError } from "@zunialab/interchain";
-import { findChain } from "@/lib/chains";
+import { findServerChain as findChain } from "@/lib/server/chains";
 import { describeError, lcdFor } from "@/lib/server/interchain";
+import { overLimit } from "@/lib/server/interchain-request";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  // Uncached on purpose (a status poll must see the block), so every call is
+  // an upstream read; the screens poll /api/tx/[hash] instead.
+  const limited = overLimit(req, { scope: "interchain-tx", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const chainId = req.nextUrl.searchParams.get("chainId")?.trim() ?? "";
   const hash = req.nextUrl.searchParams.get("hash")?.trim() ?? "";
   if (!chainId || !/^(0x)?[0-9a-fA-F]{64}$/.test(hash)) {

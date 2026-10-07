@@ -9,9 +9,11 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=import --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@scure/base": "^2.4.0",
     "@zunialab/fonts": "^0.1.0",
     "@zunialab/interchain": "^0.1.0",
     "@zunialab/sdk-react": "^0.1.0",
@@ -19,24 +21,37 @@
     "@zunialab/tokens": "^0.1.0",
     "@zunialab/ui": "^0.1.0",
     "bech32": "^2.0.0",
-    "next": "16.3.3",
+    "clsx": "^2.1.1",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "d3-time": "^3.1.0",
+    "d3-time-format": "^4.1.0",
+    "next": "16.3.8",
     "qrcode-generator": "^2.0.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-shape": "^3.2.0",
+    "@types/d3-time": "^3.0.4",
+    "@types/d3-time-format": "^4.0.3",
     "@types/node": "^20",
     "@types/qrcode-generator": "^1.0.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.3.8",
     "tailwindcss": "^4",
     "tsx": "^4.19.0",
     "typescript": "^5"
   },
-  "//test": "--conditions=import is required because @zunialab/interchain publishes an exports map with only `types` and `import`. Node's CJS resolver (which tsx routes .ts through in a non-module package) looks for `require` or `default`, finds neither, and refuses the package. Adding `\"default\": \"./dist/index.js\"` to that package's exports map is the real fix; this flag makes the tests run against the package as it is published today.",
   "pnpm": {
     "//": "BOOTSTRAP: resolves the @zunialab/* semver ranges above to local paths until the npm scope is live. Delete this whole pnpm block once published. See zunia-ui/RELEASING.md.",
     "overrides": {
@@ -46,7 +61,11 @@
       "@zunialab/sdk-react": "link:../zunia-sdk/packages/react",
       "@zunialab/sdk-web": "link:../zunia-sdk/packages/web",
       "@zunialab/tokens": "link:../zunia-ui/packages/tokens",
-      "@zunialab/ui": "link:../zunia-ui/packages/ui"
+      "@zunialab/ui": "link:../zunia-ui/packages/ui",
+      "sharp": ">=0.35.5",
+      "source-map-js": ">=1.2.2",
+      "brace-expansion@1": "^1.1.21",
+      "brace-expansion@5": "^5.0.12"
     }
   }
 }

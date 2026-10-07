@@ -1,4 +1,7 @@
-/** Small base64 helpers for TxRaw encoding (no wallet kernel). */
+/**
+ * Byte helpers for transaction encoding (no wallet kernel, no Node Buffer:
+ * this runs in the browser and in `node --test` alike).
+ */
 
 export function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -13,6 +16,61 @@ export function fromBase64(value: string): Uint8Array {
   return out;
 }
 
+export function toHex(bytes: Uint8Array): string {
+  let out = "";
+  for (const b of bytes) out += b.toString(16).padStart(2, "0");
+  return out;
+}
+
+export function fromHex(value: string): Uint8Array {
+  const clean = value.trim().toLowerCase();
+  if (clean.length % 2 !== 0 || !/^[0-9a-f]*$/.test(clean)) {
+    throw new Error("Not a hex string");
+  }
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * Bytes out of whatever a wallet handed back.
+ *
+ * Extensions answer across `postMessage`, which turns a `Uint8Array` into a
+ * plain array or an index-keyed object depending on the wallet; the SDK
+ * normalises its own transports but not a raw `window.keplr`. Anything else is
+ * a broken answer, and guessing at it would mean broadcasting bytes nobody
+ * signed.
+ */
+export function asBytes(value: unknown, what: string): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value) && value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    return Uint8Array.from(value as number[]);
+  }
+  if (typeof value === "string") return fromBase64(value);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length > 0 && keys.every((k, i) => k === String(i))) {
+      const out = new Uint8Array(keys.length);
+      for (let i = 0; i < keys.length; i++) {
+        const n = record[String(i)];
+        if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 255) {
+          throw new Error(`The wallet returned unreadable ${what}`);
+        }
+        out[i] = n;
+      }
+      return out;
+    }
+  }
+  throw new Error(`The wallet returned unreadable ${what}`);
+}
+
 /** CosmJS-style amino sign-doc serialization (sorted keys, compact JSON). */
 export function serializeAminoSignDoc(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(sortKeysDeep(value)));
@@ -25,7 +83,15 @@ export function sortKeysDeep(value: unknown): unknown {
   const obj = value as Record<string, unknown>;
   const sorted: Record<string, unknown> = {};
   for (const key of Object.keys(obj).sort()) {
+    // JSON.stringify drops undefined members; dropping them here keeps the
+    // canonical form and a deep comparison of two documents in agreement.
+    if (obj[key] === undefined) continue;
     sorted[key] = sortKeysDeep(obj[key]);
   }
   return sorted;
+}
+
+/** Canonical JSON of a value, for comparing two amino documents. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
 }

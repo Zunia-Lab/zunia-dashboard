@@ -12,15 +12,27 @@
  *
  * The envelope's `ok` is about the request; the check's own verdict is
  * `check.ok`. Two different questions, so two different fields.
+ *
+ * Each check reads two chains from this server's IP, so it is rate limited
+ * (the field debounces at 500 ms; 30 checks then one every two seconds is far
+ * above what typing needs) and only catalog chains and `channel-N` ids are
+ * looked up.
  */
 
 import { NextRequest } from "next/server";
 import { isInterchainError } from "@zunialab/interchain";
-import { channelService } from "@/lib/server/interchain";
+import { findServerChain } from "@/lib/server/chains";
+import { channelService, describeError } from "@/lib/server/interchain";
+import { overLimit } from "@/lib/server/interchain-request";
 
 export const runtime = "nodejs";
 
+/** What the field accepts: `channel-141`, or just `141`. */
+const CHANNEL = /^(channel-)?\d{1,10}$/i;
+
 export async function GET(req: NextRequest) {
+  const limited = overLimit(req, { scope: "ibc-channel", capacity: 30, refillPerSecond: 0.5 });
+  if (limited) return limited;
   const source = req.nextUrl.searchParams.get("source")?.trim() ?? "";
   const channel = req.nextUrl.searchParams.get("channel")?.trim() ?? "";
   const dest = req.nextUrl.searchParams.get("dest")?.trim() || undefined;
@@ -35,6 +47,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  if (!findServerChain(source) || (dest !== undefined && !findServerChain(dest))) {
+    return Response.json(
+      { ok: false, code: "unsupported-chain", message: "That chain is not in this build's catalog." },
+      { status: 400 },
+    );
+  }
+  if (!CHANNEL.test(channel)) {
+    // Answered as a check, not a request error: the field shows it inline.
+    return Response.json({
+      ok: true,
+      check: {
+        ok: false,
+        state: "unknown",
+        channelId: channel.slice(0, 40),
+        portId: "transfer",
+        message: "A channel id looks like channel-141.",
+      },
+    });
+  }
+
   try {
     const check = await channelService.validateIbcChannel(source, channel, dest, {
       checkCounterparty: dest !== undefined,
@@ -44,10 +76,7 @@ export async function GET(req: NextRequest) {
     return Response.json({
       ok: false,
       code: isInterchainError(error) ? error.code : "server-error",
-      message:
-        error instanceof Error
-          ? `Could not reach the chain to verify this channel. ${error.message}`
-          : "Could not reach the chain to verify this channel.",
+      message: describeError(error, "Could not reach the chain to verify this channel."),
     });
   }
 }
