@@ -10,14 +10,16 @@
  * be called in a loop). Rows already loaded are served from whichever chunk
  * holds them, so "Show more", a search or a re-sort never re-asks for them.
  *
- * Failure handling, per the contract:
- * - a chain the server ran out of time on is retried once (it keeps loading
- *   into the server cache meanwhile);
+ * Failure handling, per the route's contract (`/api/chains/stats`):
+ * - a chain the server ran out of time on comes back in a 200, listed in
+ *   `errors` as timed out (even when every chain in the chunk did: still
+ *   loading is not down), and is asked for once more in a retry chunk; it
+ *   keeps loading into the server cache meanwhile;
  * - a rate-limited chunk (429) is retried every 12 s until it gets through;
- * - a chunk where nothing could be read (503, which the route also answers
- *   when every chain in it timed out on a cold cache) is retried once after
- *   10 s, its rows still loading; if that fails too they show "—" with the
- *   reason, and `retryFailed()` asks again;
+ * - a chunk that failed outright (a 503: every chain in it was read and none
+ *   answered; or no answer at all) is retried once after 10 s, its rows still
+ *   loading; if that fails too they show "—" with the reason, and
+ *   `retryFailed()` asks again;
  * - every chunk refreshes on the hook's own 5-minute poll.
  */
 

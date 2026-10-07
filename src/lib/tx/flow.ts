@@ -55,7 +55,7 @@ import {
 } from "./fees";
 import { isEthKeyChain, pubKeyTypeUrlFor, type KeyChain } from "./pubkey";
 import { readProtoFields } from "./proto";
-import { chooseSignMode, type SignerCapabilities } from "./sign-mode";
+import { chooseSignMode, type SignerCapabilities, type SignerKind } from "./sign-mode";
 import type { AccountInfo, BroadcastAnswer } from "./client";
 import { SimulationRefused } from "./client";
 import type { ResolvedSignMode, SignRequest, SignResult, SignStage, TxOutcome } from "./types";
@@ -84,7 +84,8 @@ export interface WalletSignature {
 
 /** What the sign flow needs from a wallet. `WalletProvider` builds one per transport. */
 export interface TxSigner {
-  kind: "zunia" | "keplr" | "zunia-mobile";
+  /** Which wallet: the sign-mode policy has rules per wallet (`chooseSignMode`). */
+  kind: SignerKind;
   capabilities(chainId: string, key: SignerKey): SignerCapabilities;
   /** Enable (suggest when unknown) the chain and return its key. Readable errors. */
   ensureKey(chainId: string): Promise<SignerKey>;
@@ -232,6 +233,8 @@ export async function planTx(req: SignRequest, opts: FlowOptions, minSequence?: 
   const pubKeyTypeUrl = pubKeyTypeUrlFor(opts.chain, account.pubKey?.typeUrl);
   const mode = chooseSignMode(req.messages, opts.signer.capabilities(req.chainId, key), req.signMode ?? "auto", {
     ethKeyChain: isEthKeyChain(opts.chain),
+    wallet: opts.signer.kind,
+    memo: req.memo,
   });
   const measured = await simulateGas(
     req,
@@ -503,6 +506,6 @@ export async function signAndBroadcast(req: SignRequest, opts: FlowOptions): Pro
   } catch (error) {
     stage("failed", knownHash ? { txHash: knownHash } : undefined);
     if (error instanceof TxError) throw error;
-    throw new TxError(explainError(error), knownHash, false);
+    throw new TxError(explainError(error, { wallet: opts.signer.kind }), knownHash, false);
   }
 }

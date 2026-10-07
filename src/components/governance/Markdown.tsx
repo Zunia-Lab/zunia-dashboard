@@ -10,9 +10,9 @@
  * says they leave the dashboard. A link whose visible text names a different
  * site than the one it opens also shows the real host, in warning colours.
  *
- * Headings start at `baseLevel` (default h3: the page's h1 is the top bar,
- * the card holding the text is an h2), so a proposal's "# Title" never adds a
- * second h1 to the page, and follow the levels the text actually uses
+ * Headings start at `baseLevel` (default h3: `<Page>` renders the page's one
+ * h1, the card holding the text is an h2), so a proposal's "# Title" never
+ * adds a second h1 to the page, and follow the levels the text actually uses
  * (`headingTags`): a text that opens at "##" still starts at h3, and the
  * outline never skips a level.
  */

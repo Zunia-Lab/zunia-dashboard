@@ -291,11 +291,29 @@ function Chip({ open, compact, className, ...rest }: ComponentPropsWithRef<"butt
 export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const phone = useMediaQuery(PHONE_FRAME_QUERY);
-  const { account, restoring } = useWallet();
+  const { account, restoring, zuniaLocked, zuniaAvailable, connectExtension } = useWallet();
   const modal = useConnectModal();
 
   if (!account) {
     if (restoring) return <Skeleton className="shrink-0 rounded-full" width={phone ? 36 : 120} height={34} />;
+    // A remembered Zunia connection whose wallet locked itself: the account is
+    // one unlock away, so say that instead of offering a fresh connect. The
+    // click is the user gesture Zunia's unlock window needs; a refusal falls
+    // back to the modal, which lists every way in.
+    if (zuniaLocked && zuniaAvailable) {
+      return (
+        <Button
+          variant="primary"
+          size="sm"
+          iconLeft="lock"
+          onClick={() => void connectExtension("zunia").catch(() => modal.open())}
+          className="shrink-0 max-md:px-2.5"
+        >
+          <span className="max-sm:hidden">Zunia is locked — Unlock</span>
+          <span className="sm:hidden">Unlock</span>
+        </Button>
+      );
+    }
     return (
       <Button variant="primary" size="sm" iconLeft="wallet" onClick={() => modal.open()} className="shrink-0 max-md:px-2.5">
         <span className="max-sm:hidden">Connect wallet</span>

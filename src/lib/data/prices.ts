@@ -28,8 +28,11 @@ function keyOf(target: string | Pick<TokenIdentity, "key"> | null | undefined): 
 
 /**
  * `GET /api/prices/history` for one asset. Hourly for 1D/7D, daily beyond;
- * `coverage` says how far back the data really goes and `source`/`label`
- * where it comes from.
+ * `coverage` says how far back the data really goes, `source`/`label` where
+ * it comes from, and `note` what a EUR or GBP series really is (USD history at
+ * today's rate). A chart that prints the series in money should show the note
+ * (the asset page's does); indexed or ratio charts can leave it out, since one
+ * rate scales every point alike.
  */
 export function usePriceHistory(
   target: string | Pick<TokenIdentity, "key"> | null | undefined,

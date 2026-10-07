@@ -12,7 +12,7 @@ import { bech32PrefixOf, isValidBech32Address, validateMemo } from "@zunialab/in
 import type { ActivityItem } from "@/lib/activity/types";
 import type { HopOverrideInput } from "@/lib/interchain/client";
 import type { ChannelLinkWire } from "@/lib/interchain/wire";
-import type { PortfolioAsset, UnpricedReason } from "@/lib/token/wire";
+import type { PortfolioAmounts, PortfolioAsset, PortfolioResponse, UnpricedReason } from "@/lib/token/wire";
 import type { TokenIdentity } from "@/lib/token/types";
 
 /* -------------------------------------------------------------------------- *
@@ -205,6 +205,107 @@ export function spendableAssets(assets: readonly PortfolioAsset[]): SpendableAss
     if (b.value === null && a.value !== null) return -1;
     return a.identity.ticker.localeCompare(b.identity.ticker);
   });
+}
+
+/* -------------------------------------------------------------------------- *
+ * What it is worth
+ * -------------------------------------------------------------------------- */
+
+/**
+ * A sum of values that says what it leaves out. A balance without a price
+ * is counted, never added as 0: a total of only unpriced tokens is unknown,
+ * not $0.00, and a total that skips some says how many.
+ */
+export interface PricedSum {
+  /**
+   * The priced rows' values added up: 0 when there are no rows (a real
+   * zero), null when there are rows and none of them has a price.
+   */
+  value: number | null;
+  /** Rows counted, priced or not. */
+  count: number;
+  /** Rows without a price. */
+  unpriced: number;
+}
+
+/** What some balances are worth ("Spendable now"), as a {@link PricedSum}. */
+export function pricedSum(rows: readonly Pick<SpendableAsset, "value">[]): PricedSum {
+  let value: number | null = rows.length === 0 ? 0 : null;
+  let unpriced = 0;
+  for (const row of rows) {
+    if (row.value === null || !Number.isFinite(row.value)) unpriced += 1;
+    else value = (value ?? 0) + row.value;
+  }
+  return { value, count: rows.length, unpriced };
+}
+
+/** {@link pricedSum} per chain, for the chains holding something to move (in the balances' order). */
+export function pricedSumByChain(assets: readonly SpendableAsset[]): Map<string, PricedSum> {
+  const byChain = new Map<string, SpendableAsset[]>();
+  for (const asset of assets) {
+    const rows = byChain.get(asset.chainId);
+    if (rows) rows.push(asset);
+    else byChain.set(asset.chainId, [asset]);
+  }
+  return new Map([...byChain].map(([chainId, rows]) => [chainId, pricedSum(rows)]));
+}
+
+/** One of the four amounts a portfolio row holds. */
+export type Bucket = keyof PortfolioAmounts;
+
+/**
+ * The read each bucket comes from: the issue scopes of the portfolio read
+ * (`server/portfolio/read.ts`). The bank read is required (its failure
+ * fails the whole chain); the other three fail on their own.
+ */
+const BUCKET_READ: Readonly<Record<Bucket, string>> = {
+  liquid: "bank",
+  staked: "delegations",
+  rewards: "rewards",
+  unbonding: "unbonding",
+};
+
+export interface BucketWorth {
+  /**
+   * The buckets' priced value (the response's totals). Null when that is 0
+   * only because what sits there has no price, or was not read: unknown,
+   * not $0.00. A positive figure stays; `unpriced` and `unread` say what it
+   * leaves out.
+   */
+  value: number | null;
+  /** Holdings with an amount in the buckets and no price. */
+  unpriced: number;
+  /** Networks whose read of the buckets failed (the whole chain, or that one read). */
+  unread: number;
+}
+
+/**
+ * What some buckets of the portfolio are worth: Send's "Staked & unbonding"
+ * and its rewards. The totals the server sends add up priced value only, so
+ * a bucket that holds nothing but unpriced tokens (a testnet's stake, SAF
+ * while its one price source is down), or whose only read failed, totals 0;
+ * the tile then said $0.00 for a stake that exists.
+ */
+export function bucketWorth(
+  portfolio: Pick<PortfolioResponse, "totals" | "assets" | "chains" | "errors">,
+  buckets: readonly Bucket[],
+): BucketWorth {
+  let value = 0;
+  for (const bucket of buckets) {
+    const total = portfolio.totals[bucket];
+    if (Number.isFinite(total)) value += total;
+  }
+  let unpriced = 0;
+  for (const asset of portfolio.assets) {
+    if (asset.value === null && buckets.some((bucket) => isPositive(asset.amounts[bucket]))) unpriced += 1;
+  }
+  const unread = new Set<string>();
+  for (const chain of portfolio.chains) if (chain.status === "error") unread.add(chain.chainId);
+  for (const issue of portfolio.errors ?? []) {
+    if (issue.chainId && buckets.some((bucket) => issue.scope === BUCKET_READ[bucket])) unread.add(issue.chainId);
+  }
+  const known = value > 0 || (unpriced === 0 && unread.size === 0);
+  return { value: known ? value : null, unpriced, unread: unread.size };
 }
 
 /** Where a token comes from, relative to a move from `from` to `to`. */

@@ -48,6 +48,7 @@ import {
 } from "@/components/ui";
 import { useConnectModal } from "@/components/connect/ConnectModal";
 import { Page } from "@/components/shell/Page";
+import { websiteHost } from "@/lib/chain/parse";
 import { findChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
 import { useChainStats } from "@/lib/data/chains";
@@ -231,6 +232,7 @@ function DetailContent({
     details: v?.details ?? initial?.details ?? null,
     identity: v?.identity ?? initial?.identity ?? null,
   };
+  const websiteLabel = websiteHost(profile.website);
   const canStake = v ? !v.jailed && v.tombstoned !== true && v.status === "bonded" : initial ? !initial.jailed && initial.status === "bonded" : false;
   // Why the stake buttons are off, in words (a disabled button alone explains nothing).
   const blockedReason = v
@@ -526,9 +528,12 @@ function DetailContent({
                   {chainNameOf(chainId)}
                 </span>
                 <AddressText address={operator} head={14} tail={6} />
-                {profile.website ? (
-                  <ExternalLink href={profile.website} className="text-[13px]">
-                    {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                {profile.website && websiteLabel ? (
+                  // The operator's own claim: labelled by the host it opens
+                  // (see `websiteHost`), and `ugc` so this indexable page
+                  // never vouches for it to search engines.
+                  <ExternalLink href={profile.website} ugc className="min-w-0 max-w-full text-[13px]">
+                    <span className="truncate">{websiteLabel}</span>
                   </ExternalLink>
                 ) : null}
                 {profile.identity ? (

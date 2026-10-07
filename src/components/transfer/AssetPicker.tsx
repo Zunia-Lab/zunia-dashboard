@@ -3,17 +3,34 @@
 /**
  * Pick the balance to move: every spendable token in scope, named by its
  * identity ("USDC.n · Noble USDC · on Osmosis"), with what is available and
- * what it is worth. A searchable list (popover on desktop, sheet on phones),
- * grouped by chain when the scope spans several.
+ * what it is worth (or why nothing is: an unpriced token reads "—" with its
+ * reason, never $0). A searchable list (popover on desktop, sheet on phones),
+ * grouped by chain when the scope spans several; a search lists its matches
+ * best first, the swap pickers' rank.
  */
 
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icons";
 import { AssetLogo, Combobox, Money, Skeleton, TokenAmount, chainById } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { tokenKeywords, tokenText } from "@/lib/token/text";
+import { tokenSearchRank, tokenText } from "@/lib/token/text";
+import { UNPRICED_TEXT } from "@/lib/token/wire";
 import type { SpendableAsset } from "./logic";
 import { chainName } from "./names";
+
+/**
+ * A search's rank for one balance (`tokenSearchRank`): "atom" puts ATOM on
+ * top, and Enter takes it, whichever chain group it sits in. Module-level
+ * (with the key below), so the Combobox's ranking memo holds still across
+ * the form's redraws.
+ */
+const rankAsset = (asset: SpendableAsset, query: string) => tokenSearchRank(asset.identity, query);
+const assetKey = (asset: SpendableAsset) => asset.key;
+
+/** Why a balance has no value (the server's reason when it sent one). */
+function unpricedReason(asset: SpendableAsset): string {
+  return asset.unpriced ? UNPRICED_TEXT[asset.unpriced] : "No price for this token";
+}
 
 export interface AssetPickerProps {
   assets: SpendableAsset[];
@@ -34,7 +51,6 @@ export interface AssetPickerProps {
   emptyText?: ReactNode;
   className?: string;
 }
-
 
 function AssetFace({ asset, size }: { asset: SpendableAsset; size: number }) {
   const chain = chainById(asset.chainId);
@@ -110,7 +126,7 @@ export function AssetPicker({
               value={selected.value}
               currency={currency}
               compact
-              reason={selected.unpriced ? "No price for this token" : undefined}
+              reason={unpricedReason(selected)}
               className="mt-0.5 block text-[12.5px] tabular-nums text-fg-dim"
             />
           </span>
@@ -127,7 +143,7 @@ export function AssetPicker({
     <Combobox<SpendableAsset>
       title={label}
       items={assets}
-      getKey={(asset) => asset.key}
+      getKey={assetKey}
       value={value}
       onSelect={onChange}
       isDisabled={isDisabled}
@@ -136,7 +152,7 @@ export function AssetPicker({
       width={400}
       maxHeight={380}
       groupBy={groupByChain ? (asset) => chainName(asset.chainId) : undefined}
-      filter={(asset, query) => tokenKeywords(asset.identity).some((word) => word.toLowerCase().includes(query))}
+      rank={rankAsset}
       trigger={trigger}
       renderItem={(asset) => (
         <span className="flex min-w-0 items-center gap-2.5">
@@ -147,7 +163,7 @@ export function AssetPicker({
           </span>
           <span className="shrink-0 text-right leading-tight">
             <TokenAmount amount={asset.liquid} decimals={asset.decimals} compact className="block text-[13px] tabular-nums text-fg-muted" />
-            <Money value={asset.value} currency={currency} compact className="block text-[12px] tabular-nums text-fg-dim" />
+            <Money value={asset.value} currency={currency} compact reason={unpricedReason(asset)} className="block text-[12px] tabular-nums text-fg-dim" />
           </span>
         </span>
       )}

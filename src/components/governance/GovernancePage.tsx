@@ -19,6 +19,11 @@
  * of that status while they are open. Scope changes keep the previous answer
  * on screen, dimmed, until the new one lands. Ended votes' turnout estimates
  * pass through `withUsableTurnout` first, so no view shows a stale one.
+ *
+ * The route reads `?chain=` and the public list of the networks the first
+ * render covers on the server (`link`, `initial`), so the first HTML lists
+ * the proposals; `useProposals` shows that list while a remembered wallet is
+ * restored, and the wallet's own read (`voter=`) replaces it.
  */
 
 import Link from "next/link";
@@ -51,6 +56,7 @@ import { cn } from "@/lib/cn";
 import type { ProposalRow } from "@/lib/chain/types";
 import { formatDuration } from "@/lib/format";
 import { useProposals } from "@/lib/data/governance";
+import type { ApiInitial } from "@/lib/useApi";
 import { useChainScope } from "@/lib/useChainScope";
 import { useWallet } from "@/providers/WalletProvider";
 import { ClosingSoon, RecentOutcomes, RulesCard } from "./GovernanceAside";
@@ -92,26 +98,29 @@ function clearChainLink() {
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
-export function GovernancePage() {
-  // `?chain=` as the browser reads it: undefined until then (see ChainLink).
-  const [linkChain, setLinkChain] = useState<string | null | undefined>(undefined);
+export function GovernancePage({ link, initial = null }: { link?: string | null; initial?: ApiInitial | null }) {
+  // `?chain=` (a catalog chain, or null): as the route read it on the server
+  // when it did, else undefined until the browser reads it (see ChainLink).
+  const [linkChain, setLinkChain] = useState<string | null | undefined>(link);
   return (
     <Page title="Governance" access="public">
       <Suspense fallback={null}>
         <ChainLink onRead={setLinkChain} />
       </Suspense>
-      <GovernanceView linkChain={linkChain} />
+      <GovernanceView linkChain={linkChain} initial={initial} />
     </Page>
   );
 }
 
 /**
  * Reads `?chain=` (a catalog chain, or nothing: anything else is ignored)
- * and hands it up. It renders nothing, alone in its Suspense boundary: a
- * prerendered page has no query string, so this part runs in the browser
- * only, while the page itself stays in the static HTML and hydrates with the
- * shell (a boundary that hydrated later could meet a wallet already restored,
- * and mismatch the server's HTML).
+ * and hands it up, now and whenever the query changes in place (the chip's
+ * clear, a rail pick dropping the link). It renders nothing, alone in its
+ * Suspense boundary: should the page ever be prerendered again, where there
+ * is no query string, only this part would wait for the browser, while the
+ * page itself stays in the HTML and hydrates with the shell (a boundary that
+ * hydrated later could meet a wallet already restored, and mismatch the
+ * server's HTML).
  */
 function ChainLink({ onRead }: { onRead: (chainId: string | null) => void }) {
   const raw = useSearchParams().get("chain");
@@ -121,7 +130,7 @@ function ChainLink({ onRead }: { onRead: (chainId: string | null) => void }) {
   return null;
 }
 
-function GovernanceView({ linkChain }: { linkChain: string | null | undefined }) {
+function GovernanceView({ linkChain, initial }: { linkChain: string | null | undefined; initial: ApiInitial | null }) {
   const tabsId = useId();
   const now = useNow();
   const { account } = useWallet();
@@ -149,7 +158,7 @@ function GovernanceView({ linkChain }: { linkChain: string | null | undefined })
   const [voteKey, setVoteKey] = useState<string | null>(null);
   const [voteBusy, setVoteBusy] = useState(false);
 
-  const all = useProposals({ status: "all", chains: known ? chainIds : [] });
+  const all = useProposals({ status: "all", chains: known ? chainIds : [], initial });
   const historyTab = tab === "passed" || tab === "rejected" ? tab : null;
   // Idle (no chains, no request) unless a results tab is open.
   const history = useProposals({ status: historyTab ?? "passed", chains: historyTab && known ? chainIds : [] });
@@ -209,7 +218,10 @@ function GovernanceView({ linkChain }: { linkChain: string | null | undefined })
       <ParticipationStrip
         p={p}
         connected={connected}
-        loading={listLoading}
+        // Skeleton tiles until the clock starts as well: the server renders
+        // the list it read, but without a clock (there, and in the hydrating
+        // render) "Ending < 48 h" would read 0 whatever the deadlines.
+        loading={listLoading || now === null}
         now={now}
         scopeCount={networks}
         failed={failed}

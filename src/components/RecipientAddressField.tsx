@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "@/components/icons";
 import { ContactAvatar } from "@/components/transfer/AddressBookCard";
-import { Glyph } from "@/components/transfer/glyphs";
 import { useAddressBook } from "@/components/transfer/useAddressBook";
 import { Dialog, IconButton, Input, SearchInput } from "@/components/ui";
 import { contactsFor, searchContacts } from "@/lib/address-book";
@@ -307,11 +306,11 @@ export function RecipientAddressField({
           <span className="-mr-1.5 flex items-center gap-0.5">
             {state === "valid" && !error ? <Icon name="check" size={16} className="mr-1 text-[var(--d-pos)]" /> : null}
             <IconButton label="Scan a QR code" size="sm" onClick={() => setModal("qr")}>
-              <Glyph name="scan" size={17} />
+              <Icon name="scan" size={17} />
             </IconButton>
             {showBook ? (
               <IconButton label="Pick from the address book" size="sm" onClick={() => setModal("book")}>
-                <Glyph name="book" size={17} />
+                <Icon name="book" size={17} />
               </IconButton>
             ) : null}
           </span>

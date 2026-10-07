@@ -3,16 +3,25 @@
 /**
  * AssetLogo, ChainLogo and LogoStack.
  *
- * Logos come from third-party hosts (the chain registry mirror on GitHub,
- * token lists), so they load lazily, without a referrer, and fall back to a
- * monogram when they fail; a broken image never shows. Plain <img>, not
- * next/image: the optimizer would proxy every registry host through our
- * server and need an allowlist that changes with each listed chain.
+ * Logos load lazily, without a referrer, and fall back to a monogram when
+ * they fail; a broken image never shows.
+ *
+ * Catalog chain icons, token logos and keybase validator avatars come from
+ * a few fixed hosts (logo-hosts.ts, the same list as `images.remotePatterns`
+ * in next.config.ts), and those go through Next's image optimizer: the
+ * registry ships logos up to 2500×2500 (btc.png is 98 KB for a 28px slot),
+ * so /markets downloaded 1.2 MB of them; resized to the slot (1x/2x WebP) it
+ * is under 100 KB. The browser then fetches them from our own origin, which
+ * also keeps those hosts from seeing which tokens and validators a wallet
+ * page shows. Anything else (another host or repository, an .svg, a URL
+ * with a query) stays a plain image.
  */
 
+import Image, { getImageProps } from "next/image";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { CHAINS, type ChainEntry } from "@/lib/chains";
 import { cn } from "@/lib/cn";
+import { isOptimizableLogo } from "./logo-hosts";
 
 /** Chain lookups by id, built once (findChain scans the whole catalog). */
 let chainIndex: Map<string, ChainEntry> | null = null;
@@ -20,6 +29,23 @@ let chainIndex: Map<string, ChainEntry> | null = null;
 export function chainById(chainId: string): ChainEntry | undefined {
   if (!chainIndex) chainIndex = new Map(CHAINS.map((chain) => [chain.chainId, chain]));
   return chainIndex.get(chainId);
+}
+
+/**
+ * Starts fetching a logo before its <img> exists, with exactly the request a
+ * logo of `size` will make (the optimized URL and srcset for a registry
+ * logo, the raw one otherwise), so the browser's cache answers it when the
+ * logo renders: the landing page's chain marquee warms its chips before they
+ * scroll in. Browser only.
+ */
+export function warmLogo(src: string, size: number): void {
+  const { props } = getImageProps({ src, alt: "", width: size, height: size, unoptimized: !isOptimizableLogo(src) });
+  // window.Image: the next/image import shadows the DOM constructor here.
+  const image = new window.Image();
+  image.decoding = "async";
+  image.referrerPolicy = "no-referrer";
+  if (props.srcSet) image.srcset = props.srcSet;
+  image.src = props.src;
 }
 
 /** "ATOM" → "AT", "USDC.n" → "US", "ibc/27…" → "IB": two letters at most. */
@@ -63,23 +89,23 @@ function ImageOrMonogram({ src, label, size, loading: loadingMode = "lazy", clas
       )}
       style={{ width: size, height: size, ...style }}
     >
-      {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element -- third-party registry icons, see the module comment
-        <img
-          src={src ?? undefined}
+      {showImage && src ? (
+        <Image
+          src={src}
           alt=""
+          unoptimized={!isOptimizableLogo(src)}
           width={size}
           height={size}
           loading={loadingMode}
           decoding="async"
           referrerPolicy="no-referrer"
           draggable={false}
-          onLoad={() => setLoaded(src ?? null)}
-          onError={() => setFailed(src ?? null)}
+          onLoad={() => setLoaded(src)}
+          onError={() => setFailed(src)}
           // An image that settled before hydration fired its event before React
           // listened: read the outcome off the element instead.
           ref={(node) => {
-            if (!node || !node.complete || !src) return;
+            if (!node || !node.complete) return;
             if (node.naturalWidth === 0) setFailed(src);
             else setLoaded(src);
           }}

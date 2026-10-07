@@ -175,9 +175,12 @@ export function ConnectModal({
               {wide ? "Connect Zunia Mobile" : "Connect a wallet"}
             </DialogTitle>
             <DialogDescription className="mt-0.5 text-[13px] leading-snug text-fg-muted">
+              {/* "This site", not "Zunia": the Zunia extension itself asks for a
+                  phrase when you restore a wallet in it, and it is the site
+                  that must never. */}
               {wide
                 ? "Scan with the Zunia app, then approve each transaction on your phone."
-                : "Your keys stay in your wallet. Zunia never asks for a recovery phrase."}
+                : "Your keys stay in your wallet. This site never asks for your recovery phrase."}
             </DialogDescription>
           </div>
           <DialogClose asChild>

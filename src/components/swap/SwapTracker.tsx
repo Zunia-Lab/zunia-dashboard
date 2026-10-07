@@ -103,7 +103,8 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
         }),
       ],
       memo: "Recover swap output · by Zunia-wallet",
-      signMode: "direct",
+      // No forced mode: a contract call signs direct in Keplr and Zunia
+      // Mobile, amino in the Zunia extension (`chooseSignMode`).
     });
   };
 

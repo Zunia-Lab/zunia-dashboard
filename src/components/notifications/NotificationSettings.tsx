@@ -9,11 +9,13 @@
  *
  * Every state is said as it is. Push shows "not available on this server"
  * when the server has no keys, the browser's own refusal when permission is
- * blocked, the iOS install requirement, "only test notifications" when the
- * server is not watching chains, and that it needs a connected wallet (it
- * watches addresses) instead of disappearing without one. Kinds that push
- * cannot deliver yet (rewards, validator alerts) are labelled as in-app and
- * browser alerts only. Everything else works without a wallet.
+ * blocked, the iOS install requirement (only once the server can send push:
+ * installing the site for nothing is worse than not knowing), "only test
+ * notifications" when the server is not watching chains, and that it needs
+ * a connected wallet (it watches addresses) instead of disappearing without
+ * one. Kinds that push cannot deliver yet (rewards, validator alerts) are
+ * labelled as in-app and browser alerts only. Everything else works without
+ * a wallet.
  *
  * Prefs live in the notice store (`useNoticeFeed`), shared with the feed. While
  * this browser is subscribed, a change of prefs or accounts is re-sent to the
@@ -355,9 +357,11 @@ function PushState({
   onTest: () => void;
 }) {
   const connect = useConnectModal();
-  if (!push.supported) {
-    return push.unsupportedReason ? <Callout tone="neutral">{push.unsupportedReason}</Callout> : null;
-  }
+  // The server is asked first. Push has to be possible on both ends, and on
+  // a deployment that cannot send it at all, the browser's own requirement
+  // ("add Zunia to your Home Screen", on iPhone and iPad) would send people
+  // to install the site for an alert that never comes. So: checking, then
+  // "not available on this server", and only then what this browser lacks.
   if (push.configured === null) {
     return push.configStatus === "error" ? (
       <div className="flex flex-wrap items-center gap-2">
@@ -376,6 +380,9 @@ function PushState({
         {push.configReason ?? "Push is not configured on this server"}. Alerts in the app and in an open tab still work.
       </Callout>
     );
+  }
+  if (!push.supported) {
+    return push.unsupportedReason ? <Callout tone="neutral">{push.unsupportedReason}</Callout> : null;
   }
 
   const error = push.error ? <Callout tone="danger">{push.error}</Callout> : null;

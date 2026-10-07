@@ -9,8 +9,9 @@
  * (`flush`) for tables and lists; CardFooter is a quiet bottom row.
  *
  * Headings follow the page outline without each caller counting levels:
- * the top bar owns the page's h1, a PageSection title is an h2, and a card
- * title is an h2 on its own or an h3 inside a PageSection.
+ * `<Page>` renders the page's one h1 (visually hidden; the top bar shows the
+ * title), a PageSection title is an h2, and a card title is an h2 on its own
+ * or an h3 inside a PageSection.
  */
 
 import Link from "next/link";

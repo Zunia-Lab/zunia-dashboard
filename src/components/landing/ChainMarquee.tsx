@@ -20,14 +20,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, ChainLogo, useReducedMotion } from "@/components/ui";
+import { warmLogo } from "@/components/ui/Logos";
 import { cn } from "@/lib/cn";
 import type { FeaturedChain } from "./content";
 import styles from "./landing.module.css";
 
+/**
+ * The chip's logo diameter. warmLogo needs it too: a logo is fetched resized
+ * to its slot, so a warm-up at another size would be a different request.
+ */
+const CHIP_LOGO_SIZE = 28;
+
 function Chip({ chain }: { chain: FeaturedChain }) {
   return (
     <span className="flex h-10 shrink-0 items-center gap-2.5 rounded-full border border-[var(--d-hairline)] bg-[var(--d-card)] py-1 pl-1.5 pr-4 text-[13.5px] text-fg-muted">
-      <ChainLogo chain={chain} size={28} />
+      <ChainLogo chain={chain} size={CHIP_LOGO_SIZE} />
       <span className="whitespace-nowrap">{chain.chainName}</span>
     </span>
   );
@@ -51,13 +58,9 @@ function useWarmLogos(urls: readonly string[]) {
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        for (const url of urls) {
-          const image = new Image();
-          image.decoding = "async";
-          // Same request as the chip's <img> (ChainLogo sends no referrer).
-          image.referrerPolicy = "no-referrer";
-          image.src = url;
-        }
+        // The exact request each chip's logo will make (the optimizer URL
+        // and srcset at that size, no referrer), so the cache answers it.
+        for (const url of urls) warmLogo(url, CHIP_LOGO_SIZE);
       },
       { rootMargin: "800px 0px" },
     );

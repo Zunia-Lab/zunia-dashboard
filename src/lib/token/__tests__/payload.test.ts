@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { identityOf, tokenTableRows, tokenText as engineText, type HeldTokenIdentity } from "../engine";
-import { tokenKeywords, tokenText, type TokenTextVariant } from "../text";
+import { tokenSearchRank, tokenText, type TokenTextVariant } from "../text";
 import { parseTraceBody, readClientChainId, traceUnimplemented } from "../trace-body";
 import { assetKeyOf, toTokenIdentity } from "../trim";
 import {
@@ -81,7 +81,8 @@ describe("the trimmed identity", () => {
         assert.equal(tokenText(trimmed, variant), engineText(held, variant), `${held.key} ${variant}`);
       }
     }
-    assert.ok(tokenKeywords(toTokenIdentity(identityOf("osmosis-1", ATOM_ON_OSMOSIS))).includes("Cosmos Hub"));
+    // The trimmed identity keeps where a voucher comes from: a search for its home chain finds it.
+    assert.equal(tokenSearchRank(toTokenIdentity(identityOf("osmosis-1", ATOM_ON_OSMOSIS)), "cosmoshub-4"), 6);
   });
 });
 

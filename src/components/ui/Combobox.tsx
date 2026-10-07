@@ -6,9 +6,10 @@
  * A popover under the trigger on tablets and up, a bottom sheet on phones
  * (spec §2). The search field keeps focus while arrows move the active
  * option (aria-activedescendant), so typing and choosing never fight; Enter
- * picks, Escape closes. Rendering is capped (default 400 rows) with a note to
- * keep typing, which is enough for every list the dashboard has without a
- * virtualizer.
+ * picks, Escape closes. A search either filters the list in its own order
+ * (`filter`) or ranks it (`rank`): best match first, and Enter takes it.
+ * Rendering is capped (default 400 rows) with a note to keep typing, which
+ * is enough for every list the dashboard has without a virtualizer.
  */
 
 import { Popover as PopoverRoot, PopoverContent, PopoverTrigger } from "@zunialab/ui";
@@ -29,8 +30,18 @@ export interface ComboboxProps<T> {
   items: T[];
   getKey: (item: T) => string;
   renderItem: (item: T, state: ComboboxItemState) => ReactNode;
-  /** Keep items matching the query (lowercased, trimmed). Default: key contains it. */
+  /** Keep items matching the query (lowercased, trimmed). Default: key contains it. Unused when `rank` is given. */
   filter?: (item: T, query: string) => boolean;
+  /**
+   * How well an item answers the query (lowercased, trimmed): lower is
+   * better, `null` leaves it out. With a query, the rows that match are
+   * listed best first, in one flat list: ties keep the order of `items`, and
+   * the `groupBy` labels come back once the field is cleared (a group label
+   * over rows sorted by rank would hold some of its rows, not all). The
+   * active row starts on the best match, so Enter picks it. Keep it stable
+   * (module level or memoised): every row is ranked again when it changes.
+   */
+  rank?: (item: T, query: string) => number | null;
   /** A group label per item ("Your assets", "All assets"); first-seen order. */
   groupBy?: (item: T) => string | null | undefined;
   /** Same as `groupBy` (the name the design brief used). */
@@ -64,6 +75,7 @@ export function Combobox<T>({
   getKey,
   renderItem,
   filter,
+  rank,
   groupBy: groupByProp,
   groups,
   onSelect,
@@ -104,16 +116,29 @@ export function Combobox<T>({
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((item) => (filter ? filter(item, q) : getKey(item).toLowerCase().includes(q)));
-  }, [items, query, filter, getKey]);
+  const q = query.trim().toLowerCase();
+  const ranked = rank !== undefined && q !== "";
 
+  const filtered = useMemo(() => {
+    if (!q) return items;
+    if (rank) {
+      const scored: { item: T; score: number }[] = [];
+      for (const item of items) {
+        const score = rank(item, q);
+        if (score !== null && !Number.isNaN(score)) scored.push({ item, score });
+      }
+      // Array#sort is stable: equal ranks keep the caller's order (its
+      // groups, then whatever it sorted them by).
+      return scored.sort((a, b) => a.score - b.score).map((entry) => entry.item);
+    }
+    return items.filter((item) => (filter ? filter(item, q) : getKey(item).toLowerCase().includes(q)));
+  }, [items, q, rank, filter, getKey]);
+
+  // Cut after ranking, so a long list keeps its best matches.
   const shown = filtered.length > limit ? filtered.slice(0, limit) : filtered;
 
   const rows = useMemo<Row<T>[]>(() => {
-    if (!groupBy) return shown.map((item, index) => ({ kind: "item", item, index, key: getKey(item) }));
+    if (!groupBy || ranked) return shown.map((item, index) => ({ kind: "item", item, index, key: getKey(item) }));
     const order: string[] = [];
     const buckets = new Map<string, number[]>();
     shown.forEach((item, index) => {
@@ -133,7 +158,7 @@ export function Combobox<T>({
       }
     }
     return out;
-  }, [shown, groupBy, getKey]);
+  }, [shown, groupBy, ranked, getKey]);
 
   // Keyboard order follows the rendered (grouped) order, not the input order.
   const order = useMemo(() => rows.flatMap((row) => (row.kind === "item" ? [row.index] : [])), [rows]);
@@ -205,6 +230,8 @@ export function Combobox<T>({
           value={query}
           onChange={(next) => {
             setQuery(next);
+            // The first row: the best match when the list is ranked, so Enter
+            // takes it (a disabled one is not taken: its row says why).
             setActive(0);
           }}
           placeholder={placeholder}

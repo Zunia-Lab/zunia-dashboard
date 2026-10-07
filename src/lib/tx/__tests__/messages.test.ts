@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { toHex } from "../bytes";
 import { decodeAuthInfoFee, encodeAuthInfo, encodePubKeyAny, encodeSimulationTx, normalizeSignature } from "../encode";
-import { buildTransfer, buildVote, isStandardMessage, messageKind, txMessageFromAmino } from "../messages";
+import { buildExecuteContract, buildTransfer, buildVote, isStandardMessage, messageKind, txMessageFromAmino } from "../messages";
 import { msgSend } from "../amino-tx";
 import { readProtoFields } from "../proto";
 
@@ -42,9 +42,36 @@ test("summaries say what the message does", () => {
 test("standard vs non-standard, and kinds for fallback gas", () => {
   assert.equal(isStandardMessage({ typeUrl: "/cosmos.bank.v1beta1.MsgSend" }), true);
   assert.equal(isStandardMessage({ typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract" }), false);
+  // A transfer is standard unless its memo runs a contract on the way (ibc-hooks).
+  const transfer = (memo?: string) =>
+    buildTransfer({ sourceChannel: "channel-141", token: { denom: "uatom", amount: "5" }, sender: "cosmos1a", receiver: "osmo1b", ...(memo ? { memo } : {}) });
+  assert.equal(isStandardMessage(transfer()), true);
+  assert.equal(isStandardMessage(transfer("for rent")), true);
+  assert.equal(isStandardMessage(transfer('{"forward":{"receiver":"celestia1x","port":"transfer","channel":"channel-6956"}}')), true);
+  assert.equal(isStandardMessage(transfer('{"wasm":{"contract":"osmo1c","msg":{"osmosis_swap":{}}}}')), false);
+  assert.equal(isStandardMessage(transfer('{"forward":{"receiver":"osmo1c","next":{"wasm":{"contract":"osmo1c","msg":{}}}}}')), false);
+  // The word alone is not a hook: a plain memo, or JSON that only mentions it.
+  assert.equal(isStandardMessage(transfer("wasm rocks")), true);
+  assert.equal(isStandardMessage(transfer('{"note":"wasm"}')), true);
   assert.equal(messageKind({ typeUrl: "/osmosis.poolmanager.v1beta1.MsgSplitRouteSwapExactAmountIn" }), "swap");
   assert.equal(messageKind({ typeUrl: "/cosmos.gov.v1.MsgVote" }), "vote");
   assert.equal(messageKind({ typeUrl: "/foo.Bar" }), "other");
+});
+
+test("a contract call's amino document is the one the chain rebuilds from its bytes", () => {
+  // wasmd rebuilds the amino document from the protobuf message: `msg` is the
+  // JSON its bytes hold (amino.encoding = inline_json, re-marshalled sorted),
+  // `funds` an array even when empty (amino.dont_omitempty). CosmJS's and
+  // osmojs's converters write the same shape (checked against both offline).
+  const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+  const recovery = buildExecuteContract({ sender: "osmo1a", contract: "osmo1c", msg: { recover: {} } });
+  const fields = readProtoFields(recovery.value);
+  assert.deepEqual(JSON.parse(decode(fields.find((f) => f.field === 3)!.value as Uint8Array)), recovery.amino!.value.msg);
+  assert.deepEqual(recovery.amino!.value.funds, []);
+  assert.equal(fields.some((f) => f.field === 5), false, "no coin in the bytes either");
+  // Sorted keys in the bytes: the chain's re-marshal and the wallet's sorted document agree byte for byte.
+  const nested = buildExecuteContract({ sender: "osmo1a", contract: "osmo1c", msg: { b: { z: 1, a: "x" }, a: [] } });
+  assert.equal(decode(readProtoFields(nested.value).find((f) => f.field === 3)!.value as Uint8Array), '{"a":[],"b":{"a":"x","z":1}}');
 });
 
 test("simulation tx: real body, unspecified mode, empty fee present, one empty signature", () => {

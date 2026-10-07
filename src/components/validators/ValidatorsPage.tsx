@@ -17,6 +17,10 @@
  * A failed read stops every skeleton: the figures read "—" with the reason
  * and the cards below carry the error and Retry. A cold read that answers
  * "still loading" is retried on its own first (`useStillLoadingRetry`).
+ *
+ * The route hands down the bonded set of the chain the first render shows,
+ * read on the server (`initial`), so the first HTML has the figures and the
+ * table; both set reads start from it while they ask for that same URL.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,6 +35,7 @@ import { useStakingPositions } from "@/lib/data/staking";
 import { useValidators } from "@/lib/data/validators";
 import { useWallet } from "@/lib/connect/context";
 import { formatTokenAmount } from "@/lib/format";
+import type { ApiInitial } from "@/lib/useApi";
 import { useChainScope } from "@/lib/useChainScope";
 import { percentOf, positive, unbondingPeriodText } from "@/components/staking/model";
 import { Unavailable } from "@/components/staking/ValidatorBits";
@@ -50,15 +55,15 @@ function knownChain(id: string | null | undefined): string | null {
   return id && findChain(id) ? id : null;
 }
 
-export function ValidatorsPage() {
+export function ValidatorsPage({ initial = null }: { initial?: ApiInitial | null }) {
   return (
     <Page title="Validators" access="public">
-      <ValidatorsContent />
+      <ValidatorsContent initial={initial} />
     </Page>
   );
 }
 
-function ValidatorsContent() {
+function ValidatorsContent({ initial }: { initial: ApiInitial | null }) {
   const params = useSearchParams();
   const { selectedChainId, followedOnNetwork } = useChainScope();
   const { account } = useWallet();
@@ -92,8 +97,8 @@ function ValidatorsContent() {
 
   const [activeOnly, setActiveOnly] = useState(true);
 
-  const set = useValidators(chainId, { status: activeOnly ? "bonded" : "all" });
-  const bonded = useValidators(chainId);
+  const set = useValidators(chainId, { status: activeOnly ? "bonded" : "all", initial });
+  const bonded = useValidators(chainId, { initial });
   // "Still loading" (a cold read past the route's budget) is retried, and
   // reads as loading meanwhile; any other failure is an error at once.
   const setRetry = useStillLoadingRetry(set, `${chainId}|${activeOnly ? "bonded" : "all"}`);

@@ -14,8 +14,17 @@
  * addresses instead of reading the public list now and the same list again
  * with `voter=` a moment later (twice the governance rate-limit tokens, and on
  * /governance ~80 KB fetched to be thrown away). Waiting reads as loading,
- * never as an empty list. A page that was handed the public list read on the
- * server (`initial`) shows that meanwhile and does not wait.
+ * never as an empty list.
+ *
+ * The public URL is not even built meanwhile, with or without a server-read
+ * list (`initial`). Built, it is fetched (once the server's copy is past the
+ * dedupe age) and copied to localStorage, and its answer stays on screen,
+ * dimmed, under the wallet's own read, where every connected card reads the
+ * missing votes as "Not in your wallet yet". A held `initial` is shown as
+ * read instead: it is what the server rendered (`restoring` is true there
+ * too, and until the wallet's first effect), so hydration matches; a wallet's
+ * list then loads as any first read does, and without a wallet the server's
+ * list stays, its URL seeded by the same answer.
  */
 
 import { useMemo } from "react";
@@ -62,9 +71,10 @@ export interface ProposalsOptions {
   /** Include the connected wallet's votes (default true). */
   withVoter?: boolean;
   /**
-   * The public list (no voter) read on the server for the first HTML. Used
-   * only while the hook asks for exactly that URL; a connected wallet's
-   * `voter=` read replaces it.
+   * The public list (no voter) read on the server for the first HTML, built
+   * with the same `apiUrl` call (voter left out). Shown while a wallet may
+   * still be restoring, and seeds that URL once none is; a connected
+   * wallet's `voter=` read replaces it and never shows it meanwhile.
    */
   initial?: ApiInitial | null;
 }
@@ -84,10 +94,10 @@ export function useProposals(options: ProposalsOptions = {}): ProposalsState {
   const scope = useScopeAccounts(ids);
   const withVoter = options.withVoter !== false;
   const voter = withVoter ? formatAccounts(scope.accounts) : "";
-  // A remembered wallet is still restoring: wait for its addresses (see the
-  // module comment). `key !== ""` keeps a hook that is idle on purpose (no
-  // chains asked) idle.
-  const hold = withVoter && restoring && key !== "" && !options.initial;
+  // A remembered wallet may still be restoring: wait for its addresses, and
+  // build no public URL meanwhile (see the module comment). `key !== ""`
+  // keeps a hook that is idle on purpose (no chains asked) idle.
+  const hold = withVoter && restoring && key !== "";
   const state = useApi<ProposalsResponse>(
     key && !hold ? apiUrl("/api/governance", { chains: key, status, voter: voter || null }) : null,
     {
@@ -99,7 +109,27 @@ export function useProposals(options: ProposalsOptions = {}): ProposalsState {
       initial: options.initial,
     },
   );
-  const proposals = state.data?.proposals;
+  // The server's list stands in only for the list this hook reads without a
+  // wallet (same chains, same status), as `useApi` matches a seed: one read
+  // for another scope is not this one's.
+  const initial = options.initial;
+  const held = useMemo(
+    () =>
+      hold && initial && initial.url === apiUrl("/api/governance", { chains: key, status, voter: null })
+        ? readList(initial.data)
+        : null,
+    [hold, initial, key, status],
+  );
+  // Held means pending, not idle: an idle read reports `loading: false`, which
+  // the governance page, the participation strip and chain detail would show
+  // as "Nothing is up for a vote". With the server's list it means that list,
+  // exactly as the server rendered it.
+  const shown: ApiState<ProposalsResponse> = !hold
+    ? state
+    : held && initial
+      ? { ...state, data: held, error: null, status: "ready", loading: false, refreshing: false, stale: false, updatedAt: initial.at }
+      : { ...state, status: "loading", loading: true };
+  const proposals = shown.data?.proposals;
   const awaitingVote = useMemo(
     () =>
       (proposals ?? []).filter(
@@ -107,10 +137,6 @@ export function useProposals(options: ProposalsOptions = {}): ProposalsState {
       ),
     [proposals],
   );
-  // Held means pending, not idle: an idle read reports `loading: false`, which
-  // the governance page, the participation strip and chain detail would show
-  // as "Nothing is up for a vote".
-  const shown: ApiState<ProposalsResponse> = hold ? { ...state, status: "loading", loading: true } : state;
   return { ...shown, chainIds: ids, awaitingVote };
 }
 

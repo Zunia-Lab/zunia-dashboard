@@ -36,6 +36,11 @@ export interface ExtensionProvider {
   getChainInfosWithoutEndpoints?(): Promise<Array<{ chainId: string }>>;
   /** Zunia only: the chains this site may use now, without prompting. */
   getConnectedChains?(): Promise<string[]>;
+  /**
+   * Zunia only, for a site that holds a grant: whether the wallet is locked,
+   * answered silently (no unlock window). Refused (`NOT_CONNECTED`) without a grant.
+   */
+  isLocked?(): Promise<boolean>;
   signAmino?(chainId: string, signer: string, signDoc: unknown, signOptions?: unknown): Promise<unknown>;
   signDirect?(chainId: string, signer: string, signDoc: unknown, signOptions?: unknown): Promise<unknown>;
   signArbitrary?(
@@ -132,6 +137,66 @@ export function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "Unknown error";
+}
+
+/**
+ * The wallet is locked and was not unlocked: Zunia's `LOCKED` ("Zunia stayed
+ * locked, so the request was cancelled", "The Zunia window was closed before
+ * unlocking", "Wallet locked") or a prompt window closed unanswered. Read from
+ * the words too, because `enableChains` reports a key it could not read by
+ * its reason. Neither means the site lost its access: a restore that meets
+ * one keeps the reconnect hint and waits for an unlock.
+ */
+export function isLockedOrClosed(error: unknown): boolean {
+  if ((error as { code?: unknown } | null)?.code === "LOCKED") return true;
+  return /stayed locked|wallet (?:is )?locked|closed before unlocking|window was closed/i.test(errorText(error));
+}
+
+/**
+ * Whether Zunia is locked, asked without opening anything. False when it
+ * cannot say (an extension without `isLocked`, a refused call): the caller
+ * then goes on as before.
+ */
+export async function isExtensionLocked(provider: ExtensionProvider): Promise<boolean> {
+  if (!provider.isLocked) return false;
+  try {
+    return (await provider.isLocked()) === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The chains Zunia lets this site use now, asked silently; null when it
+ * cannot say (no `getConnectedChains`, an older build, a failed call). An
+ * empty list means the grant is gone: Zunia keeps a site's approval for 7
+ * days, and the user can revoke it in Zunia's Settings at any time.
+ */
+export async function grantedChains(provider: ExtensionProvider): Promise<string[] | null> {
+  if (!provider.getConnectedChains) return null;
+  try {
+    const granted: unknown = await provider.getConnectedChains();
+    return Array.isArray(granted) ? granted.filter((id): id is string => typeof id === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where this browser could install the Zunia extension from. The Chrome Web
+ * Store build runs in every Chromium browser (Chrome, Edge, Brave, Opera,
+ * Arc…). Firefox and Safari need their own store's build, which is not
+ * published yet (AMO and the App Store follow the Chrome Web Store), so a
+ * Chrome Web Store link there leads nowhere. On iPhone and iPad only Safari
+ * runs extensions at all, whichever browser the page is open in.
+ */
+export type ExtensionStore = "chrome" | "firefox" | "safari";
+
+export function extensionStoreFor(userAgent: string): ExtensionStore {
+  if (/iPhone|iPad|iPod/.test(userAgent)) return "safari";
+  if (/Firefox\//.test(userAgent)) return "firefox";
+  if (/Safari\//.test(userAgent) && !/Chrome\/|Chromium\/|Edg\/|OPR\/|SamsungBrowser\//.test(userAgent)) return "safari";
+  return "chrome";
 }
 
 /** The user said no in the wallet. Not an error to dwell on, not one to retry. */

@@ -12,12 +12,14 @@
  * how much of today's value the curve covers when some assets have no price
  * history.
  *
- * A curve that stands for too little of today's value is not drawn at all
- * (`historyReadiness`): on a cold server cache the main assets' series can
- * miss the route's time budget, and a curve of the dust that answered first
- * would put "$0.0006, −17% over 30D" next to a $46.80 net worth. The card
- * shows a loading chart instead and asks again a few seconds later, when the
- * server has those series cached.
+ * A curve that stands for too little of today's value is not drawn at all.
+ * On a cold server cache the main assets' series can miss the route's time
+ * budget, and a curve of the dust that answered first would put "$0.0006,
+ * −17% over 30D" next to a $46.80 net worth: the route answers 503
+ * `upstream_timeout` ("still loading") instead, and an answer that leaves a
+ * sliver out is still weighed here (`historyReadiness`). Either way the card
+ * shows a loading chart, never "History unavailable", and asks again a few
+ * seconds later, when the server has those series cached.
  */
 
 import { useEffect, useState } from "react";
@@ -79,7 +81,7 @@ const RANGES: { value: HeroRange; label: string; api: PortfolioHistoryRange; ari
 
 const RANGE_KEY = "zunia.dashboard.overview.range";
 
-/** How soon to ask again while some price series are still loading on the server. */
+/** How soon to ask again while some price series are still loading on the server (the route's Retry-After). */
 const REASK_MS = 5_000;
 /** Early asks per range and scope before the card leaves it to the regular 5-minute poll. */
 const REASK_LIMIT = 6;
@@ -94,35 +96,43 @@ export interface ScopeInfo {
 }
 
 /**
- * Asks for the history again a few seconds after an answer that left series
- * out because they were still loading: the server keeps reading them past
- * its budget and caches them, so the next answer is usually whole, while the
- * hook's own poll would wait five minutes (and its five-minute dedupe would
- * paint the same answer again from localStorage after a reload).
+ * Asks for the history again a few seconds after an answer that came late:
+ * one that left series out because they were still loading, or the route's
+ * 503 `upstream_timeout` sent instead of a curve while a main series is late.
+ * The server keeps reading those series past its budget and caches them, so
+ * the next answer is usually whole, while the hook's own poll would wait five
+ * minutes (and its five-minute dedupe would paint the same answer again from
+ * localStorage after a reload).
  *
  * One ask per settled request, never while one is in flight, so a slow
  * request is not counted twice; at most {@link REASK_LIMIT} per range and
  * scope, so an upstream that stays slow is not asked every few seconds for
- * as long as the tab is open. Returns whether it is still trying: the card
- * shows a loading chart meanwhile, and says so plainly once it stops.
+ * as long as the tab is open. Both signals share the one count, so they can
+ * never ask twice for the same answer. A request in flight neither ends nor
+ * starts an episode: while the retry of a 503 runs there is no answer to read
+ * "late" from, so only a settled answer that is whole (or really failed) ends
+ * it. Returns whether it is still trying (an ask is due or in flight): the
+ * card shows a loading chart meanwhile, and says so plainly once it stops.
  */
-function useHistoryReask(history: ApiState<PortfolioHistoryResponse>, seriesLoading: boolean, key: string): boolean {
+function useHistoryReask(history: ApiState<PortfolioHistoryResponse>, late: boolean, key: string): boolean {
   const [asked, setAsked] = useState<{ key: string; count: number }>({ key, count: 0 });
-  // A whole answer ends the episode: a later partial one starts afresh.
-  // (React's "adjust state while rendering" pattern, guarded so it settles.)
-  if (!seriesLoading && asked.count !== 0) setAsked({ key, count: 0 });
+  const inflight = history.loading || history.refreshing;
+  // A settled answer that is not late ends the episode: a later late one
+  // starts afresh. (React's "adjust state while rendering" pattern, guarded
+  // so it settles.)
+  if (!late && !inflight && asked.count !== 0) setAsked({ key, count: 0 });
   const count = asked.key === key ? asked.count : 0;
-  const canAsk = seriesLoading && count < REASK_LIMIT;
-  const { refetch, refreshing } = history;
+  const canAsk = late && count < REASK_LIMIT;
+  const { refetch } = history;
   useEffect(() => {
-    if (!canAsk || refreshing) return;
+    if (!canAsk || inflight) return;
     const id = window.setTimeout(() => {
       setAsked({ key, count: count + 1 });
       refetch();
     }, REASK_MS);
     return () => window.clearTimeout(id);
-  }, [canAsk, refreshing, key, count, refetch]);
-  return seriesLoading && (canAsk || refreshing);
+  }, [canAsk, inflight, key, count, refetch]);
+  return (late || count > 0) && (canAsk || inflight);
 }
 
 export function NetWorthCard({ state, scope }: { state: PortfolioState; scope: ScopeInfo }) {
@@ -151,8 +161,16 @@ export function NetWorthCard({ state, scope }: { state: PortfolioState; scope: S
   // hoverable: its points are dropped here, so nothing below can read them.
   const readiness = historyReadiness(history.data);
   const seriesLoading = readiness.loading.length > 0;
-  const reasking = useHistoryReask(history, seriesLoading, `${api}|${state.accounts.param ?? ""}`);
-  const withheld = !readiness.usable;
+  // The route's "still loading" 503 (`upstream_timeout`, Retry-After 5 s):
+  // late, not failed. Typical on a cold server cache (the first visit after a
+  // deploy or a restart), so it is asked again and drawn as loading; "History
+  // unavailable" stays for answers that really failed.
+  const answerLate = history.status === "error" && history.error?.code === "upstream_timeout";
+  const reasking = useHistoryReask(history, seriesLoading || answerLate, `${api}|${state.accounts.param ?? ""}`);
+  // While it asks again, nothing older stands in for this range's curve: the
+  // previous range's, which the hook keeps on screen while a request is in
+  // flight, would come back between two "still loading" answers.
+  const withheld = !readiness.usable || (reasking && history.stale);
   const points = withheld ? [] : (history.data?.points ?? []);
   // The hovered date, read back from the points on screen: a point from an
   // answer since replaced (or withheld) never lingers in the hero figure.
@@ -166,14 +184,17 @@ export function NetWorthCard({ state, scope }: { state: PortfolioState; scope: S
   // dimmed and with the card's refetch spinner (the kit's CardHeader cue).
   const stale = state.stale;
 
-  const caption = withheld
-    ? seriesLoading && reasking
+  const caption =
+    reasking && points.length === 0
       ? "Price history is still loading"
-      : null
-    : [history.data ? coverageText(history.data) : null, history.data?.note].filter(Boolean).join(" · ") || null;
+      : withheld
+        ? null
+        : [history.data ? coverageText(history.data) : null, history.data?.note].filter(Boolean).join(" · ") || null;
+  // Once the early asks are spent, the regular 5-minute poll (and a return to
+  // the tab) keeps asking, which is what this line promises.
   const empty = unpricedOnly
     ? "Nothing priced to chart: the assets held here have no market price."
-    : withheld && seriesLoading
+    : (withheld && seriesLoading) || answerLate
       ? "Price history is taking longer than usual to load. The chart refreshes every few minutes."
       : withheld && readiness.share > 0
         ? `Too little to chart: price history covers ${coverageShareText(readiness.share)} of today's value.`
@@ -285,7 +306,7 @@ export function NetWorthCard({ state, scope }: { state: PortfolioState; scope: S
           </div>
 
           <div>
-            {history.status === "error" && !history.data ? (
+            {history.status === "error" && !answerLate ? (
               <div className="flex items-center" style={{ height: phone ? 176 : 232 }}>
                 <InlineError
                   className="w-full"
@@ -305,7 +326,7 @@ export function NetWorthCard({ state, scope }: { state: PortfolioState; scope: S
                 baselineLabel={first ? `Start ${fmt.compact(first.v)}` : undefined}
                 valueFormatter={fmt.full}
                 tickFormatter={fmt.tick}
-                loading={history.loading || (withheld && reasking) || (loading && points.length === 0)}
+                loading={history.loading || (reasking && (withheld || answerLate)) || (loading && points.length === 0)}
                 pending={history.stale || state.stale}
                 view={table ? "table" : "chart"}
                 onActiveChange={setActive}
@@ -458,14 +479,23 @@ function TypeRow({
           const unknown = value !== null && value <= 0 && (count > 0 || failed > 0);
           const share = !unknown && value !== null && total > 0 ? (value / total) * 100 : null;
           return (
-            <div key={bucket.id} className="min-w-0">
+            // Loading cells are keyed apart from loaded ones: the loaded row
+            // is sorted by size, and a cell that slid to its new place when
+            // the balances landed would count as a layout shift; a fresh
+            // cell does not.
+            <div key={loading ? `loading-${bucket.id}` : bucket.id} className="min-w-0">
               <dt className="flex items-center gap-1.5 text-[12px] text-fg-dim">
                 <Swatch color={TYPE_COLORS.get(bucket.id) ?? "var(--viz-other)"} />
                 {bucket.label}
               </dt>
               <dd className="mt-1 flex items-baseline gap-1.5">
                 {loading ? (
-                  <Skeleton className="h-4 w-16" />
+                  // In a line of the figure's type (15 px), so each row is as
+                  // tall loading as loaded and the card does not grow when
+                  // the balances land.
+                  <span className="text-[15px]">
+                    <Skeleton className="inline-block h-4 w-16 align-middle" />
+                  </span>
                 ) : (
                   <>
                     <Money

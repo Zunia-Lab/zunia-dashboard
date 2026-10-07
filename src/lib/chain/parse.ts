@@ -190,14 +190,54 @@ export function nextKey(payload: unknown): string | null {
   return str(pick(payload, ["pagination", "next_key"]));
 }
 
-/** A website from `description.website`: http(s) only, else null. */
+/**
+ * A website from `description.website`: http(s) only, else null.
+ *
+ * A URL with embedded credentials is refused too. In
+ * `https://cosmos.network@evil.example` everything before the `@` is a user
+ * name, not the host, so the link opens a different site than the one it
+ * seems to name. Any operator can set this field, and a public website never
+ * needs credentials in its link, so that shape is a lure, not a typo worth
+ * repairing. The raw authority is checked as well as the parsed URL (an
+ * empty user part, `https://@host`, parses as no user at all): the same rule
+ * as the kit's `isSafeExternalHref`, which would refuse to link it anyway.
+ */
 export function safeWebsite(raw: unknown): string | null {
   const value = str(raw);
   if (!value) return null;
+  const candidate = value.includes("://") ? value : `https://${value}`;
+  // Everything between "//" and the first "/", "?", "#" or "\" (WHATWG reads
+  // a backslash as a path separator in http(s) URLs).
+  const authority = candidate.slice(candidate.indexOf("://") + 3).split(/[/?#\\]/, 1)[0] ?? "";
   try {
-    const url = new URL(value.includes("://") ? value : `https://${value}`);
+    const url = new URL(candidate);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password || authority.includes("@")) return null;
     return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The host a website link opens, for its visible text: `ynukalabs.com` for
+ * `https://www.ynukalabs.com/about?ref=x`. Null when `href` is not an http(s)
+ * URL.
+ *
+ * The host alone, because the rest of a URL is free text its owner chooses:
+ * `https://evil.example/cosmos.network`, printed whole, ends in a name that
+ * is not where the link goes. Internationalised hosts stay in their punycode
+ * form (`xn--…`), which is what the browser opens, so a look-alike letter
+ * cannot pass for a familiar name. A leading `www.` is dropped: it is the same
+ * site, and only noise in a short label.
+ */
+export function websiteHost(href: string | null | undefined): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const host = url.hostname.replace(/^www\.(?=.+\..+)/, "");
+    return host || null;
   } catch {
     return null;
   }

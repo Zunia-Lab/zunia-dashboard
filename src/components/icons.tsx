@@ -91,8 +91,8 @@ const PATHS = {
   layers: ["M12 4 20.5 8.5 12 13 3.5 8.5z", "M3.5 12.5 12 17l8.5-4.5"],
   grid: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"],
   list: ["M9 6.5h11M9 12h11M9 17.5h11", "M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"],
-  // Transfer additions (moved from src/components/transfer/glyphs.tsx, same
-  // names and paths, so `<Glyph name=…>` becomes `<Icon name=…>` as is).
+  // Transfer additions (the transfer pages' former glyph set, folded in with
+  // the same names and paths so there is one icon set to keep consistent).
   /** Address book. */
   book: [
     "M6.5 3.5h11a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5Z",

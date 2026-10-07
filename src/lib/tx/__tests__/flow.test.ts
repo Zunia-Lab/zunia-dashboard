@@ -386,3 +386,35 @@ test("requests are validated before anything else", async () => {
   await assert.rejects(signAndBroadcast({ chainId: "osmosis-1", messages: [send] }, opts), /disagree/);
   await assert.rejects(signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "x".repeat(300) }, opts), /256 bytes/);
 });
+
+test("the Zunia extension: a send signs direct (memo with & included), a contract call amino", async () => {
+  const zunia = harness({ signer: { kind: "zunia" } });
+  const sent = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "rent & food" }, zunia.opts);
+  assert.equal(sent.signMode, "direct");
+  assert.equal(zunia.calls.signAmino.length, 0);
+  const call = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  const recovered = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [call], memo: "Recover swap output · by Zunia-wallet" }, zunia.opts);
+  assert.equal(recovered.signMode, "amino");
+  assert.equal(zunia.calls.signAmino[0]!.msgs[0]!.type, "wasm/MsgExecuteContract");
+  // The same transactions from Keplr keep the general rule.
+  const keplr = harness();
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "rent & food" }, keplr.opts)).signMode, "amino");
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [call] }, keplr.opts)).signMode, "direct");
+});
+
+test("a Zunia refusal reaches the user with the next step, and nothing is broadcast", async () => {
+  const refuse = (code: string, message: string) => async () => Promise.reject(Object.assign(new Error(message), { code }));
+  const cases: Array<[string, string, string, RegExp]> = [
+    ["UNSUPPORTED", "Blind signing disabled for unknown messages", "wallet-unsupported", /Update Zunia to 0\.1\.4 or later, or use Keplr or Zunia Mobile/],
+    ["LOCKED", "Zunia stayed locked, so the request was cancelled", "wallet-timeout", /Unlock it and try again/],
+    ["USER_REJECTED", "Request expired before it was answered", "wallet-timeout", /prompt expired/],
+    ["INTERNAL", "Extension context invalidated.", "wallet-disconnected", /Reload this page/],
+  ];
+  for (const [code, message, kind, words] of cases) {
+    const { calls, opts } = harness({ signer: { kind: "zunia", signDirect: refuse(code, message) } });
+    const error = (await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send] }, opts).catch((e: unknown) => e)) as TxError;
+    assert.equal(error.explained.kind, kind, code);
+    assert.match(error.explained.message, words, code);
+    assert.equal(calls.broadcast.length, 0, code);
+  }
+});

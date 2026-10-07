@@ -443,7 +443,15 @@ function DescriptionCard({ proposal }: { proposal: ProposalDetail }) {
       <CardHeader
         title="Description"
         icon="list"
-        actions={metadataLink ? <ExternalLink href={metadataLink} className="text-[12.5px]">Metadata</ExternalLink> : null}
+        // The proposer's link, as unvetted as the text under it: `ugc`, like
+        // the description's own links (see Markdown).
+        actions={
+          metadataLink ? (
+            <ExternalLink href={metadataLink} ugc className="text-[12.5px]">
+              Metadata
+            </ExternalLink>
+          ) : null
+        }
       />
       {veto >= FLAGGED_VETO ? (
         <Callout tone="danger" icon="shield" title="Voters flag this proposal as spam or harmful">

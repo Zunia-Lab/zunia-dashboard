@@ -111,7 +111,7 @@ export function PositionCard({
       value: staking ? <TokenAmount amount={staking.totals.unbonding} decimals={decimals} symbol={symbol} compact reason="Unbonding could not be read" /> : <Dash reason="Not read" />,
       sub: next ? (
         <>
-          Next release <RelativeTime at={Date.parse(next.completionTime)} />
+          Next release <RelativeTime at={Date.parse(next.completionTime)} upcoming />
         </>
       ) : undefined,
     },

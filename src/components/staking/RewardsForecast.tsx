@@ -227,7 +227,9 @@ export function RewardsForecast({ view, currency, single, pending }: RewardsFore
           ].map((entry) => (
             <div key={entry.label} className="min-w-0">
               <dt className="text-[12px] text-fg-dim">{entry.label}</dt>
-              <dd className="mt-0.5 truncate text-[16px] font-semibold tracking-[-0.02em] tabular-nums text-fg sm:text-[18px]">
+              {/* Wraps rather than truncates: a third of a phone-width card
+                  cut "0.0141 OSMO" to "0.0141 OS…", hiding the unit. */}
+              <dd className="mt-0.5 break-words text-[16px] font-semibold tracking-[-0.02em] tabular-nums text-fg sm:text-[18px]">
                 {principal > 0 ? fmt(entry.value) : "—"}
               </dd>
             </div>

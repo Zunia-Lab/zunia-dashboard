@@ -13,8 +13,9 @@
  * → 200 `ValidatorsResponse` · 400 · 429 · 503 when the set is unreadable,
  *   or (Retry-After, `error: "upstream_timeout"`) while a cold read runs.
  *
- * The legacy `?chains=<csv>` multi-chain form is gone with the hook that used
- * it (`@/lib/useValidators`); `chainId` is required.
+ * One chain per request: `chainId` is required. The legacy multi-chain form
+ * (`?chains=<csv>`) is gone; every caller reads one set through
+ * `useValidators` in `@/lib/data/validators`.
  */
 
 import type { NextRequest } from "next/server";

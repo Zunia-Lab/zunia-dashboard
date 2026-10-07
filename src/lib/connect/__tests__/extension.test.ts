@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { clearAddressCaches } from "../cache";
-import { enableChains, isUserRejection, unknownChainOf, type ExtensionProvider } from "../extension";
+import {
+  enableChains,
+  extensionStoreFor,
+  grantedChains,
+  isExtensionLocked,
+  isLockedOrClosed,
+  isUserRejection,
+  unknownChainOf,
+  type ExtensionProvider,
+} from "../extension";
 
 function provider(options: { known?: string[] | null; failKey?: string[]; reject?: boolean }) {
   const calls: string[] = [];
@@ -103,4 +112,67 @@ test("disconnect forgets address-keyed caches, and only those", () => {
   };
   assert.equal(clearAddressCaches(storage), 2);
   assert.deepEqual([...data.keys()], ["zunia.dashboard.followed", "zunia-theme"]);
+});
+
+/*
+ * Zunia's own words (zunia-extension lib/provider-handler.ts, approvals.ts,
+ * entrypoints/background.ts @ 1453e7a). A lock is not a lost connection.
+ */
+test("a lock, or a prompt window closed unanswered, is not a lost connection", () => {
+  const zunia = (code: string, message: string) => Object.assign(new Error(message), { code });
+  assert.equal(isLockedOrClosed(zunia("LOCKED", "Zunia stayed locked, so the request was cancelled")), true);
+  assert.equal(isLockedOrClosed(zunia("LOCKED", "The Zunia window was closed before unlocking")), true);
+  assert.equal(isLockedOrClosed(zunia("USER_REJECTED", "The Zunia window was closed before the request was answered")), true);
+  // `enableChains` rethrows a key it could not read by its reason, without the code.
+  assert.equal(isLockedOrClosed(new Error("Zunia stayed locked, so the request was cancelled")), true);
+  assert.equal(isLockedOrClosed(new Error("Wallet is locked")), true);
+  assert.equal(isLockedOrClosed(zunia("NOT_CONNECTED", "Not authorized")), false);
+  assert.equal(isLockedOrClosed(zunia("USER_REJECTED", "Request rejected")), false);
+  assert.equal(isLockedOrClosed(new Error("There is no chain info for x")), false);
+});
+
+test("Zunia's silent questions: granted chains and the lock, never a throw", async () => {
+  const answering = (over: Partial<ExtensionProvider>): ExtensionProvider => ({
+    enable: async () => {},
+    getKey: async () => {
+      throw new Error("not asked");
+    },
+    ...over,
+  });
+  assert.deepEqual(await grantedChains(answering({ getConnectedChains: async () => ["safrochain-1", "osmosis-1"] })), ["safrochain-1", "osmosis-1"]);
+  assert.deepEqual(await grantedChains(answering({ getConnectedChains: async () => [] })), [], "no grant left: an empty list, not null");
+  assert.equal(await grantedChains(answering({})), null, "an extension that cannot say");
+  assert.equal(await grantedChains(answering({ getConnectedChains: async () => Promise.reject(new Error("x")) })), null);
+  assert.equal(await grantedChains(answering({ getConnectedChains: async () => "nope" as unknown as string[] })), null);
+
+  assert.equal(await isExtensionLocked(answering({ isLocked: async () => true })), true);
+  assert.equal(await isExtensionLocked(answering({ isLocked: async () => false })), false);
+  assert.equal(await isExtensionLocked(answering({})), false, "cannot say: go on as before");
+  const refused = Object.assign(new Error("Not authorized"), { code: "NOT_CONNECTED" });
+  assert.equal(await isExtensionLocked(answering({ isLocked: async () => Promise.reject(refused) })), false);
+});
+
+test("where this browser installs the extension from", () => {
+  const ua = {
+    chrome: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    opera: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 OPR/115.0.0.0",
+    firefox: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
+    firefoxAndroid: "Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0",
+    safari: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    iphoneSafari: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    iphoneChrome: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+    androidChrome: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+  };
+  assert.equal(extensionStoreFor(ua.chrome), "chrome");
+  assert.equal(extensionStoreFor(ua.edge), "chrome");
+  assert.equal(extensionStoreFor(ua.opera), "chrome");
+  assert.equal(extensionStoreFor(ua.androidChrome), "chrome");
+  assert.equal(extensionStoreFor(ua.firefox), "firefox");
+  assert.equal(extensionStoreFor(ua.firefoxAndroid), "firefox");
+  assert.equal(extensionStoreFor(ua.safari), "safari");
+  assert.equal(extensionStoreFor(ua.iphoneSafari), "safari");
+  // On iPhone only Safari runs extensions, whatever the browser.
+  assert.equal(extensionStoreFor(ua.iphoneChrome), "safari");
+  assert.equal(extensionStoreFor(""), "chrome");
 });

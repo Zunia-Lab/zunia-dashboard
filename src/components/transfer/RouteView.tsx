@@ -17,7 +17,6 @@ import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import type { AsyncStatus } from "@/lib/interchain/hooks";
 import type { ChannelLinkWire, InterchainFailure, PlanCandidateWire, PlanResponseBody, RouteHopWire } from "@/lib/interchain/wire";
-import { Glyph } from "./glyphs";
 import type { HistoryChannel, RouteTiming } from "./logic";
 import { chainName as nameOfChain } from "./names";
 
@@ -81,7 +80,7 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
   if (status === "idle") {
     return (
       <div className={cn("flex items-center gap-2.5 rounded-[var(--d-radius-inner)] border border-dashed border-[var(--d-hairline-strong)] px-3.5 py-3 text-[13px] text-fg-dim", className)}>
-        <Glyph name="route" size={16} className="shrink-0" />
+        <Icon name="route" size={16} className="shrink-0" />
         {idleText ?? "Pick a token, an amount and a recipient to plan the route."}
       </div>
     );
@@ -148,7 +147,7 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
     <div className={cn("flex flex-col gap-3 rounded-[var(--d-radius-inner)] bg-[var(--d-card-2)] px-3.5 py-3", className)}>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-fg-muted">
-          <Glyph name="route" size={15} className="text-fg-dim" />
+          <Icon name="route" size={15} className="text-fg-dim" />
           {hops.length === 1 ? "Direct · 1 hop" : `${hops.length} hops${plan.requiresPfm ? " · forwarded" : ""}`}
         </span>
         <span className="flex items-center gap-2 text-[12px] text-fg-dim">
@@ -214,10 +213,13 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
         })}
       </ol>
 
+      {/* The engine's reasons can name a raw voucher denom (`ibc/27394FB0…`,
+          68 characters with no break opportunity); without `min-w-0` and
+          anywhere-wrapping it pushed past the card on phones and was cut off. */}
       {strategy && strategy.strategy !== "direct" && strategy.reason ? (
         <p className="flex gap-2 text-[12.5px] leading-snug text-fg-muted">
           <Icon name="info" size={14} className="mt-px shrink-0 text-fg-dim" />
-          <span>{strategy.reason}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{strategy.reason}</span>
         </p>
       ) : null}
       {plan.warnings.length > 0 ? (
@@ -225,7 +227,7 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
           {plan.warnings.map((warning) => (
             <li key={warning} className="flex gap-2 text-[12.5px] leading-snug text-[var(--z-warning)]">
               <Icon name="warning" size={14} className="mt-px shrink-0" />
-              <span>{warning}</span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">{warning}</span>
             </li>
           ))}
         </ul>
@@ -253,7 +255,7 @@ export function HistoryChannelHint({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--d-radius-inner)] border border-[var(--d-hairline-strong)] px-3.5 py-3">
-      <Glyph name="route" size={16} className="shrink-0 text-fg-dim" />
+      <Icon name="route" size={16} className="shrink-0 text-fg-dim" />
       <p className="min-w-0 flex-[1_1_16rem] text-[13px] leading-snug text-fg-muted">
         Your own transfers between {chainName(fromChainId)} and {chainName(toChainId)} used{" "}
         <span className="font-mono text-[12px] text-fg">{hint.channelId}</span> on {chainName(fromChainId)} ({hint.uses}×, last{" "}

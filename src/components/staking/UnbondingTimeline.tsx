@@ -316,7 +316,7 @@ export function UnbondingTimeline({ timeline, chains, currency, unbondingDays, p
                 <span className={cn("block font-medium tabular-nums", item.key === nextKey ? "text-[var(--d-accent-text)]" : "text-fg")}>
                   {formatDate(item.at, "short")}
                 </span>
-                <RelativeTime at={item.at} className="block text-[12px] text-fg-dim" />
+                <RelativeTime at={item.at} upcoming className="block text-[12px] text-fg-dim" />
               </span>
               <ChainLogo chainId={item.chainId} size={20} />
               <span className="min-w-0 flex-1">

@@ -47,7 +47,8 @@ const EXTENSION_SCHEMES = "chrome-extension: moz-extension: safari-web-extension
  *
  * - `script-src 'unsafe-inline'` is a stopgap: Next's inline flight payloads
  *   and the theme boot script carry no nonce while pages are statically
- *   rendered. The strict version is a per-request nonce from `proxy.ts`.
+ *   rendered. The strict version is a per-request nonce, minted in a
+ *   `proxy.ts` (there is none today) and read by every page it covers.
  *   `'unsafe-eval'` is development-only (React's dev build uses eval).
  * - `img-src https:` because chain and validator logos come from many hosts
  *   (raw.githubusercontent.com, keybase's S3, NFT gateways, token lists);
@@ -165,6 +166,36 @@ const nextConfig: NextConfig = {
     root: workspaceRoot,
   },
   htmlLimitedBots: HTML_LIMITED_BOTS,
+  /**
+   * Logos go through Next's image optimizer (components/ui/Logos.tsx). The
+   * chain registry ships them up to 2500×2500, so /markets pulled 1.2 MB of
+   * PNGs into 28px slots; resized to the slot (1x/2x WebP) they are 1–2 KB
+   * each, and they come from our own origin, so GitHub and S3 no longer see
+   * which tokens and validators a visitor's page lists.
+   *
+   * Only these four prefixes may be fetched (anything else answers 400: no
+   * other host, path, port or protocol, no query string). They must stay the
+   * list in components/ui/logo-hosts.ts, which decides which logos the kit
+   * sends here; logo-hosts.test.ts fails when the two drift apart. SVGs skip
+   * the optimizer (`dangerouslyAllowSVG` stays off): next/image hands the
+   * browser their own URL.
+   *
+   * A week of cache instead of the default 4 hours: a logo at a registry URL
+   * practically never changes, and every miss is a fetch from this server's
+   * single IP, which GitHub throttles when unauthenticated. The cache
+   * (.next/cache/images) survives `next build`. A logo the server cannot
+   * fetch falls back to its monogram; `unoptimized: true` here is the switch
+   * back to every browser loading logos from their hosts.
+   */
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "raw.githubusercontent.com", port: "", pathname: "/cosmos/chain-registry/master/**", search: "" },
+      { protocol: "https", hostname: "raw.githubusercontent.com", port: "", pathname: "/Zunia-Lab/zunia-chain-registry/main/images/**", search: "" },
+      { protocol: "https", hostname: "raw.githubusercontent.com", port: "", pathname: "/osmosis-labs/assetlists/main/**", search: "" },
+      { protocol: "https", hostname: "s3.amazonaws.com", port: "", pathname: "/keybase_processed_uploads/**", search: "" },
+    ],
+    minimumCacheTTL: 604_800,
+  },
   /**
    * Moved pages, as real permanent redirects (308).
    *

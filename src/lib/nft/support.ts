@@ -17,11 +17,16 @@
  *                   `cosmwasm` is not in it. There are no CW721 contracts here,
  *                   so an empty grid would say "you own nothing" about a chain
  *                   where nothing is ownable.
- * - `unverified`  — this build does not know. Today that is every chain, because
- *                   `zunia-extension/scripts/generate-chain-catalog.mjs` writes
- *                   `src/data/chain-catalog.json` without the registry's
- *                   `features[]` array. Rendering it as either of the other two
- *                   would be a claim nobody made.
+ * - `unverified`  — this build does not know: the chain's registry entry has no
+ *                   `features[]` list at all (a few catalog chains, Sei among
+ *                   them), or the chain is not in the catalog. Rendering it as
+ *                   either of the other two would be a claim nobody made.
+ *
+ * Every `reason` and `note` is shown on the NFT pages as it is, so they are
+ * written for the person holding the wallet: what is known about the chain
+ * and what Zunia did about it. How a deployment changes that (the
+ * `ZUNIA_NFT_ALLOW_UNKNOWN_FEATURES` override, the catalog generator) is
+ * operator documentation, kept in `lib/server/nft-config.ts`, never page copy.
  */
 
 import { featureSupport, type ChainInfoLike } from "@zunialab/interchain";
@@ -50,7 +55,7 @@ export interface NftChainSupport {
   readonly reason: string | null;
   /** Present when support rests on something weaker than the registry. */
   readonly note: string | null;
-  /** False for every row in today's catalog; see the generator note above. */
+  /** The registry entry carries a features list (most catalog chains; see `unverified` above). */
   readonly featuresDeclared: boolean;
   readonly allowUnknownFeatures: boolean;
 }
@@ -80,13 +85,14 @@ export interface NftSupportInputs {
   readonly probe: WasmProbeResult | null;
 }
 
-/** The operator's override key, named in the copy so a disabled screen is actionable. */
-export const ALLOW_UNKNOWN_FEATURES_KEY = "ZUNIA_NFT_ALLOW_UNKNOWN_FEATURES";
-
-/** Why the catalog says nothing, in the words the operator needs. */
-export const CATALOG_GAP =
-  "This build's chain catalog carries no registry features list, so Zunia cannot tell whether this chain runs CosmWasm. " +
-  "The catalog is produced by zunia-extension/scripts/generate-chain-catalog.mjs, which currently drops the registry's features[] array.";
+/**
+ * Why nothing is known, for a chain whose registry entry lists no features.
+ * The pages put it under "Zunia cannot tell whether this network runs
+ * CosmWasm", so it gives the cause rather than repeating that.
+ */
+function noFeaturesList(chainName: string): string {
+  return `The chain registry lists no features for ${chainName}, so nothing says whether it runs CosmWasm, which CW721 NFTs need.`;
+}
 
 export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
   const { chainId, chain, allowUnknownFeatures } = inputs;
@@ -134,7 +140,9 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       ...base,
       status: "unverified",
       basis: "catalog-missing",
-      reason: `${CATALOG_GAP} Until it does, an operator who knows ${chainName} runs CosmWasm can set ${ALLOW_UNKNOWN_FEATURES_KEY}=1, which makes Zunia ask the chain directly instead of assuming.`,
+      // The pages follow it with "Nothing was asked, so nothing here is a
+      // claim…": the cause is all this needs to say.
+      reason: noFeaturesList(chainName),
       note: null,
       featuresDeclared: false,
     };
@@ -159,7 +167,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       reason: null,
       // Said out loud, because this is a weaker claim than the registry's and
       // the user should know which one they are looking at.
-      note: `${inputs.probe.detail} The chain registry did not say so — ${ALLOW_UNKNOWN_FEATURES_KEY} is set, so this answer came from the chain itself.`,
+      note: `${inputs.probe.detail} The chain registry lists no features for ${chainName}, so this answer came from the chain itself.`,
       featuresDeclared: false,
     };
   }
@@ -168,7 +176,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
     ...base,
     status: "unverified",
     basis: "probe-failed",
-    reason: `${CATALOG_GAP} ${
+    reason: `${noFeaturesList(chainName)} ${
       inputs.probe?.detail ?? `${chainName} was not asked, so nothing was checked.`
     }`,
     note: null,

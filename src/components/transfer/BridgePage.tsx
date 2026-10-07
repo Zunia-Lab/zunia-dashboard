@@ -24,6 +24,7 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Icon } from "@/components/icons";
 import { Page } from "@/components/shell/Page";
 import {
   Badge,
@@ -69,7 +70,6 @@ import { AssetPicker } from "./AssetPicker";
 import { ChainSpreadCard, DeliveryTimesCard, InFlightCard, RouteSuggestionsCard } from "./BridgeCards";
 import { ChainPicker } from "./ChainPicker";
 import { FeeTierPicker } from "./FeeTierPicker";
-import { Glyph } from "./glyphs";
 import {
   awayFromHome,
   balanceKey,
@@ -83,6 +83,7 @@ import {
   missingTokenReason,
   moveKind,
   plannableOverrides,
+  pricedSumByChain,
   spendableAssets,
   splitBalanceKey,
   STRANGER_CHANNEL_PROBLEM,
@@ -178,16 +179,8 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
     () => sortChains(CHAINS.filter((chain) => chain.network === network && !followedOnNetwork.includes(chain.chainId))),
     [network, followedOnNetwork],
   );
-  const liquidByChain = useMemo(() => {
-    const map = new Map<string, { value: number | null; count: number }>();
-    for (const row of assets) {
-      const entry = map.get(row.chainId) ?? { value: null, count: 0 };
-      entry.count += 1;
-      if (row.value !== null) entry.value = (entry.value ?? 0) + row.value;
-      map.set(row.chainId, entry);
-    }
-    return map;
-  }, [assets]);
+  // What can move from each chain holding something (null value: none of it priced).
+  const liquidByChain = useMemo(() => pricedSumByChain(assets), [assets]);
 
   /* ------------------------------------------------------------- form state */
   const intentChain = intent ? intent.fromKey.split(":")[0] : null;
@@ -722,7 +715,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
                 const held = liquidByChain.get(chain.chainId);
                 return held ? (
                   <>
-                    <Money value={held.value} currency={currency} compact reason="Unpriced" /> · {held.count} token{held.count === 1 ? "" : "s"}
+                    <Money value={held.value} currency={currency} compact reason="None of these tokens has a price" /> · {held.count} token{held.count === 1 ? "" : "s"}
                   </>
                 ) : balancesFailed ? (
                   "Balance unknown"
@@ -733,7 +726,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
             />
             <div className="flex items-center justify-center">
               <IconButton label="Swap direction" variant="secondary" size="md" onClick={flip} className="rounded-full max-sm:rotate-90">
-                <Glyph name="flip" size={16} className="rotate-90" />
+                <Icon name="flip" size={16} className="rotate-90" />
               </IconButton>
             </div>
             <ChainPicker

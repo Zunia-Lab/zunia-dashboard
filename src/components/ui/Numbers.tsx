@@ -336,7 +336,11 @@ export function AnimatedNumber({ value, format, duration = 450, masked, classNam
     let frame = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
+      // Clamped at both ends: a frame's timestamp is the time the frame
+      // began, a little before `start` when this effect ran after that frame
+      // had begun, and a negative t eases to a value past `from`, on the
+      // wrong side of it, for one frame. A zero duration is the end.
+      const t = duration > 0 ? Math.min(1, Math.max(0, (now - start) / duration)) : 1;
       const next = from + (value - from) * easeOutCubic(t);
       shownRef.current = next;
       setDisplay(next);
@@ -377,7 +381,11 @@ const BIG_SIZE = {
 export function BigNumber({ value, loading, size = "hero", className }: BigNumberProps) {
   return (
     <div className={cn("font-semibold leading-[1.05] text-fg [font-variant-numeric:proportional-nums]", BIG_SIZE[size], className)}>
-      {loading ? <Skeleton className="h-[0.82em] w-[5.5ch] rounded-[8px]" /> : value}
+      {/* Inline, so the placeholder sits in a line of the figure's own font
+          and line height: the block is exactly as tall loading as loaded.
+          (As a block it was 0.82em tall, a third of the line, and the
+          Overview hero jumped 30 px when its figure landed.) */}
+      {loading ? <Skeleton className="inline-block h-[0.82em] w-[5.5ch] rounded-[8px]" /> : value}
     </div>
   );
 }

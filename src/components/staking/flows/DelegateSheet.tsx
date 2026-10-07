@@ -260,7 +260,7 @@ function NoNetwork({ unavailable }: { unavailable: readonly string[] }) {
       title={named ? `Your wallet hasn't shared an address on ${named}` : "No network to stake on here yet"}
       body={
         phone
-          ? "This phone session did not include the networks in this scope. Pair again and approve them to stake from here."
+          ? "This phone session did not include the networks in this scope. Connect again and approve them on your phone to stake from here."
           : unavailable.length > 0
             ? "Staking needs your address on the network. Add it in your wallet, or pick another network in the scope."
             : "Pick a network in the scope selector, or follow one in Networks."

@@ -23,8 +23,8 @@ import { AssetLogo, Badge, Combobox, Money, TokenAmount, chainById } from "@/com
 import { SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { cn } from "@/lib/cn";
 import type { AssetOption } from "@/lib/swap/assets";
+import { tokenSearchRank } from "@/lib/token/text";
 import { liquidityText, sellStanding } from "./swap-view";
-import { tokenSearchRank } from "./token-search";
 
 const VENUE = SWAP_VENUE_CHAIN_ID;
 
@@ -44,22 +44,16 @@ export interface TokenPickerProps {
 }
 
 /**
- * A search's rank for one row (./token-search.ts): the ticker first, then
+ * A search's rank for one row (`tokenSearchRank`): the ticker first, then
  * families and aliases, names, chains (the row's own included) and denoms;
- * `null` when it does not match. Module-level, so the Combobox's filter memo
- * holds still while the page redraws every second.
+ * `null` when it does not match. The Combobox lists a search best first
+ * across the groups, so "osmo" puts OSMO on top and Enter picks it (the
+ * grouped order made it row 17, behind every Hub token whose "Cosmos Hub"
+ * contains "osmo"). Module-level (with the key below), so the Combobox's
+ * ranking memo holds still while the page redraws every second.
  */
 const rankOption = (option: AssetOption, query: string) => tokenSearchRank(option.identity, query, option.chainName);
-
-/**
- * Keeps the rows a search matches, by {@link rankOption}. The kit's Combobox
- * filters without reordering: rows keep this list's grouped order, so the
- * best match leads only within its group. Ordering by rank across groups
- * (OSMO first for "osmo", and Enter on it) needs the Combobox to take a rank.
- * What the filter alone ends is a row matching by accident: "osmo" inside
- * "Cosmos Hub" brought every Hub token ahead of OSMO.
- */
-const matchesOption = (option: AssetOption, query: string) => rankOption(option, query) !== null;
+const optionKey = (option: AssetOption) => option.key;
 
 export function TokenPicker({
   side,
@@ -148,12 +142,12 @@ export function TokenPicker({
   return (
     <Combobox<AssetOption>
       items={items}
-      getKey={(option) => option.key}
+      getKey={optionKey}
       value={value?.key ?? null}
       onSelect={onSelect}
       isDisabled={(option) => option.disabledReason !== null}
       groupBy={(option) => groupOf.get(option.key) ?? null}
-      filter={matchesOption}
+      rank={rankOption}
       title={pay ? "Pay with" : "Receive"}
       placeholder={pay ? "Search your tokens" : "Search tokens or chains"}
       emptyText={pay ? "No balance matches. Tokens you hold in this scope are listed." : "No token matches"}

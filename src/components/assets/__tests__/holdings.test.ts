@@ -171,9 +171,17 @@ describe("filters", () => {
 
   it("searches tickers, names, chains and denoms case-insensitively", () => {
     assert.equal(matchesQuery(rows[2], "osmosis"), true);
+    assert.equal(matchesQuery(rows[2], "OSMO"), true);
     assert.equal(matchesQuery(rows[2], "ibc/2739"), true);
     assert.equal(matchesQuery(rows[0], "atom"), false);
     assert.equal(matchesQuery(rows[0], "  "), true);
+  });
+
+  it("matches a chain at the start of a word only, as the token pickers do", () => {
+    // "Cosmos Hub" and "cosmoshub-4" contain "osmo"; the Hub's ATOM is not an Osmosis token.
+    assert.equal(matchesQuery(rows[1], "osmo"), false);
+    assert.equal(matchesQuery(rows[1], "hub"), true);
+    assert.equal(matchesQuery(rows[1], "cosmoshub"), true);
   });
 
   it("counts groups per chip, merging ATOM across chains", () => {

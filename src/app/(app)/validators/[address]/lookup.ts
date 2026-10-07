@@ -17,9 +17,9 @@ import "server-only";
 import { cache } from "react";
 import { pick } from "@/lib/chain/parse";
 import { parseValidator, type RawValidator } from "@/lib/chain/validators";
-import { findServerChain, type ServerChainEntry } from "@/lib/server/chains";
+import type { ServerChainEntry } from "@/lib/server/chains";
 import { lcd, within } from "@/lib/server/chain/lcd";
-import { inferOperatorChain, parseOperatorAddress } from "@/lib/server/chain/request";
+import { locateOperator } from "@/lib/server/chain/request";
 
 /** What the first paint shows before the full profile loads. */
 export interface ValidatorProfile {
@@ -48,29 +48,16 @@ export type ValidatorLookup =
 
 const LOOKUP_BUDGET_MS = 2_500;
 
-function decode(raw: string): string | null {
-  try {
-    return decodeURIComponent(raw).trim();
-  } catch {
-    return null;
-  }
-}
-
 export const lookupValidator = cache(async (rawAddress: string, chainParam: string | null): Promise<ValidatorLookup> => {
-  const address = decode(rawAddress);
-  if (!address || address.length > 128) return { kind: "invalid" };
-  let chain: ServerChainEntry | undefined;
-  let operator: string;
-  try {
-    chain = chainParam ? findServerChain(chainParam) : inferOperatorChain(address);
-    if (!chain) return { kind: "invalid" };
-    operator = parseOperatorAddress(address, chain);
-  } catch {
-    return { kind: "invalid" };
-  }
+  // The synchronous half is one shared function (`locateOperator`): a URL
+  // that names no operator is refused here, before any read, and the page
+  // turns that into a real 404 (it sits outside the wallet pages' loading
+  // boundary, so nothing has streamed yet).
+  const named = locateOperator(rawAddress, chainParam);
+  if (!named) return { kind: "invalid" };
+  const { chain, operator } = named;
   const located: Located = { chainId: chain.chainId, chainName: chain.chainName, network: chain.network, operator };
-  const target = chain;
-  const read = lcd(target, `cosmos/staking/v1beta1/validators/${encodeURIComponent(operator)}`, {
+  const read = lcd(chain, `cosmos/staking/v1beta1/validators/${encodeURIComponent(operator)}`, {
     ttlMs: 10 * 60_000,
     name: "validator",
     map: (body) => parseValidator(pick(body, ["validator"])),

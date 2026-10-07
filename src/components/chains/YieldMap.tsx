@@ -119,7 +119,11 @@ function Scatter({ points }: { points: readonly MapPoint[] }) {
   const width = size.width;
 
   const geometry = useMemo(() => {
-    if (width <= 0) return null;
+    // Not until the frame is wider than the margins: on phones the first
+    // measurement can be a few pixels (24 px seen at 390), which made the
+    // plot width negative and Chrome log `<rect> attribute width: A negative
+    // value is not valid`. Nothing is drawn until a usable width arrives.
+    if (width <= MARGIN.left + MARGIN.right) return null;
     const plotLeft = MARGIN.left;
     const plotRight = width - MARGIN.right;
     const plotTop = MARGIN.top;

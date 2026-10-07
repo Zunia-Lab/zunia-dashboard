@@ -174,15 +174,3 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 36px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 36px), transparent);
 }
-
-/*
- * The frame sets --d-sticky-top to the top bar's height so table headers
- * stick just under it while the page scrolls. A DataTable wider than its card
- * scrolls sideways in its own box (no `data-fits`); its header cannot follow
- * the page there, and an offset would only push it down over the first rows.
- * (Belongs in src/styles/ui.css with the rest of the table rules; kept here
- * until it moves, since the frame is what makes the offset non-zero.)
- */
-:global(.d-table-scroll:not([data-fits])) {
-  --d-sticky-top: 0px;
-}

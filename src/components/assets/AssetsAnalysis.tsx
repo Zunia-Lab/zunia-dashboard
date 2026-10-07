@@ -71,7 +71,9 @@ type AllocationView = "asset" | "chain" | "type";
 
 const TYPE_LABELS = { liquid: "Liquid", staked: "Staked", rewards: "Rewards", unbonding: "Unbonding" } as const;
 
-const LEVEL_TONE = { diversified: "success", moderate: "info", concentrated: "warning" } as const;
+// "Moderate" is a description, not a call to act: neutral, because the kit's
+// `info` is the brand amber, as loud as the `warning` of "Concentrated".
+const LEVEL_TONE = { diversified: "success", moderate: "neutral", concentrated: "warning" } as const;
 const LEVEL_TEXT = { diversified: "Diversified", moderate: "Moderate", concentrated: "Concentrated" } as const;
 
 function ConcentrationLine({ facts, unit }: { facts: Concentration | null; unit: string }) {

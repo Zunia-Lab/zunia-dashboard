@@ -18,9 +18,10 @@
  *    whose claimed chain id yields a name but never a proof.
  *
  * Every read goes through `fetchJson` (timeout, per-host cap) and `cached`
- * (single flight, failures remembered briefly), so a wallet with forty
- * vouchers on a cold cache costs at most 32 trace reads plus the walks, and a
- * second visitor holding the same tokens costs nothing.
+ * (single flight, failures remembered: a minute for a trace, ten for a hop's
+ * light client), so a wallet with forty vouchers on a cold cache costs at most
+ * 32 trace reads plus the walks, and a second visitor holding the same tokens
+ * costs nothing.
  */
 
 import "server-only";
@@ -45,6 +46,20 @@ const CLIENT_CHAIN_TTL_MS = 6 * 60 * 60_000;
 /** How long a failed read is remembered before the next attempt. */
 const ERROR_TTL_MS = 60_000;
 const TIMEOUT_MS = 6_000;
+/**
+ * The light-client read of a hop, which only runs for channels the registry
+ * does not list, gets one short attempt, and a failure is remembered for ten
+ * minutes. The hop that fails here is typically a dead one (a chain wound
+ * down, a node that no longer answers) and fails the same way on every
+ * attempt: at 6 s with a retry (~12 s) it outlasted the portfolio's 8 s
+ * identity budget, so a cold /api/portfolio waited the whole budget, and with
+ * a one-minute error memory the next reads did again each time the voucher's
+ * two-minute transient miss ran out. A node that is up answers a read this
+ * small well within 3 s; a voucher behind a failed hop keeps its readable
+ * stand-in name until the next attempt, never a wrong one.
+ */
+const CLIENT_CHAIN_TIMEOUT_MS = 3_000;
+const DEAD_HOP_TTL_MS = 10 * 60_000;
 /** Longer traces exist but cannot be walked within one request's budget. */
 const MAX_WALK_HOPS = 4;
 const HASH = /^[0-9A-F]{64}$/;
@@ -89,12 +104,13 @@ async function clientChainId(chainId: string, port: string, channel: string): Pr
   if (!rest) return null;
   return cached(
     `ibc-client-chain:${chainId}:${port}:${channel}`,
-    { ttlMs: CLIENT_CHAIN_TTL_MS, staleMs: CLIENT_CHAIN_TTL_MS, errorTtlMs: ERROR_TTL_MS },
+    { ttlMs: CLIENT_CHAIN_TTL_MS, staleMs: CLIENT_CHAIN_TTL_MS, errorTtlMs: DEAD_HOP_TTL_MS },
     async () => {
       try {
+        // No retry: on a dead hop it only doubles the wait (see DEAD_HOP_TTL_MS).
         const body = await fetchJson(
           `${rest}/ibc/core/channel/v1/channels/${encodeURIComponent(channel)}/ports/${encodeURIComponent(port)}/client_state`,
-          { timeoutMs: TIMEOUT_MS, retries: 1 },
+          { timeoutMs: CLIENT_CHAIN_TIMEOUT_MS },
         );
         return readClientChainId(body);
       } catch (error) {

@@ -30,7 +30,6 @@ import { findChainsByPrefix } from "@/lib/chains";
 import { cn } from "@/lib/cn";
 import { shortenAddress } from "@/lib/format";
 import { ContactDialog } from "./ContactDialog";
-import { Glyph } from "./glyphs";
 import type { AddressBook } from "./useAddressBook";
 
 type View = "favorites" | "recent" | "all";
@@ -60,7 +59,7 @@ export function ContactAvatar({ entry, size = 32 }: { entry: Pick<AddressBookEnt
         className="flex size-full items-center justify-center rounded-full bg-[var(--d-glass-2)] font-semibold tracking-[-0.02em] text-fg-muted shadow-[inset_0_0_0_1px_var(--d-hairline)]"
         style={{ fontSize: Math.round(size * 0.36) }}
       >
-        {letters || <Glyph name="user" size={Math.round(size * 0.5)} />}
+        {letters || <Icon name="user" size={Math.round(size * 0.5)} />}
       </span>
       {chainId ? (
         <span className="absolute -bottom-[2px] -right-[3px] rounded-full shadow-[0_0_0_2px_var(--d-card)]">

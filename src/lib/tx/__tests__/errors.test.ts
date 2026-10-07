@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cleanChainLog, explainError, explainTxError, isSimulationRefusal, TxError } from "../errors";
+import { cleanChainLog, explainError, explainTxError, isSimulationRefusal, TxError, walletRefusal } from "../errors";
 
 test("insufficient funds (simulation on cosmoshub-4)", () => {
   const e = explainTxError(
@@ -146,4 +146,69 @@ test("wallet error codes (phone SDK, Zunia extension) get plain words", () => {
   }
   assert.match(explainError(code("UNKNOWN_CHAIN", "x")).message, /connect again and include it/);
   assert.equal(explainError(Object.assign(new Error("User rejected the request."), { code: 4001 })).kind, "user-rejected");
+});
+
+/*
+ * The Zunia extension's refusals, in its own words (zunia-extension
+ * lib/provider-handler.ts, lib/approvals.ts, entrypoints/background.ts @
+ * 1453e7a). Each gets a next step, and a kind the flows already know.
+ */
+test("Zunia refusals: a next step in words, the extension's text kept as the detail", () => {
+  const zunia = (code: string, message: string) => Object.assign(new Error(message), { name: "ZuniaProviderError", code });
+
+  const blind = explainError(zunia("UNSUPPORTED", "Blind signing disabled for unknown messages"));
+  assert.equal(blind.kind, "wallet-unsupported");
+  assert.equal(blind.message, "Your Zunia extension can't show this transaction yet. Update Zunia to 0.1.4 or later, or use Keplr or Zunia Mobile.");
+  assert.equal(blind.retryable, false);
+  assert.equal(blind.detail, "Blind signing disabled for unknown messages");
+  // UNSUPPORTED for another reason is not a blind-signing refusal.
+  assert.notEqual(explainError(zunia("UNSUPPORTED", "Method not implemented: foo")).kind, "wallet-unsupported");
+
+  for (const text of [
+    "Zunia stayed locked, so the request was cancelled",
+    "The Zunia window was closed before unlocking",
+    "Wallet locked",
+    "Wallet is locked",
+  ]) {
+    const locked = explainError(zunia("LOCKED", text));
+    assert.equal(locked.kind, "wallet-timeout", text);
+    assert.equal(locked.title, "Wallet locked");
+    assert.equal(locked.message, "Zunia stayed locked. Unlock it and try again.");
+    assert.equal(locked.retryable, true);
+  }
+
+  // An unanswered prompt carries USER_REJECTED, but nobody declined.
+  const expired = explainError(zunia("USER_REJECTED", "Request expired before it was answered"));
+  assert.equal(expired.kind, "wallet-timeout");
+  assert.equal(expired.message, "The Zunia prompt expired. Try again.");
+  assert.equal(expired.retryable, true);
+  // A real "no" is still a decline.
+  assert.equal(explainError(zunia("USER_REJECTED", "Request rejected")).kind, "user-rejected");
+
+  const orphaned = explainError(zunia("INTERNAL", "Extension context invalidated."), { wallet: "zunia" });
+  assert.equal(orphaned.kind, "wallet-disconnected");
+  assert.equal(orphaned.message, "Zunia was updated or reloaded. Reload this page.");
+  assert.equal(orphaned.retryable, false);
+  const handshake = explainError(zunia("INTERNAL", "Zunia provider handshake timed out"));
+  assert.equal(handshake.kind, "wallet-disconnected");
+  assert.equal(handshake.message, "Zunia was updated or reloaded. Reload this page.", "its own words name Zunia");
+});
+
+test("an orphaned extension is named by the wallet that raised it: Chrome's words fit any extension", () => {
+  const orphaned = new Error("Extension context invalidated.");
+  assert.equal(explainError(orphaned, { wallet: "keplr" }).message, "Keplr was updated or reloaded. Reload this page.");
+  assert.equal(explainError(orphaned, { wallet: "zunia" }).title, "Page out of date");
+  assert.equal(explainError(orphaned).message, "Your wallet extension was updated or reloaded. Reload this page.");
+});
+
+test("Zunia refusals are recognised by their words when a wrapper dropped the code", () => {
+  // `enableChains` and `ensureKey` rethrow a plain Error with the wallet's text.
+  assert.equal(explainError(new Error("Zunia stayed locked, so the request was cancelled")).title, "Wallet locked");
+  assert.equal(explainError(new Error("The Zunia window was closed before unlocking")).title, "Wallet locked");
+  assert.equal(explainError(new Error("Extension context invalidated.")).kind, "wallet-disconnected");
+  assert.equal(explainError(new Error("Request expired before it was answered")).kind, "wallet-timeout");
+  // Without its code, "Blind signing…" is not claimed: the words alone do not say which wallet.
+  assert.equal(walletRefusal(new Error("Blind signing disabled for unknown messages")), null);
+  assert.equal(walletRefusal(new Error("insufficient funds")), null);
+  assert.equal(walletRefusal("Extension context invalidated.")?.kind, "wallet-disconnected");
 });

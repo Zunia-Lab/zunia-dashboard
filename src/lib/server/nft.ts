@@ -166,10 +166,12 @@ async function probeWasmModule(
     const status = isInterchainError(error) ? error.httpStatus : undefined;
     result = {
       ok: false,
+      // Shown on the NFT page (inside the "cannot tell" reason), so it says
+      // what happened, not which path was asked.
       detail:
         status === undefined
           ? `${chain.chainName}'s endpoint could not be reached to check for CosmWasm.`
-          : `${chain.chainName}'s endpoint answered HTTP ${status} for ${PROBE_PATH}. That is what a chain without CosmWasm returns, and also what several gateways return for an endpoint they have switched off, so it is not treated as an answer either way.`,
+          : `${chain.chainName}'s endpoint answered a CosmWasm query with HTTP ${status}. That is what a chain without CosmWasm returns, and also what several gateways return for a query they have switched off, so it is not treated as an answer either way.`,
     };
   }
   probeCache.set(chain.chainId, { at: now, result });
@@ -643,13 +645,34 @@ function resolveImage(
   if (resolved.kind === "http") {
     return { url: resolved.urls[0] ?? null, reason: null };
   }
-  return {
-    url: null,
-    reason:
-      resolved.reason === "No IPFS gateway configured"
-        ? "This artwork lives on IPFS and this deployment has no gateway configured (ZUNIA_NFT_IPFS_GATEWAYS). Zunia will not pick a public gateway for you: that would hand one operator the list of everything you hold."
-        : (resolved.reason ?? "This artwork's address uses a scheme Zunia cannot open."),
-  };
+  return { url: null, reason: imageUnavailable(resolved.reason) };
+}
+
+const NO_PUBLIC_GATEWAY =
+  "Zunia will not pick a public gateway for you: that would hand one operator the list of everything you hold.";
+
+/**
+ * The engine's reason, which it documents as developer-facing ("No IPFS
+ * gateway configured"), in the words the NFT detail page shows under the
+ * artwork. None of them names the setting behind it: that is the operator's
+ * business (`lib/server/nft-config.ts`), and the person looking at their NFT
+ * can act on none of it. A reason this map does not know gets the generic
+ * sentence, never the engine's text.
+ */
+function imageUnavailable(engineReason: string | null): string | null {
+  switch (engineReason) {
+    case "No IPFS gateway configured":
+      return `This artwork lives on IPFS, and this deployment has no IPFS gateway set up. ${NO_PUBLIC_GATEWAY}`;
+    case "No Arweave gateway configured":
+      return `This artwork lives on Arweave, and this deployment has no Arweave gateway set up. ${NO_PUBLIC_GATEWAY}`;
+    case "Plain http:// is disabled":
+      return "This artwork is served over plain http://, which anyone along the way can alter, so Zunia does not load it.";
+    case "Empty token_uri":
+      // A blank `image` field: there is no artwork, not a refused one.
+      return null;
+    default:
+      return "This artwork's address uses a scheme Zunia cannot open.";
+  }
 }
 
 /**

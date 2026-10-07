@@ -7,6 +7,7 @@ import type { PortfolioAsset } from "@/lib/token/wire";
 import {
   addressParts,
   awayFromHome,
+  bucketWorth,
   channelFromHistory,
   channelLegs,
   checkRecipient,
@@ -29,6 +30,8 @@ import {
   routeTiming,
   pickDestination,
   plannableOverrides,
+  pricedSum,
+  pricedSumByChain,
   spendableAssets,
   splitBalanceKey,
   splitIncoming,
@@ -296,6 +299,59 @@ test("suggestRoutes: used routes first, then going home, then to the swap venue"
 test("awayFromHome sums vouchers held off their origin", () => {
   const assets = spendableAssets([asset(ATOM, "2000000", 1.8), asset(ATOM_ON_OSMO, "3000000", 2), asset(UNKNOWN, "5", null)]);
   assert.deepEqual(awayFromHome(assets), { count: 1, value: 6, unpriced: 0 });
+});
+
+test("pricedSum counts unpriced balances and never adds them as zero", () => {
+  const assets = spendableAssets([asset(ATOM, "2000000", 1.8), asset(OSMO_NATIVE, "10000000", 0.03), asset(UNKNOWN, "77", null)]);
+  const sum = pricedSum(assets);
+  assert.equal(sum.count, 3);
+  assert.equal(sum.unpriced, 1);
+  assert.ok(sum.value !== null && Math.abs(sum.value - 3.9) < 1e-9);
+  // Only unpriced: unknown, not $0.00. Nothing at all: a real zero.
+  assert.deepEqual(pricedSum(spendableAssets([asset(UNKNOWN, "77", null)])), { value: null, count: 1, unpriced: 1 });
+  assert.deepEqual(pricedSum([]), { value: 0, count: 0, unpriced: 0 });
+
+  const byChain = pricedSumByChain(assets);
+  assert.deepEqual([...byChain.keys()], ["cosmoshub-4", "osmosis-1"]);
+  assert.deepEqual(byChain.get("osmosis-1"), { value: 0.3, count: 2, unpriced: 1 });
+});
+
+test("bucketWorth: a bucket worth 0 only because of unpriced or unread holdings is unknown", () => {
+  const SAF = identity({ chainId: "safrochain-1", denom: "usaf", ticker: "SAF" });
+  const totals = { value: 3.6, liquid: 3.6, staked: 0, rewards: 0, unbonding: 0, change24hAbs: null, change24hPct: null, change7dAbs: null, change7dPct: null, pricedValue: 3.6, unpricedAssetCount: 1, assetCount: 2, chainCount: 2 };
+  const chain = (chainId: string, status: "ok" | "error" = "ok") => ({
+    chainId,
+    chainName: chainId,
+    iconUrl: null,
+    address: "",
+    status,
+    value: null,
+    liquid: null,
+    staked: null,
+    rewards: null,
+    unbonding: null,
+    change24hAbs: null,
+    assetCount: 1,
+    nativeSymbol: "",
+  });
+  const atom = { ...asset(ATOM, "2000000", 1.8), value: 3.6 };
+  const portfolio = {
+    totals,
+    assets: [atom, asset(SAF, "0", null, "5000000")],
+    chains: [chain("cosmoshub-4"), chain("safrochain-1")],
+  };
+  // SAF staked without a price: the priced total is 0, the stake is not.
+  assert.deepEqual(bucketWorth(portfolio, ["staked", "unbonding"]), { value: null, unpriced: 1, unread: 0 });
+  // A positive total stays, saying what it leaves out.
+  assert.deepEqual(bucketWorth({ ...portfolio, totals: { ...totals, staked: 9 } }, ["staked", "unbonding"]), { value: 9, unpriced: 1, unread: 0 });
+  // Nothing staked anywhere, every read answered: a real zero.
+  assert.deepEqual(bucketWorth({ ...portfolio, assets: [atom] }, ["staked"]), { value: 0, unpriced: 0, unread: 0 });
+  // A failed rewards read (or a chain that did not answer) makes a 0 unknown.
+  const failed = { ...portfolio, assets: [atom], errors: [{ chainId: "cosmoshub-4", scope: "rewards", message: "HTTP 500" }] };
+  assert.deepEqual(bucketWorth(failed, ["rewards"]), { value: null, unpriced: 0, unread: 1 });
+  assert.deepEqual(bucketWorth(failed, ["staked"]), { value: 0, unpriced: 0, unread: 0 }, "another read's failure says nothing about this bucket");
+  const down = { ...portfolio, assets: [], chains: [chain("cosmoshub-4"), chain("safrochain-1", "error")] };
+  assert.deepEqual(bucketWorth(down, ["staked", "unbonding"]), { value: null, unpriced: 0, unread: 1 });
 });
 
 test("pairOwnIbc folds the receipt of a transfer between your own accounts into its send", () => {

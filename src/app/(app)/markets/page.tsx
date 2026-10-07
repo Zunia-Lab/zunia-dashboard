@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { publicPageMetadata } from "@/components/landing/seo";
 import { MarketsPage } from "@/components/markets/MarketsPage";
+import { marketsInitial } from "@/lib/server/page-initial";
 
 const TITLE = "Cosmos markets: prices, volume and liquidity";
 const DESCRIPTION =
@@ -13,6 +15,11 @@ const DESCRIPTION =
 // "summary" card).
 export const metadata: Metadata = publicPageMetadata({ title: TITLE, description: DESCRIPTION, path: "/markets" });
 
-export default function Page() {
-  return <MarketsPage />;
+export default async function Page() {
+  // Rendered per request, so the first HTML carries the list as it is now
+  // (the server cache's answer, read within a short budget), never one baked
+  // in at build time. Past the budget the page renders as a skeleton the
+  // browser fills, as before.
+  await connection();
+  return <MarketsPage initial={await marketsInitial()} />;
 }

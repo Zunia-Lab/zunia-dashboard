@@ -71,9 +71,17 @@ export function asBytes(value: unknown, what: string): Uint8Array {
   throw new Error(`The wallet returned unreadable ${what}`);
 }
 
-/** CosmJS-style amino sign-doc serialization (sorted keys, compact JSON). */
+/**
+ * Amino sign bytes as the chain rebuilds them: sorted keys, compact JSON, and
+ * `&`, `<`, `>` written `\u0026`, `\u003c`, `\u003e`, as Go's JSON encoder
+ * writes them (CosmJS `serializeSignDoc` escapes the same three; Keplr and
+ * Zunia Mobile sign these bytes). The Zunia extension leaves them unescaped,
+ * which is why the sign-mode policy keeps it off amino for such documents
+ * (`aminoNeedsEscaping`).
+ */
 export function serializeAminoSignDoc(value: unknown): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(sortKeysDeep(value)));
+  const json = JSON.stringify(sortKeysDeep(value)).replace(/&/g, "\\u0026").replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+  return new TextEncoder().encode(json);
 }
 
 /** Exported so the wasm execute body is serialised the same way the sign doc is. */

@@ -9,12 +9,19 @@
  * true by it: the browser talks only to this site's own /api (plus the
  * wallet and the Zunia Connect relay), push is opt-in, and no analytics
  * script is loaded.
+ *
+ * "Clear local data" is the shared-computer exit, so it reaches past this
+ * tab's storage: the wallet is disconnected, push for this browser is
+ * turned off (the server forgets its subscription and watched addresses),
+ * and every other open tab is told to let go of the wallet.
  */
 
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { NFT_MEDIA_PRIVACY_NOTE } from "@zunialab/ui";
 import { Icon, type IconName } from "@/components/icons";
 import { Button, Dialog, Switch } from "@/components/ui";
+import { announceDisconnect } from "@/lib/connect/walletHint";
+import { stopPush } from "@/lib/data/push";
 import { clearApiCache } from "@/lib/useApi";
 import { usePrefs } from "@/providers/PrefsProvider";
 import { useWallet } from "@/providers/WalletProvider";
@@ -22,6 +29,16 @@ import { SettingRow, SettingsSection } from "./SettingsBlocks";
 import { bytesText, clearDashboardData, footprint } from "./storage";
 
 const noopSubscribe = () => () => {};
+
+/**
+ * The longest "Clear and reload" waits for the wallet and push to let go.
+ * Both end in a network call (the phone relay, this server's push record)
+ * that normally takes well under a second; one that hangs must not keep the
+ * dialog spinning with nothing cleared. Past this the clear goes ahead: the
+ * subscription itself is ended in the browser first, and that is what stops
+ * delivery (the server drops a dead subscription on its next send).
+ */
+const LEAVE_WAIT_MS = 8_000;
 
 /** "count|bytes", a primitive so the snapshot is stable between renders. */
 function readFootprint(): string {
@@ -61,20 +78,30 @@ export function PrivacySection() {
 
   const clear = async () => {
     setClearing(true);
-    // A connected wallet is disconnected first, so a phone session ends on
-    // the relay too instead of lingering without its hint.
-    if (account) {
-      try {
-        await disconnect();
-      } catch {
-        /* the reload below starts from nothing either way */
-      }
-    }
+    const leave = async () => {
+      // A connected wallet is disconnected first, so a phone session ends on
+      // the relay too instead of lingering without its hint.
+      if (account) await disconnect().catch(() => undefined);
+      // Push is turned off whether or not a wallet is connected now:
+      // Disconnect does it too, but a session that ended on its own (a phone
+      // session that expired, an extension that revoked the site) leaves push
+      // as it was, and a browser cleared for the next person must not keep
+      // showing the last wallet's transfers on its lock screen, nor leave the
+      // server watching that wallet's addresses. Awaited: the reload would
+      // otherwise cancel the request that tells the server to forget them.
+      await stopPush().catch(() => undefined);
+    };
+    await Promise.race([leave(), new Promise<void>((resolve) => window.setTimeout(resolve, LEAVE_WAIT_MS))]);
     try {
       clearDashboardData([window.localStorage, window.sessionStorage]);
     } catch {
       /* storage blocked: nothing was stored either */
     }
+    // Every other open tab lets go of the wallet too, whether or not this tab
+    // held it (Disconnect above runs only when it did): a tab still holding
+    // the account keeps it on screen and writes its address-keyed reads
+    // straight back into the storage just emptied.
+    announceDisconnect();
     clearApiCache();
     // A full reload, not a client navigation: the in-memory stores (reads,
     // the notification feed, the wallet session) must start over too.
@@ -155,13 +182,14 @@ export function PrivacySection() {
       >
         <div className="flex flex-col gap-3 text-[13px] leading-[1.5] text-fg-muted">
           <Listed title="Goes">
-            Followed networks and their order · currency, privacy and artwork choices · notification history and read state · address book and
-            watchlist · cached reads and tracked transfers{account ? " · this wallet connection (you connect again after)" : ""}.
+            Followed networks and their order · currency, privacy, small-balance and artwork choices · notification history and read state ·
+            address book and watchlist · cached reads and tracked transfers{account ? " · this wallet connection (you connect again after)" : ""}.
           </Listed>
-          <Listed title="Stays">
-            Your theme. Your wallet and its keys, which never lived here. Push for this browser stays registered on the server until you turn it off
-            on Notifications.
+          <Listed title="Turned off">
+            Push alerts for this browser are turned off, and Zunia&apos;s server forgets the addresses they watched. Turn them on again in
+            Notifications.
           </Listed>
+          <Listed title="Stays">Your theme. Your wallet and its keys, which never lived here.</Listed>
         </div>
       </Dialog>
     </SettingsSection>

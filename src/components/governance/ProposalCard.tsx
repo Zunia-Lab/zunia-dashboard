@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn";
 import type { ProposalRow } from "@/lib/chain/types";
 import { formatDate, formatDuration, formatTokenAmount } from "@/lib/format";
 import {
+  dateText,
   deadlineOf,
   depositState,
   ENDING_SOON_MS,
@@ -142,7 +143,10 @@ function Deadline({ proposal, now }: { proposal: ProposalRow; now: number | null
     const soon = proposal.status === "voting" && left !== null && left > 0 && left <= ENDING_SOON_MS;
     const text =
       left === null
-        ? formatDate(at, "short")
+        ? // No clock yet (the server's render and the hydrating one): the date
+          // in UTC on both, so a reader whose day is not the server's never
+          // trips hydration. The relative "Ends in …" replaces it at once.
+          dateText(at, "short", null)
         : left <= 0
           ? "Ended"
           : `${proposal.status === "deposit" ? "Deposit ends" : "Ends"} in ${formatDuration(Math.max(60, left / 1000))}`;
@@ -163,7 +167,7 @@ function Deadline({ proposal, now }: { proposal: ProposalRow; now: number | null
   }
   const ended = proposal.votingEndTime ? Date.parse(proposal.votingEndTime) : null;
   return ended && Number.isFinite(ended) ? (
-    <span className="whitespace-nowrap text-[12.5px] text-fg-dim">{formatDate(ended, "short")}</span>
+    <span className="whitespace-nowrap text-[12.5px] text-fg-dim">{dateText(ended, "short", now)}</span>
   ) : null;
 }
 

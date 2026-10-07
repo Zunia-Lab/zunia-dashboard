@@ -19,10 +19,12 @@
  *
  * The badge must settle even when no list is on screen, so the store's
  * watcher (`PendingTransfersWatcher`) is mounted here, once for the frame,
- * while something is in flight. It pauses while the panel is open: its rows
- * follow the same transfers and write the same store, and two pollers per
- * transfer would double the chain reads behind each one (past the three rows
- * shown, a transfer waits for the panel to close for its next reading).
+ * whenever something is in flight, panel open or not. It is the one poller:
+ * the panel's rows, like the Bridge page's, draw the store it writes
+ * (`poll={false}`), so a transfer costs one chain read per tick however many
+ * lists show it, and the ones past the three rows shown keep moving while
+ * the panel is open. A transfer waiting on the user (a recovery), which the
+ * watcher leaves alone, is still read by its own row.
  */
 
 import dynamic from "next/dynamic";
@@ -196,7 +198,7 @@ function Transfers({ transfers, onNavigate }: { transfers: readonly PendingTrans
       <ul className="flex flex-col divide-y divide-[var(--d-hairline)] px-4 max-md:px-0">
         {transfers.slice(0, TRANSFERS_SHOWN).map((transfer) => (
           <li key={transfer.id}>
-            <PendingTransferRow transfer={transfer} expandable={false} onRemove={() => pendingTransfers.remove(transfer.id)} />
+            <PendingTransferRow transfer={transfer} expandable={false} poll={false} onRemove={() => pendingTransfers.remove(transfer.id)} />
           </li>
         ))}
       </ul>
@@ -282,7 +284,7 @@ export function LiveMenu() {
   if (!account && !restoring && !unsettled) return null;
 
   const label = `Live: ${inFlight > 0 ? `${inFlight} ${inFlight === 1 ? "transfer" : "transfers"} in flight, ` : ""}latest transactions and session`;
-  const watcher = inFlight > 0 && !open ? <PendingTransfersWatcher /> : null;
+  const watcher = inFlight > 0 ? <PendingTransfersWatcher /> : null;
   const trigger = (
     <IconButton
       label={label}

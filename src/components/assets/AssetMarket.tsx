@@ -93,6 +93,11 @@ export function PriceChartCard({ assetKey, identity, spot, className }: PriceCha
   const incomplete = data && !data.coverage.complete && data.coverage.from !== null;
   const readAt = useReadAt(data?.updatedAt);
   const quiet = Array.isArray(domain);
+  // In EUR or GBP the series is USD history at today's rate (the server has
+  // no historical FX), and it says so: without the line a past high or low
+  // would read as the price that day in that currency. It qualifies the chart
+  // and the range figures under it alike, so it sits between them.
+  const note = data?.note ?? null;
 
   return (
     <Card className={className} pending={history.stale}>
@@ -154,13 +159,14 @@ export function PriceChartCard({ assetKey, identity, spot, className }: PriceCha
           onActiveChange={onActive}
           ariaLabel={
             stats
-              ? `${identity.ticker} price over ${words}: from ${formatPrice(stats.first.v)} to ${formatPrice(stats.last.v)}, high ${formatPrice(stats.high.v)}, low ${formatPrice(stats.low.v)}`
+              ? `${identity.ticker} price over ${words}: from ${formatPrice(stats.first.v)} to ${formatPrice(stats.last.v)}, high ${formatPrice(stats.high.v)}, low ${formatPrice(stats.low.v)}${note ? `. ${note}` : ""}`
               : undefined
           }
           empty={<span className="text-[13px] text-fg-dim">No prices in this range</span>}
           className="-mx-1"
         />
       )}
+      {note ? <p className="text-[12px] leading-snug text-fg-dim">{note}</p> : null}
       <CardBody>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-[var(--d-hairline)] pt-3 sm:grid-cols-4">
           <Figure label="High" loading={history.loading} value={stats ? formatPrice(stats.high.v) : "—"} sub={stats ? formatDate(stats.high.t, "short") : undefined} />

@@ -12,8 +12,10 @@
  *   remembered unbonding was cancelled" and an empty activity list as
  *   history, and would act on a wrong picture.
  * - Unknown is not zero. A chain whose rewards read failed is `failed: true`
- *   (it teaches the rewards cycle nothing); a validator whose jailed state or
- *   commission could not be read is left out rather than reported clean.
+ *   (it teaches the rewards cycle nothing); a chain whose staking read failed
+ *   is named in `failedChains` (the feed keeps its unbondings and validators
+ *   as remembered); a validator whose jailed state or commission could not be
+ *   read is left out rather than reported clean.
  *
  * Pure, so the mapping is covered by `node --test`.
  */
@@ -53,16 +55,31 @@ export function rewardsInputs(chains: readonly StakingChain[]): RewardsChainInpu
 }
 
 /**
- * Unbonding entries and the validators the account delegates to. Chains
- * whose staking read failed are left out (their lists are unknown).
+ * Unbonding entries and the validators the account delegates to, and the
+ * chains whose staking read failed this time.
+ *
+ * A failed chain's rows are left out (its lists are unknown), and leaving
+ * them out is not enough on its own: to the feed a remembered unbonding that
+ * is missing from the read was cancelled, and a remembered validator that is
+ * missing is one the account no longer delegates to. So the chain is also
+ * named in `failedChains`, and the feed keeps what it remembers for it until
+ * a read answers again. A chain counts as failed when the whole read errored
+ * or when either list is unknown (`totals.unbonding` or `totals.staked` is
+ * null): the feed keeps one memory per chain for both, so half a chain is
+ * not taken as the whole picture.
  */
 export function stakingInputs(chains: readonly StakingChain[]): {
   unbonding: UnbondingInput[];
   validators: ValidatorInput[];
+  failedChains: string[];
 } {
   const unbonding: UnbondingInput[] = [];
   const validators: ValidatorInput[] = [];
+  const failedChains: string[] = [];
   for (const chain of chains) {
+    if (chain.status === "error" || chain.totals.unbonding === null || chain.totals.staked === null) {
+      failedChains.push(chain.chainId);
+    }
     if (chain.status === "error") continue;
     if (chain.totals.unbonding !== null) {
       for (const position of chain.unbonding) {
@@ -94,7 +111,7 @@ export function stakingInputs(chains: readonly StakingChain[]): {
       });
     }
   }
-  return { unbonding, validators };
+  return { unbonding, validators, failedChains };
 }
 
 /** Voting-period proposals with the account's vote state. */

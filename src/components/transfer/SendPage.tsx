@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RecipientAddressField } from "@/components/RecipientAddressField";
+import { Icon } from "@/components/icons";
 import { Page } from "@/components/shell/Page";
 import {
   Badge,
@@ -65,9 +66,9 @@ import { AssetPicker } from "./AssetPicker";
 import { ContactDialog } from "./ContactDialog";
 import { FeeTierPicker } from "./FeeTierPicker";
 import { FrequentRecipientsCard } from "./FrequentRecipientsCard";
-import { Glyph } from "./glyphs";
 import {
   balanceKey,
+  bucketWorth,
   channelFromHistory,
   checkRecipient,
   exceeds,
@@ -85,6 +86,8 @@ import {
   pairOwnIbc,
   pickDestination,
   plannableOverrides,
+  pricedSum,
+  pricedSumByChain,
   routeTiming,
   spendableAssets,
   splitBalanceKey,
@@ -96,6 +99,7 @@ import {
   transferStats,
   valueOf,
   withinLoaded,
+  type BucketWorth,
   type SpendableAsset,
 } from "./logic";
 import { MissingTokenNote, missingTokenLabel, missingTokenText, type MissingToken } from "./MissingTokenNote";
@@ -356,15 +360,21 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
   const ownAccounts = useOwnAccounts(scopeChains);
   const ownAddresses = useOwnAddressSet(ownAccounts);
   const otherAccounts = useMemo(() => ownAccounts.filter((row) => row.chain.chainId !== asset?.chainId), [ownAccounts, asset?.chainId]);
-  const chainValues = useMemo(() => new Map((portfolio.data?.chains ?? []).map((row) => [row.chainId, row.liquid])), [portfolio.data]);
+  // What can move from each chain the read covered; null where the chain did
+  // not answer. From the balances, not the chain's priced total: that adds
+  // up priced tokens only, and read $0.00 on a chain of unpriced ones.
+  const chainValues = useMemo(() => {
+    const held = pricedSumByChain(assets);
+    return new Map((portfolio.data?.chains ?? []).map((row) => [row.chainId, row.status === "ok" ? (held.get(row.chainId) ?? pricedSum([])) : null]));
+  }, [portfolio.data, assets]);
   const frequent = useMemo(() => frequentRecipients(transfers, 5), [transfers]);
-  const spendableValue = useMemo(() => {
-    let sum: number | null = null;
-    for (const row of assets) if (row.value !== null) sum = (sum ?? 0) + row.value;
-    return sum;
-  }, [assets]);
-  const totals = portfolio.data?.totals;
-  const lockedValue = totals ? totals.staked + totals.unbonding : null;
+  // The strip's money figures, each saying what it leaves out: a token
+  // without a price is counted, never added as $0 (`pricedSum`, `bucketWorth`).
+  const spendable = useMemo(() => pricedSum(assets), [assets]);
+  const unreadChains = portfolio.data?.chains.filter((row) => row.status === "error").length ?? 0;
+  const locked = useMemo(() => (portfolio.data ? bucketWorth(portfolio.data, ["staked", "unbonding"]) : null), [portfolio.data]);
+  const rewards = useMemo(() => (portfolio.data ? bucketWorth(portfolio.data, ["rewards"]) : null), [portfolio.data]);
+  const unpricedHeld = useMemo(() => (portfolio.data ? bucketWorth(portfolio.data, ["staked", "unbonding", "rewards"]).unpriced : 0), [portfolio.data]);
   const assetValue = asset && amountBase ? valueOf(amountBase, decimals, asset.price) : null;
   const leftAfter = asset && isPositive(amountBase) && !exceeds(amountBase, asset.liquid) ? subtractUnits(subtractUnits(asset.liquid, amountBase), feeBase ?? "0") : null;
   const feePrice = useMemo(() => {
@@ -681,7 +691,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
                 check.state === "valid" && destChainId ? (
                   <ChainLogo chainId={destChainId} size={18} />
                 ) : (
-                  <Glyph name="user" size={16} />
+                  <Icon name="user" size={16} />
                 )
               }
               error={(recipientBlurred || check.state === "operator") && check.state !== "valid" && check.state !== "empty" && check.state !== "partial" ? check.message : undefined}
@@ -876,32 +886,62 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
           label="Spendable now"
           value={
             <Money
-              // A read with no liquid balance is a known zero; "—" is kept for what cannot be known.
-              value={balancesFailed ? null : portfolio.data && assets.length === 0 ? 0 : spendableValue}
+              // Nothing liquid in a read where every chain answered is a known
+              // zero; one that left a chain out is unknown, like a sum of
+              // tokens none of which has a price.
+              value={balancesFailed || !portfolio.data ? null : spendable.count === 0 && unreadChains > 0 ? null : spendable.value}
               currency={currency}
               compact
               animate
-              reason={balancesFailed ? "Balances could not be read" : portfolio.data ? "Nothing spendable is priced" : "No balance read in this scope"}
+              reason={
+                balancesFailed
+                  ? "Balances could not be read"
+                  : !portfolio.data
+                    ? "No balance read in this scope"
+                    : spendable.count === 0
+                      ? `Balances not read on ${unreadChains} ${unreadChains === 1 ? "network" : "networks"}`
+                      : "None of these tokens has a price"
+              }
             />
           }
           sub={
             balancesFailed
               ? "Balances unreadable"
-              : assets.length > 0
-                ? `${assets.length} token${assets.length === 1 ? "" : "s"} you can move`
+              : spendable.count > 0
+                ? // Short enough for a phone tile: the label already says "spendable".
+                  spendable.unpriced > 0
+                  ? `${spendable.count} ${spendable.count === 1 ? "token" : "tokens"} · ${spendable.unpriced} unpriced`
+                  : `${spendable.count} token${spendable.count === 1 ? "" : "s"} you can move`
                 : portfolio.loading
                   ? "Reading balances…"
-                  : "No liquid balance"
+                  : unreadChains > 0
+                    ? `${unreadChains} ${unreadChains === 1 ? "network" : "networks"} not read`
+                    : "No liquid balance"
           }
           loading={portfolio.loading && !portfolio.data}
-          info="Liquid balances in this scope, valued at current prices. Staked and unbonding tokens cannot be sent until they are released."
+          info="Liquid balances in this scope, valued at current prices; a token without a price is counted, not valued. Staked and unbonding tokens cannot be sent until they are released."
         />
         <Stat
           label="Staked & unbonding"
-          value={<Money value={lockedValue} currency={currency} compact reason={balancesFailed ? "Balances could not be read" : "No staking read yet"} />}
-          sub={totals ? <>+ <Money value={totals.rewards} currency={currency} compact /> rewards</> : balancesFailed ? "Balances unreadable" : undefined}
+          value={
+            <Money
+              value={balancesFailed ? null : (locked?.value ?? null)}
+              currency={currency}
+              compact
+              reason={
+                balancesFailed
+                  ? "Balances could not be read"
+                  : !locked
+                    ? "No staking read yet"
+                    : locked.unpriced > 0
+                      ? `${locked.unpriced} staked or unbonding ${locked.unpriced === 1 ? "token has" : "tokens have"} no price`
+                      : `Staking not read on ${locked.unread} ${locked.unread === 1 ? "network" : "networks"}`
+              }
+            />
+          }
+          sub={balancesFailed ? "Balances unreadable" : rewards ? <LockedSub rewards={rewards} unpriced={unpricedHeld} currency={currency} /> : undefined}
           loading={portfolio.loading && !portfolio.data}
-          info="Not spendable as is: undelegate (and wait out the unbonding period) or claim the rewards first."
+          info="Not spendable as is: undelegate (and wait out the unbonding period) or claim the rewards first. Valued at current prices; a token without a price is counted, not valued."
         />
         <Stat
           label="Last sent"
@@ -1006,5 +1046,21 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
 
       <ContactDialog open={saveOpen} onOpenChange={setSaveOpen} book={book} initialAddress={sent?.recipient ?? recipient} />
     </div>
+  );
+}
+
+/**
+ * The line under "Staked & unbonding": the rewards, and how many of these
+ * holdings (staked, unbonding, rewards) have no price. Said in words because
+ * the figure above leaves them out, or is "—" for them; rewards that are all
+ * unpriced are among that count, rewards a node did not answer for say so.
+ */
+function LockedSub({ rewards, unpriced, currency }: { rewards: BucketWorth; unpriced: number; currency: string }) {
+  const note = unpriced > 0 ? `${unpriced} unpriced` : null;
+  if (rewards.value === null) return <>{[rewards.unpriced > 0 ? null : "Rewards not read", note].filter(Boolean).join(" · ")}</>;
+  return (
+    <>
+      + <Money value={rewards.value} currency={currency} compact /> rewards{note ? ` · ${note}` : ""}
+    </>
   );
 }

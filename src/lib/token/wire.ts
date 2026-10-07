@@ -214,6 +214,13 @@ export interface PriceHistoryResponse {
   /** "Numia · Osmosis", "Coinstore SAF/USDT", "CoinGecko". */
   label: string | null;
   coverage: PriceHistoryCoverage;
+  /**
+   * A caveat on the series, e.g. "USD price history converted at today's EUR
+   * rate": EUR and GBP history is USD history at today's FX rate (there is no
+   * historical FX source), so a past high or low is not the price that day in
+   * that currency. Absent in USD, and when there are no points.
+   */
+  note?: string;
   updatedAt: number;
   errors?: UpstreamIssue[];
 }
@@ -610,6 +617,8 @@ export function readPriceHistoryResponse(raw: unknown): PriceHistoryResponse | n
     },
     updatedAt,
   };
+  const note = str(root.note);
+  if (note) response.note = note;
   const fallback = fallbackOf(root.currencyFallback);
   if (fallback) response.currencyFallback = fallback;
   const errors = issuesOf(root.errors);

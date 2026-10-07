@@ -36,7 +36,6 @@ import { usePrefs } from "@/providers/PrefsProvider";
 import { useWallet } from "@/providers/WalletProvider";
 import { AddressChunks } from "./AddressChunks";
 import { ChainPicker } from "./ChainPicker";
-import { Glyph } from "./glyphs";
 import { historySince, isOutgoing, isTransfer, newest, splitIncoming, topSenders, transferStats, withinLoaded } from "./logic";
 import { chainName, sinceText } from "./names";
 import { useOwnAccounts, useOwnAddressSet, type OwnAccount } from "./OwnAccountsCard";
@@ -263,7 +262,7 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
                     Copy address
                   </Button>
                   {shareable ? (
-                    <Button size="lg" variant="secondary" iconLeft={<Glyph name="share" size={16} />} onClick={() => void share()}>
+                    <Button size="lg" variant="secondary" iconLeft={<Icon name="share" size={16} />} onClick={() => void share()}>
                       Share
                     </Button>
                   ) : null}
@@ -274,7 +273,7 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
                 </Callout>
                 {sameKeyCount > 1 ? (
                   <p className="flex gap-2 text-[12.5px] leading-snug text-fg-dim">
-                    <Glyph name="key" size={15} className="mt-px shrink-0" />
+                    <Icon name="key" size={15} className="mt-px shrink-0" />
                     The same key receives on {sameKeyCount - 1} other followed network{sameKeyCount - 1 === 1 ? "" : "s"}, each under its own
                     prefix. Use the address of the chain the tokens are on.
                   </p>

@@ -145,6 +145,45 @@ function PricedCardSkeleton({ title, label, height }: { title: string; label: st
 }
 
 /**
+ * The positions card's stand-in while the first answer is on its way: the
+ * card's outline and rows, with no title, button or text of its own.
+ *
+ * What replaces it may open with the "needs attention" callout, whose height
+ * is unknown until the positions are read. The card's own loading state (its
+ * title, the Stake button) was seen to drop by that height when the answer
+ * landed: a layout shift of 0.18 at 390 px, 0.07 at 1440. Reserving the
+ * callout's space instead would only move the jump to every wallet with
+ * nothing to fix. This block is swapped out whole, so whatever comes first
+ * takes its place and nothing a reader was looking at moves.
+ */
+function PositionsPlaceholder() {
+  return (
+    <Card as="section" aria-label="Positions" aria-busy>
+      <span className="sr-only">Reading your positions…</span>
+      <div aria-hidden className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-2 pt-1">
+          <Skeleton className="h-3.5" width={88} />
+          <Skeleton className="h-2.5" width={150} />
+        </div>
+        <Skeleton className="h-8 rounded-[var(--d-radius-control)]" width={78} />
+      </div>
+      <div aria-hidden className="-mx-[var(--d-pad)] flex flex-col">
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="flex items-center gap-3 border-t border-[var(--d-hairline)] px-[var(--d-pad)] py-3">
+            <Skeleton circle width={28} />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Skeleton className="h-2.5" width={`${[46, 58, 38][row]}%`} />
+              <Skeleton className="h-2" width={`${[28, 34, 24][row]}%`} />
+            </div>
+            <Skeleton className="h-2.5" width={56} />
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/**
  * No network in scope has an address from this wallet (another key scheme,
  * or a phone session that left it out): nothing was read, so the page says
  * that instead of "you're not staking", and offers to add the network.
@@ -162,7 +201,7 @@ function NoAddressCard({ chainIds }: { chainIds: string[] }) {
         title={`Your wallet hasn't shared an address on ${listed}`}
         body={
           phone
-            ? "Your stake is read from your address on each network. Pair again and approve the network on your phone to see it here."
+            ? "Your stake is read from your address on each network. Connect Zunia Mobile again and approve the network on your phone to see it here."
             : "Your stake is read from your address on each network. Add the network in your wallet to see it here."
         }
         action={
@@ -302,19 +341,25 @@ function StakingContent() {
 
       {view ? <AttentionCallout chains={view.chains} /> : null}
 
-      <PositionsCard
-        chains={view?.chains ?? null}
-        currency={currency}
-        single={single !== null}
-        loading={loading && !view}
-        pricesLoading={statsLoading}
-        pricesError={statsError}
-        pending={pending}
-        error={state.error}
-        onRetry={state.retry}
-        skipped={state.skipped.map((id) => findChain(id)?.chainName ?? id)}
-        totalValue={view?.totals.stakedValue ?? null}
-      />
+      {loading && !view ? (
+        <PositionsPlaceholder />
+      ) : (
+        <PositionsCard
+          chains={view?.chains ?? null}
+          currency={currency}
+          single={single !== null}
+          // Never in its own loading state: `PositionsPlaceholder` stands in
+          // for it until the first answer.
+          loading={false}
+          pricesLoading={statsLoading}
+          pricesError={statsError}
+          pending={pending}
+          error={state.error}
+          onRetry={state.retry}
+          skipped={state.skipped.map((id) => findChain(id)?.chainName ?? id)}
+          totalValue={view?.totals.stakedValue ?? null}
+        />
+      )}
 
       {view && view.timeline.length > 0 ? (
         <UnbondingTimeline timeline={view.timeline} chains={view.chains} currency={currency} unbondingDays={unbondingDays} pending={pending} wide />

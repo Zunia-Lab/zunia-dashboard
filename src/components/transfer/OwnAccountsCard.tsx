@@ -17,6 +17,7 @@ import type { ChainEntry } from "@/lib/chains";
 import { cn } from "@/lib/cn";
 import { shortenAddress } from "@/lib/format";
 import { useWallet } from "@/providers/WalletProvider";
+import type { PricedSum } from "./logic";
 
 export interface OwnAccount {
   chain: ChainEntry;
@@ -64,10 +65,42 @@ export interface OwnAccountsCardProps {
   subtitle?: string;
   onPick?: (account: { chainId: string; address: string }) => void;
   activeAddress?: string;
-  /** Value held per chain, in `currency`. */
-  values?: ReadonlyMap<string, number | null>;
+  /**
+   * What can move from each chain the balance read covered, in `currency`
+   * (see {@link HeldHere}); null for a chain that did not answer.
+   */
+  values?: ReadonlyMap<string, PricedSum | null>;
   currency?: string;
   className?: string;
+}
+
+/**
+ * A row's value: the priced sum of what the account holds there. Unknown is
+ * "—" with the reason, never $0.00 (a chain that did not answer, one whose
+ * tokens have no price), and a sum that leaves tokens out counts them under
+ * it.
+ */
+function HeldHere({ sum, currency }: { sum: PricedSum | null; currency?: string }) {
+  const unpriced = sum?.unpriced ?? 0;
+  return (
+    <span className="shrink-0 text-right leading-tight">
+      <Money
+        value={sum?.value ?? null}
+        currency={currency}
+        compact
+        reason={sum === null ? "This network did not answer the balance read" : `${unpriced} ${unpriced === 1 ? "token has" : "tokens have"} no price`}
+        className="block text-[12.5px] tabular-nums text-fg-muted"
+      />
+      {sum === null ? (
+        <span className="block text-[11px] text-fg-dim">not read</span>
+      ) : unpriced > 0 ? (
+        <span className="block text-[11px] text-fg-dim">
+          {sum.value === null ? "" : "+"}
+          {unpriced} unpriced
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 export function OwnAccountsCard({ accounts, title = "Your accounts", subtitle, onPick, activeAddress, values, currency, className }: OwnAccountsCardProps) {
@@ -77,7 +110,6 @@ export function OwnAccountsCard({ accounts, title = "Your accounts", subtitle, o
       <ul className="-mx-2 flex flex-col">
         {accounts.map(({ chain, address, reason }) => {
           const active = address !== null && address === activeAddress;
-          const value = values?.get(chain.chainId);
           const body = (
             <>
               <ChainLogo chainId={chain.chainId} size={28} />
@@ -88,9 +120,7 @@ export function OwnAccountsCard({ accounts, title = "Your accounts", subtitle, o
                 </span>
               </span>
               {/* Only chains the balance read covered: outside the current scope a value is unknown, not "—". */}
-              {address && values?.has(chain.chainId) ? (
-                <Money value={value ?? null} currency={currency} compact reason="Nothing priced held here" className="shrink-0 text-[12.5px] tabular-nums text-fg-muted" />
-              ) : null}
+              {address && values?.has(chain.chainId) ? <HeldHere sum={values.get(chain.chainId) ?? null} currency={currency} /> : null}
             </>
           );
           return (

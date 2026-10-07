@@ -130,8 +130,37 @@ test("stakingInputs: unbonding entries and delegated validators; unknown left ou
   assert.equal(unknown.validators.length, 0);
   const noStatus = stakingInputs([staking({ delegations: [{ validator: validator({ status: null }), amount: "1", rewards: [] }] })]);
   assert.equal("active" in noStatus.validators[0], false);
-  assert.deepEqual(stakingInputs([staking({ status: "error" })]), { unbonding: [], validators: [] });
+  assert.deepEqual(stakingInputs([staking({ status: "error" })]), { unbonding: [], validators: [], failedChains: ["osmosis-1"] });
   assert.equal(stakingInputs([staking({ totals: { staked: "1", rewards: "0", unbonding: null } })]).unbonding.length, 0);
+});
+
+test("stakingInputs: a chain whose read failed is named, so the feed keeps its memory", () => {
+  // A good read names no chain: its missing rows really are gone.
+  assert.deepEqual(stakingInputs([staking()]).failedChains, []);
+
+  const hub = staking({ chainId: "cosmoshub-4", symbol: "ATOM" });
+  const result = stakingInputs([
+    staking({ status: "error" }),
+    staking({ chainId: "juno-1", totals: { staked: "1", rewards: "0", unbonding: null } }),
+    staking({ chainId: "akashnet-2", totals: { staked: null, rewards: "0", unbonding: "0" } }),
+    hub,
+  ]);
+  // Errored, unbonding unknown, delegations unknown: each one's lists are
+  // unknown, not empty, so none of them may read as "cancelled" or "undelegated".
+  assert.deepEqual(result.failedChains, ["osmosis-1", "juno-1", "akashnet-2"]);
+  // The healthy chain still feeds its rows.
+  assert.ok(result.unbonding.some((row) => row.chainId === "cosmoshub-4"));
+  assert.ok(result.validators.some((row) => row.chainId === "cosmoshub-4"));
+  assert.equal(result.unbonding.some((row) => row.chainId === "osmosis-1"), false);
+});
+
+test("noticeInputs: a failed staking read reaches the feed as failedChains", () => {
+  const inputs = noticeInputs({
+    account: "addr_safro1x",
+    staking: { data: { chains: [staking({ status: "error" }), staking({ chainId: "cosmoshub-4" })] }, stale: false },
+  });
+  assert.deepEqual(inputs.staking?.failedChains, ["osmosis-1"]);
+  assert.equal(inputs.staking?.unbonding.length, 1);
 });
 
 test("proposalInputs: voting proposals with the vote state and eligibility", () => {

@@ -28,8 +28,15 @@ const BASE: ChainInfoLike = {
 
 const WITH_WASM: ChainInfoLike = { ...BASE, features: ["cosmwasm", "ibc-transfer"] };
 const WITHOUT_WASM: ChainInfoLike = { ...BASE, features: ["ibc-transfer"] };
-/** Every row in today's catalog: no `features` key at all. */
+/** A registry entry with no `features` key at all (Sei's, for one). */
 const NO_FEATURES: ChainInfoLike = BASE;
+
+/**
+ * Setting names, env keys and repository paths: operator documentation. The
+ * reasons and notes are drawn on the NFT pages as they are, for people who
+ * cannot act on any of these.
+ */
+const OPERATOR_WORDS = /ZUNIA_|[A-Z]{2,}_[A-Z]{2,}|\.mjs|scripts\/|zunia-extension|=1\b/;
 
 test("a registry that declares cosmwasm is the only answer needing no work", () => {
   const support = decideNftSupport({
@@ -73,10 +80,10 @@ test("no features list and no override is unverified, never unsupported", () => 
   assert.equal(support.status, "unverified");
   assert.equal(support.basis, "catalog-missing");
   assert.equal(support.featuresDeclared, false);
-  // Names the generator that drops features[] and the key that overrides it, so
-  // the screen is actionable by whoever is reading it.
-  assert.match(support.reason ?? "", /generate-chain-catalog\.mjs/);
-  assert.match(support.reason ?? "", /ZUNIA_NFT_ALLOW_UNKNOWN_FEATURES=1/);
+  // Says what is known, in the reader's terms: the registry is silent about
+  // CosmWasm. How an operator changes that is not page copy.
+  assert.match(support.reason ?? "", /registry lists no features for Juno, so nothing says whether it runs CosmWasm/);
+  assert.doesNotMatch(support.reason ?? "", OPERATOR_WORDS);
 });
 
 test("a chain outside the catalog is unverified, not unsupported", () => {
@@ -103,8 +110,10 @@ test("with the override on, a chain that answers a wasm query is supported and s
   assert.equal(support.status, "supported");
   assert.equal(support.basis, "chain-probe");
   assert.equal(support.reason, null);
-  // Support on weaker evidence than the registry is never silent about it.
+  // Support on weaker evidence than the registry is never silent about it,
+  // and says so without naming the override that allowed the probe.
   assert.match(support.note ?? "", /came from the chain itself/);
+  assert.doesNotMatch(support.note ?? "", OPERATOR_WORDS);
   assert.equal(support.featuresDeclared, false);
 });
 
@@ -174,5 +183,7 @@ test("every non-supported status carries a reason and no supported one carries o
         `${support.basis} must explain itself`,
       );
     }
+    // Whatever the page draws is for the person holding the wallet.
+    assert.doesNotMatch(`${support.reason ?? ""} ${support.note ?? ""}`, OPERATOR_WORDS, `${support.basis} names an operator setting`);
   }
 });

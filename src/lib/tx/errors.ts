@@ -14,6 +14,8 @@
  * code table from zunia-sdk packages/interchain/src/tx.ts (`classifyTxFailure`).
  */
 
+import type { SignerKind } from "./sign-mode";
+
 export type TxErrorKind =
   | "out-of-gas"
   | "insufficient-funds"
@@ -28,8 +30,13 @@ export type TxErrorKind =
   | "no-account"
   /** The wallet (usually the phone) never answered the signature request. */
   | "wallet-timeout"
-  /** The wallet session is gone (phone unpaired or expired, extension revoked). */
+  /**
+   * The wallet session is gone (phone unpaired or expired, extension revoked),
+   * or the page lost its link to the extension (updated or reloaded).
+   */
   | "wallet-disconnected"
+  /** The wallet refused to show the request: it cannot display this transaction (Zunia without blind signing). */
+  | "wallet-unsupported"
   | "unknown";
 
 export interface ExplainedTxError {
@@ -146,6 +153,11 @@ const COPY: Record<TxErrorKind, { title: string; message: string; retryable: boo
     message: "Your wallet is no longer connected to this page, so nothing was signed. Connect it again, then try again.",
     retryable: false,
   },
+  "wallet-unsupported": {
+    title: "Unsupported in Zunia",
+    message: "Your Zunia extension can't show this transaction yet. Update Zunia to 0.1.4 or later, or use Keplr or Zunia Mobile.",
+    retryable: false,
+  },
   unknown: {
     title: "Refused",
     message: "The chain refused this transaction.",
@@ -256,18 +268,71 @@ function withKind(kind: TxErrorKind, text: string): ExplainedTxError {
   return { kind, title: copy.title, message: copy.message, detail: bounded(text), retryable: copy.retryable, expectedSequence: null };
 }
 
+/** A wallet-side kind with words of its own; the wallet's text is kept as the detail. */
+function walletWords(kind: TxErrorKind, title: string, message: string, text: string): ExplainedTxError {
+  return { ...withKind(kind, text), title, message };
+}
+
+/**
+ * The Zunia extension's own refusals, with the next step in words.
+ *
+ * Read from the extension's wording (zunia-extension lib/provider-handler.ts,
+ * lib/approvals.ts, entrypoints/background.ts and content.ts @ 1453e7a) as
+ * well as its `code`, because a wrapper on the way may keep the text and drop
+ * the code (`enableChains` reports a key it could not read by its reason).
+ *
+ * - `UNSUPPORTED` "Blind signing disabled for unknown messages": a message
+ *   the extension cannot decode is refused before any prompt opens (0.1.3
+ *   and Osmosis poolmanager swaps). Its own kind, `wallet-unsupported`:
+ *   trying again cannot help, another wallet can.
+ * - "Request expired before it was answered" carries `USER_REJECTED`, but
+ *   nobody declined: the 5-minute prompt ran out. `wallet-timeout`, so no
+ *   flow answers it with "Cancelled in your wallet".
+ * - `LOCKED`: the wallet stayed locked (the unlock window was closed, or
+ *   timed out), or locked while a prompt was open. `wallet-timeout` too.
+ * - "Extension context invalidated.": the extension was updated or reloaded
+ *   under an open page, whose content script is now orphaned; every call
+ *   fails until the page is reloaded. A handshake that never completed ends
+ *   the same way. `wallet-disconnected`. Chrome writes those words for any
+ *   extension, Keplr included, so the wallet named is `wallet`'s.
+ *
+ * The last three are kinds every flow already draws on its "sign" step.
+ * Null for anything else.
+ */
+export function walletRefusal(error: unknown, wallet?: SignerKind): ExplainedTxError | null {
+  const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "UNSUPPORTED" && /blind signing/i.test(text)) return withKind("wallet-unsupported", text);
+  if (/request expired before it was answered/i.test(text)) {
+    return walletWords("wallet-timeout", "No answer in time", "The Zunia prompt expired. Try again.", text);
+  }
+  if (code === "LOCKED" || /stayed locked|wallet (?:is )?locked|closed before unlocking/i.test(text)) {
+    return walletWords("wallet-timeout", "Wallet locked", "Zunia stayed locked. Unlock it and try again.", text);
+  }
+  if (/context invalidated|provider handshake timed out|provider port not ready/i.test(text)) {
+    const who = wallet === "keplr" ? "Keplr" : wallet === "zunia" || /zunia/i.test(text) ? "Zunia" : "Your wallet extension";
+    return walletWords("wallet-disconnected", "Page out of date", `${who} was updated or reloaded. Reload this page.`, text);
+  }
+  return null;
+}
+
 /**
  * A thrown wallet or network error, through the same classifier.
  *
  * Wallet error codes first: the Zunia Connect SDK (phone) and the Zunia
  * extension both throw `{code}` errors (`USER_REJECTED`, `TIMEOUT`,
  * `NOT_CONNECTED`, `SESSION_EXPIRED`, `DISCONNECTED`, `UNKNOWN_CHAIN`), whose
- * messages are written for developers ("Pair a wallet first").
+ * messages are written for developers ("Pair a wallet first"); the Zunia
+ * extension's own refusals before them (`walletRefusal`). `wallet`, when the
+ * caller knows it, names the extension in the one refusal any extension can
+ * raise.
  */
-export function explainError(error: unknown): ExplainedTxError {
+export function explainError(error: unknown, options: { wallet?: SignerKind } = {}): ExplainedTxError {
   if (error instanceof TxError) return error.explained;
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const code = (error as { code?: unknown } | null)?.code;
+  const refusal = walletRefusal(error, options.wallet);
+  if (refusal) return refusal;
   if (code === "USER_REJECTED" || code === 4001) return explainTxError("Request rejected");
   if (code === "TIMEOUT") return withKind("wallet-timeout", message);
   if (code === "NOT_CONNECTED" || code === "SESSION_EXPIRED" || code === "DISCONNECTED") {

@@ -26,7 +26,7 @@ import { toCsv, type CsvColumn } from "@/components/ui/csv";
 import { exactUnits } from "@/lib/activity/analytics";
 import { formatFiat } from "@/lib/format";
 import { groupAssets, type AssetGroup } from "@/lib/token/holdings";
-import { tokenKeywords } from "@/lib/token/text";
+import { tokenSearchRank } from "@/lib/token/text";
 import type { TokenIdentity } from "@/lib/token/types";
 import type { PortfolioAsset, PortfolioChain, PortfolioResponse, UnpricedReason } from "@/lib/token/wire";
 
@@ -146,11 +146,17 @@ export function matchesType(row: PortfolioAsset, type: AssetTypeFilter): boolean
   }
 }
 
-/** Ticker, family, aliases, names, chains and denoms, case-insensitive. */
+/**
+ * The search box: what the token pickers match (`tokenSearchRank`), so one
+ * query finds the same tokens everywhere. Tickers, families, aliases and
+ * denoms anywhere inside; names and chains only at the start of a word:
+ * "osmo" finds OSMO, stOSMO and what sits on Osmosis, never every Cosmos Hub
+ * token for the "osmo" inside "Cosmos". Case-insensitive.
+ */
 export function matchesQuery(row: PortfolioAsset, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return tokenKeywords(row.identity).some((word) => word.toLowerCase().includes(q));
+  return tokenSearchRank(row.identity, q) !== null;
 }
 
 export interface RowFilter {

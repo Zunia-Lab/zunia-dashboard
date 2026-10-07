@@ -144,7 +144,7 @@ export function VoteFlow({ proposal, variant = "card", onDone, onBusyChange, cla
         <Gate className={className} icon="lock" title={`Your wallet can't sign on ${chainName}`}>
           <p>
             {wallet.walletKind === "zunia-mobile"
-              ? `This phone session did not include ${chainName}. Pair again and approve ${chainName} to vote from here.`
+              ? `This phone session did not include ${chainName}. Connect again and approve ${chainName} on your phone to vote from here.`
               : `${chainName} is not available in this wallet. Add it in your wallet, then try again.`}
           </p>
         </Gate>

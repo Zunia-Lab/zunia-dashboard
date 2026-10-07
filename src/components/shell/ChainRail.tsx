@@ -124,7 +124,7 @@ function ChainCard({ chain, offSlice }: { chain: ChainEntry; offSlice: boolean }
                 {vote.votingEndTime ? (
                   <span className="text-fg-dim">
                     {" "}
-                    · <RelativeTime at={Date.parse(vote.votingEndTime)} prefix="ends" />
+                    · <RelativeTime at={Date.parse(vote.votingEndTime)} prefix="ends" upcoming />
                   </span>
                 ) : null}
               </span>

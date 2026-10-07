@@ -121,6 +121,16 @@ export interface WalletContextValue {
   error: string | null;
   /** Why the session ended by itself (phone, expiry, extension), until the next connect. */
   endedReason: string | null;
+  /**
+   * A remembered Zunia extension connection is waiting for the wallet to be
+   * unlocked. The restore found the site's grant but Zunia locked (it locks
+   * after 10 idle minutes, on browser close, on device lock), so it asked for
+   * nothing: a key read would have opened Zunia's unlock window on page load.
+   * Offer "Zunia is locked — Unlock" where Connect would be: that click calls
+   * `connectExtension("zunia")`, and the unlock window opens on a gesture.
+   * An unlock made in Zunia itself restores the connection on its own.
+   */
+  zuniaLocked: boolean;
   zuniaAvailable: boolean;
   keplrAvailable: boolean;
   /** Zunia Mobile pairing / session state and actions. */

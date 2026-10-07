@@ -199,8 +199,40 @@ const STANDARD_TYPE_URLS = new Set([
   "/ibc.applications.transfer.v1.MsgTransfer",
 ]);
 
-export function isStandardMessage(message: Pick<TxMessage, "typeUrl">): boolean {
-  return STANDARD_TYPE_URLS.has(message.typeUrl);
+const TRANSFER_TYPE_URL = "/ibc.applications.transfer.v1.MsgTransfer";
+
+/**
+ * Whether an ICS-20 memo asks a chain on the way to run a contract: an
+ * ibc-hooks `{"wasm": …}` key at any depth, so a hook behind a
+ * packet-forward hop (`{"forward": {"next": {"wasm": …}}}`) counts too. The
+ * swap's cross-chain path is one: a transfer to the swap contract on Osmosis
+ * whose memo is the swap.
+ */
+function memoRunsContract(memo: unknown): boolean {
+  if (typeof memo !== "string" || !memo.includes("wasm")) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(memo);
+  } catch {
+    return false;
+  }
+  const visit = (node: unknown, depth: number): boolean => {
+    if (depth > 16 || node === null || typeof node !== "object") return false;
+    if (Array.isArray(node)) return node.some((item) => visit(item, depth + 1));
+    return Object.entries(node).some(([key, value]) => key === "wasm" || visit(value, depth + 1));
+  };
+  return visit(parsed, 0);
+}
+
+/**
+ * A standard message, as above. An ICS-20 transfer whose memo runs a
+ * contract (`memoRunsContract`) is a contract call riding a transfer, so it
+ * is not: it signs direct where the wallet can, the exact protobuf bytes the
+ * chain verifies, the mode the swap has always used for it.
+ */
+export function isStandardMessage(message: Pick<TxMessage, "typeUrl" | "amino">): boolean {
+  if (!STANDARD_TYPE_URLS.has(message.typeUrl)) return false;
+  return !(message.typeUrl === TRANSFER_TYPE_URL && memoRunsContract(message.amino?.value.memo));
 }
 
 /** The kind label used for fallback gas and for copy ("send", "vote", …). */

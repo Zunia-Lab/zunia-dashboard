@@ -269,7 +269,7 @@ export function StakingKpis({
           sub={caption(
             next ? (
               <span title={formatDate(next.at, "datetime")}>
-                next {formatDate(next.at, "short")} · <RelativeTime at={next.at} />
+                next {formatDate(next.at, "short")} · <RelativeTime at={next.at} upcoming />
                 {!single && totals && totals.unpricedUnbonding.length > 0 ? ` · ${unpricedNote(totals.unpricedUnbonding)}` : null}
                 {unreadUnbonding.length > 0 ? ` · ${names(unreadUnbonding)} unreadable` : null}
               </span>

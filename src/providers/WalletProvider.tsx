@@ -43,7 +43,10 @@ import {
   enableChains,
   errorText,
   getExtensionProvider,
+  grantedChains,
+  isExtensionLocked,
   isKeplrAvailable,
+  isLockedOrClosed,
   isUserRejection,
   isZuniaAvailable,
   readKey,
@@ -65,7 +68,9 @@ import {
   type WalletHint,
 } from "@/lib/connect/walletHint";
 import { stopPush } from "@/lib/data/push";
+import { SITE_URL } from "@/lib/site";
 import { fetchChainInfo } from "@/lib/tx/client";
+import { walletRefusal } from "@/lib/tx/errors";
 import type { TxSigner } from "@/lib/tx/flow";
 import { useFollowedChains } from "@/lib/useFollowedChains";
 import { clearApiCache, revalidateApi } from "@/lib/useApi";
@@ -98,6 +103,8 @@ interface WalletState {
   error: string | null;
   endedReason: string | null;
   restoring: boolean;
+  /** A remembered Zunia connection waits for an unlock (`WalletContextValue.zuniaLocked`). */
+  zuniaLocked: boolean;
 }
 
 const INITIAL: WalletState = {
@@ -109,7 +116,16 @@ const INITIAL: WalletState = {
   error: null,
   endedReason: null,
   restoring: true,
+  zuniaLocked: false,
 };
+
+/**
+ * Said when a remembered Zunia connection has no grant left: Zunia keeps a
+ * site's approval for 7 days (or the user revoked it in Zunia's Settings
+ * while this site was closed). Without it the visit would just say "Connect
+ * wallet", and the user would not know why the connection is gone.
+ */
+const ZUNIA_CONNECTION_EXPIRED = "Your Zunia connection expired. Connect again.";
 
 class WalletStore {
   private state: WalletState = INITIAL;
@@ -224,10 +240,86 @@ function forgetWalletData(): void {
   }, 50);
 }
 
+type ExtensionHint = Extract<WalletHint, { mode: "extension" }>;
+
+/**
+ * Reconnect a remembered extension without a prompt: on page load, and again
+ * when Zunia is unlocked behind a "Zunia is locked" state.
+ *
+ * Zunia answers two questions silently, and both come before anything that
+ * could open a window:
+ * - Which chains may this site still use (`getConnectedChains`)? None: the
+ *   grant lapsed (Zunia keeps it 7 days) or was revoked. The hint goes, and
+ *   the reason is said instead of a bare "Connect wallet".
+ * - Is it locked (`isLocked`)? Then nothing more is asked. A key read waits
+ *   for an unlock, and Zunia opens its unlock window to get one: on page
+ *   load, with no click, over pages on skeletons for up to the window's 5
+ *   minutes, and closing it used to read as a lost connection. The hint
+ *   stays, and `zuniaLocked` offers the unlock on a click.
+ * Keplr can answer neither, and restores as before.
+ *
+ * Restoring only what is still granted means a reload never opens an
+ * approval prompt. Throws what the wallet threw: the caller decides whether
+ * the hint survives it (`isLockedOrClosed`).
+ */
+async function restoreExtension(store: WalletStore, hint: ExtensionHint): Promise<void> {
+  const provider = await waitForProvider(hint.wallet, 2_500);
+  if (!provider) {
+    clearWalletHint();
+    store.set({ zuniaLocked: false });
+    return;
+  }
+  let chains = hint.chains ?? [hint.chainId];
+  if (hint.wallet === "zunia") {
+    // Null from an older extension that cannot say: enable then goes ahead,
+    // and does not prompt for chains already approved.
+    const granted = await grantedChains(provider);
+    if (granted?.length === 0) {
+      clearWalletHint();
+      store.set({ zuniaLocked: false, endedReason: ZUNIA_CONNECTION_EXPIRED });
+      return;
+    }
+    if (granted) chains = chains.filter((id) => granted.includes(id));
+    if (chains.length > 0 && (await isExtensionLocked(provider))) {
+      store.set({ zuniaLocked: true });
+      return;
+    }
+  }
+  if (chains.length === 0) {
+    clearWalletHint();
+    store.set({ zuniaLocked: false });
+    return;
+  }
+  // The same batch logic as a connect, without suggesting anything: a chain
+  // the wallet forgot since (a removed suggestion) is left out with its
+  // reason instead of failing the whole restore. Throws when no key at all
+  // could be read.
+  const outcome = await enableChains(provider, hint.wallet, chains, {
+    suggestFirst: [],
+    suggest: async () => false,
+    nameOf: chainName,
+  });
+  // A connect made meanwhile (another wallet, or an Unlock click whose
+  // unlock also woke this restore) is the user's latest choice.
+  if (store.get().kind) return;
+  const keys: Record<string, WalletKey> = {};
+  for (const [chainId, key] of Object.entries(outcome.keys)) keys[chainId] = toWalletKey(chainId, key);
+  store.set({
+    kind: hint.wallet,
+    keys,
+    skipped: outcome.skipped,
+    primaryChainId: pickPrimary(keys, chains, hint.chainId),
+    zuniaLocked: false,
+    error: null,
+    endedReason: null,
+  });
+  writeHintFor(store.get());
+}
+
 function metadata() {
   return {
     name: "Zunia Dashboard",
-    url: typeof window !== "undefined" ? window.location.origin : "https://wallet.zunialab.com",
+    url: typeof window !== "undefined" ? window.location.origin : SITE_URL,
     icons: [ZUNIA_ICON],
   };
 }
@@ -249,6 +341,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           skipped: [],
           error: null,
           endedReason: null,
+          // The phone's hint replaces a locked Zunia's: nothing waits for an unlock now.
+          zuniaLocked: false,
         });
         writeHintFor(walletStore.get());
       },
@@ -298,10 +392,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           skipped: outcome.skipped,
           connecting: false,
           error: null,
+          zuniaLocked: false,
         });
         writeHintFor(store.get());
       } catch (error) {
-        const message = isUserRejection(error) ? `You declined the connection in ${label}.` : errorText(error);
+        // Zunia's refusals in words with a next step ("Zunia stayed locked.
+        // Unlock it and try again."), before the generic decline: an expired
+        // prompt carries USER_REJECTED too. A failed Unlock keeps the locked
+        // state, so the Unlock button stays where it was.
+        const refusal = wallet === "zunia" ? walletRefusal(error, wallet) : null;
+        const message = refusal?.message ?? (isUserRejection(error) ? `You declined the connection in ${label}.` : errorText(error));
         store.set({ connecting: false, error: message });
         throw new Error(message);
       }
@@ -315,16 +415,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!provider || store.get().kind !== wallet) return;
       const chainIds = Object.keys(store.get().keys);
       const next: Record<string, WalletKey> = {};
+      let locked = false;
       await Promise.all(
         chainIds.map(async (chainId) => {
           try {
             next[chainId] = toWalletKey(chainId, await readKey(provider, chainId));
-          } catch {
+          } catch (error) {
             // Lost access to this chain: it is simply not signable any more.
+            // Unless the wallet only stayed locked: that says nothing about access.
+            if (isLockedOrClosed(error)) locked = true;
           }
         }),
       );
       if (store.get().kind !== wallet) return;
+      // A locked wallet answered nothing: keep the keys it gave before.
+      if (locked && Object.keys(next).length < chainIds.length) return;
       if (Object.keys(next).length === 0) {
         store.set({ kind: null, keys: {}, skipped: [], endedReason: `${walletLabel(wallet)} no longer shares an account with this site.` });
         clearWalletHint();
@@ -368,6 +473,41 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     };
   }, [state.kind, refreshExtensionKeys, store]);
 
+  // Zunia unlocked from its own toolbar button while this page waited on
+  // "Zunia is locked": it tells every connected site with `accountsChanged`,
+  // and the restore runs again, now with nothing to open. An Unlock click
+  // fires the same event; its own connect is already under way, so this one
+  // stands aside.
+  useEffect(() => {
+    if (!state.zuniaLocked) return;
+    const provider = getExtensionProvider("zunia");
+    if (!provider?.on) return;
+    let running = false;
+    const resume = () => {
+      const current = store.get();
+      if (running || !current.zuniaLocked || current.connecting || current.kind) return;
+      const hint = readWalletHint();
+      if (hint?.mode !== "extension" || hint.wallet !== "zunia") {
+        store.set({ zuniaLocked: false });
+        return;
+      }
+      running = true;
+      store.set({ restoring: true });
+      void restoreExtension(store, hint)
+        .catch((error: unknown) => {
+          if (isLockedOrClosed(error)) return;
+          clearWalletHint();
+          store.set({ zuniaLocked: false });
+        })
+        .finally(() => {
+          running = false;
+          store.set({ restoring: false });
+        });
+    };
+    provider.on("accountsChanged", resume);
+    return () => provider.off?.("accountsChanged", resume);
+  }, [state.zuniaLocked, store]);
+
   /* ---------------------------------------------------------------- mobile */
 
   const requestedMobileChains = useMemo(() => pairingChains(HOME_CHAIN_ID, followed, findChain), [followed]);
@@ -395,7 +535,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
    */
   const disconnect = useCallback(async () => {
     const { kind } = store.get();
-    store.set({ kind: null, keys: {}, skipped: [], error: null, endedReason: null, connecting: false });
+    store.set({ kind: null, keys: {}, skipped: [], error: null, endedReason: null, connecting: false, zuniaLocked: false });
     clearWalletHint();
     forgetWalletData();
     announceDisconnect();
@@ -417,7 +557,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onDisconnectAnnounced(() => {
-        const { kind } = store.get();
+        const { kind, zuniaLocked } = store.get();
+        // The sender cleared the hint a locked Zunia here was waiting on.
+        if (zuniaLocked) store.set({ zuniaLocked: false });
         if (kind !== "zunia" && kind !== "keplr") return;
         store.set({ kind: null, keys: {}, skipped: [], error: null, endedReason: null, connecting: false });
         forgetWalletData();
@@ -585,46 +727,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           clearWalletHint();
           return;
         }
-        const provider = await waitForProvider(hint.wallet, 2_500);
-        if (!provider) {
+        await restoreExtension(store, hint);
+      } catch (error) {
+        // A wallet that stayed locked (an extension too old to say so before
+        // the unlock window opened, whose window was then closed or timed
+        // out) has not forgotten this site: keep the hint, offer the unlock.
+        // Anything else means the remembered connection cannot come back.
+        if (hint?.mode === "extension" && isLockedOrClosed(error)) {
+          if (hint.wallet === "zunia") store.set({ zuniaLocked: true });
+        } else {
           clearWalletHint();
-          return;
         }
-        let chains = hint.chains ?? [hint.chainId];
-        if (hint.wallet === "zunia" && provider.getConnectedChains) {
-          // Zunia answers this silently; restoring only what is still granted
-          // means a reload never opens an approval window.
-          try {
-            const granted = await provider.getConnectedChains();
-            chains = chains.filter((id) => granted.includes(id));
-          } catch {
-            // Older extension: fall through to enable, which does not prompt
-            // for chains already approved.
-          }
-        }
-        if (chains.length === 0) {
-          clearWalletHint();
-          return;
-        }
-        // The same batch logic as a connect, without suggesting anything: a
-        // chain the wallet forgot since (a removed suggestion) is left out with
-        // its reason instead of failing the whole restore. Already-approved
-        // chains do not prompt.
-        const outcome = await enableChains(provider, hint.wallet, chains, {
-          suggestFirst: [],
-          suggest: async () => false,
-          nameOf: chainName,
-        });
-        const keys: Record<string, WalletKey> = {};
-        for (const [chainId, key] of Object.entries(outcome.keys)) keys[chainId] = toWalletKey(chainId, key);
-        if (Object.keys(keys).length === 0) {
-          clearWalletHint();
-          return;
-        }
-        store.set({ kind: hint.wallet, keys, skipped: outcome.skipped, primaryChainId: pickPrimary(keys, chains, hint.chainId) });
-        writeHintFor(store.get());
-      } catch {
-        clearWalletHint();
       } finally {
         store.set({ restoring: false });
       }
@@ -720,6 +833,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       busy: state.connecting,
       error: state.error,
       endedReason: state.endedReason,
+      zuniaLocked: state.zuniaLocked,
       zuniaAvailable,
       keplrAvailable,
       mobile: mobileState,

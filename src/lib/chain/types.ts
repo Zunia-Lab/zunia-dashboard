@@ -354,14 +354,6 @@ export interface ValidatorDetailResponse {
   errors?: PartError[];
 }
 
-/** Multi-chain form (`/api/validators?chains=`), kept for callers of the legacy query. */
-export interface ValidatorsMultiResponse {
-  updatedAt: number;
-  sets: ValidatorsResponse[];
-  unknown?: string[];
-  errors?: PartError[];
-}
-
 /* -------------------------------------------------------------------------- *
  * Staking positions (GET /api/staking, private)
  * -------------------------------------------------------------------------- */

@@ -13,9 +13,12 @@
  *
  * Right before the wallet is asked, the transaction is built again and
  * `checkSwapTx` reads it back against the review (amounts, denoms, the fee,
- * the recipient, the price's age); any problem stops the signature. Signing
- * is direct mode (Osmosis's poolmanager has no amino form, and the IBC
- * transfers are encoded the way the chain rebuilds them).
+ * the recipient, the price's age); any problem stops the signature. The sign
+ * mode is the wallet's policy (`chooseSignMode`), not this card's: Keplr and
+ * Zunia Mobile sign every swap path direct (each carries a non-standard
+ * message: a poolmanager swap, a contract call, or a transfer whose memo
+ * runs the swap contract), while the Zunia extension signs the contract call
+ * from Osmosis in amino, the one mode in which it can show that call.
  */
 
 import Link from "next/link";
@@ -220,7 +223,7 @@ function ReviewContent({
     onBusyChange(true);
     const sentence = mask(`${tickerAmount(spent, from)} for about ${tickerAmount(receive.amount, to)}`);
     try {
-      const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memo: tx.memo, signMode: "direct" });
+      const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memo: tx.memo });
       const swap: SignedSwap = { review, txHash: result.txHash, chainId: result.chainId, confirmed: result.confirmed !== false, at: Date.now() };
       setSigned(swap);
       onSigned(swap);

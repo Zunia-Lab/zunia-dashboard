@@ -4,12 +4,31 @@ import { chainIndexable } from "@/components/chains/seo";
 import { publicPageMetadata } from "@/components/landing/seo";
 import { ValidatorsPage } from "@/components/validators/ValidatorsPage";
 import { findChain } from "@/lib/chains";
+import { DEFAULT_FOLLOWED } from "@/lib/followed-defaults";
+import { validatorsInitial } from "@/lib/server/page-initial";
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** The body's chain when nothing names one: Safrochain, as on a first visit. */
+const HOME_CHAIN = "safrochain-1";
 
 function chainOf(params: Record<string, string | string[] | undefined>) {
   const raw = typeof params.chain === "string" ? params.chain : null;
   return raw ? findChain(raw) : undefined;
+}
+
+/**
+ * The chain the body (`ValidatorsContent`) shows on its first render, before
+ * the browser's stored scope arrives: `?chain=` when it names a catalog chain
+ * (its first value, as `useSearchParams().get` reads a repeated key), else
+ * Safrochain when the followed chains of a first visit include it, else the
+ * first of them. The server read is for exactly that chain.
+ */
+function firstChainOf(params: Record<string, string | string[] | undefined>): string {
+  const raw = Array.isArray(params.chain) ? params.chain[0] : params.chain;
+  if (raw && findChain(raw)) return raw;
+  const followed = DEFAULT_FOLLOWED.filter((id) => findChain(id)?.network === "mainnet");
+  return followed.includes(HOME_CHAIN) ? HOME_CHAIN : (followed[0] ?? HOME_CHAIN);
 }
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
@@ -32,7 +51,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   };
 }
 
-export default async function ValidatorsRoute() {
+export default async function ValidatorsRoute({ searchParams }: Props) {
   // Rendered per request, never prerendered. The body reads `?chain=` with
   // useSearchParams (it rewrites the query in place when a chip is picked).
   // In a prerendered page that hook bails out to the browser up to the
@@ -42,5 +61,9 @@ export default async function ValidatorsRoute() {
   // suspend, so no boundary is needed and the chain's page is in the first
   // HTML (this route sits outside the wallet pages' loading boundary too).
   await connection();
-  return <ValidatorsPage />;
+  // With the set itself: the figures, the curve and the table (monikers and
+  // links to each validator's page), read through the route's cache within
+  // a short budget; past it the body loads the set in the browser as before.
+  const initial = await validatorsInitial(firstChainOf(await searchParams));
+  return <ValidatorsPage initial={initial} />;
 }

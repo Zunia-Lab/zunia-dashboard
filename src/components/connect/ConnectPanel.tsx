@@ -7,6 +7,10 @@
  * in (the two browser wallets, then the Zunia Mobile zone), and the promise
  * that keys stay in the wallet. Zunia Mobile opens the connect modal on its
  * QR view (the code needs the room).
+ *
+ * When a remembered Zunia connection waits for an unlock, the panel says that
+ * first: the page is one click away, not a new connection away (the Zunia
+ * row is the Unlock button).
  */
 
 import { useId } from "react";
@@ -14,9 +18,12 @@ import { Mark } from "@zunialab/ui";
 import { Icon } from "@/components/icons";
 import { ConnectFeedback, WalletOptions } from "@/components/connect/WalletOptions";
 import { useConnectModal } from "@/components/connect/ConnectModal";
+import { useWallet } from "@/lib/connect/context";
 
 export function ConnectPanel({ title, description }: { title?: string; description?: string }) {
   const modal = useConnectModal();
+  const { zuniaLocked, zuniaAvailable } = useWallet();
+  const locked = zuniaLocked && zuniaAvailable;
   // Unique per instance: a page may show the panel twice (a gate and a card).
   const titleId = useId();
   return (
@@ -41,8 +48,10 @@ export function ConnectPanel({ title, description }: { title?: string; descripti
               {title ?? "Connect a wallet to see this page"}
             </h2>
             <p className="mt-1.5 max-w-[60ch] text-[14px] leading-relaxed text-fg-muted">
-              {description ??
-                "Zunia reads your balances and activity from public chain data. Keys stay in your wallet; this page never asks for a recovery phrase."}
+              {locked
+                ? "Your Zunia connection is remembered. Unlock Zunia to see this page; your keys never leave it."
+                : (description ??
+                  "Zunia reads your balances and activity from public chain data. Keys stay in your wallet; this site never asks for your recovery phrase.")}
             </p>
           </div>
         </div>

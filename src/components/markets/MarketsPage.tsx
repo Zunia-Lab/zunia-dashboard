@@ -9,6 +9,10 @@
  * search, watchlist and swap shortcuts. A wallet adds "You hold" badges; a
  * chain picked on the rail narrows the table to assets issued there (one
  * click to show all), while the figures above stay Cosmos-wide and say so.
+ *
+ * The page hands down the list it read on the server (`initial`), so the
+ * first HTML has the prices and the links to each asset's page; a visitor
+ * whose stored currency is not USD reads theirs as before.
  */
 
 import { useMemo, useState } from "react";
@@ -20,22 +24,23 @@ import { Button, Callout, InlineError } from "@/components/ui";
 import { useMarkets } from "@/lib/data/markets";
 import { usePortfolio } from "@/lib/data/portfolio";
 import { useChainScope } from "@/lib/useChainScope";
+import type { ApiInitial } from "@/lib/useApi";
 import { useWallet } from "@/providers/WalletProvider";
 import { BreadthCard, DepthCard, MarketsStrip, sourcesDown } from "./MarketsOverview";
 import { MarketsTable } from "./MarketsTable";
 import { marketSummary } from "./markets";
 import { useWatchlist } from "./watchlist";
 
-export function MarketsPage() {
+export function MarketsPage({ initial = null }: { initial?: ApiInitial | null }) {
   return (
     <Page title="Markets" access="public">
-      <MarketsBody />
+      <MarketsBody initial={initial} />
     </Page>
   );
 }
 
-function MarketsBody() {
-  const markets = useMarkets();
+function MarketsBody({ initial }: { initial: ApiInitial | null }) {
+  const markets = useMarkets(initial);
   // Every followed chain, whatever the rail shows: "You hold" is about the
   // wallet, not the scope. Idle (no request) without a wallet.
   const portfolio = usePortfolio({ scope: "followed" });

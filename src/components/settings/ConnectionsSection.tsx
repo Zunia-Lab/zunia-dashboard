@@ -113,7 +113,7 @@ export function ConnectionsSection() {
                   {mobile.expiresAt && now !== null && mobile.expiresAt > now
                     ? ` · session ends in ${formatDuration((mobile.expiresAt - now) / 1000)}`
                     : ""}
-                  . A session lasts 24 hours; connect again after that.
+                  . A session lasts 24 hours; connect again after that. Disconnecting also turns push alerts for this browser off.
                 </>
               }
               control={
@@ -149,7 +149,10 @@ export function ConnectionsSection() {
           {!phone ? (
             <SettingRow
               title="Disconnect"
-              description="Forgets this session on this browser. Your wallet, its keys and your followed networks stay as they are."
+              // Said because it is what Disconnect does (`WalletProvider`):
+              // leaving is meant for a shared computer too, where the next
+              // person must not get this wallet's alerts on the lock screen.
+              description="Forgets this session on this browser. Push alerts for this browser are turned off. Your wallet, its keys and your followed networks stay as they are."
               control={
                 <Button size="sm" variant="danger" iconLeft="disconnect" onClick={() => void disconnect()}>
                   Disconnect

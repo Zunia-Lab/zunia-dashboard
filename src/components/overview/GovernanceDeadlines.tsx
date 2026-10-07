@@ -52,8 +52,11 @@ function MyVote({ proposal }: { proposal: ProposalRow }) {
     const inherited = (proposal.inheritedVote ?? []).filter((vote) => vote.option !== null);
     if (inherited.length > 0) {
       const first = inherited[0];
+      // Neutral, not `info`: the kit's info is the brand amber, as loud as the
+      // warning "Not voted" below, and a vote your validators already cast for
+      // you is the calmer of the two states, not an equal alarm.
       return (
-        <Badge tone="info" size="sm" title="Until you vote, your validators vote for the stake you gave them.">
+        <Badge tone="neutral" size="sm" title="Until you vote, your validators vote for the stake you gave them.">
           Not voted · {first?.moniker ?? "your validator"} voted {voteLabel(first?.option) ?? ""}
           {inherited.length > 1 ? ` +${inherited.length - 1}` : ""}
         </Badge>

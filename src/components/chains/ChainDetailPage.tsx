@@ -9,8 +9,10 @@
  * wallet's own position and holdings when one is connected.
  *
  * Public and indexable for curated mainnets. Catalog facts (name, chain id,
- * token) render on the server; live figures stream in through the shared
- * hooks and keep their frame on refresh. A chain whose public endpoints are
+ * token) render on the server, and so do the chain's figures when the route
+ * hands down the detail it read there (`initial`); the rest (market feed,
+ * price history, peers, proposals) streams in through the shared hooks, and
+ * everything keeps its frame on refresh. A chain whose public endpoints are
  * down still gets its page, with the reason and a Retry.
  */
 
@@ -45,6 +47,7 @@ import { useStakingPositions } from "@/lib/data/staking";
 import { currencySymbol, formatFiat, formatNumber, formatPercent } from "@/lib/format";
 import type { PriceRange } from "@/lib/token/types";
 import { cn } from "@/lib/cn";
+import type { ApiInitial } from "@/lib/useApi";
 import { useWallet } from "@/providers/WalletProvider";
 import { compareHref } from "@/components/compare/model";
 import { Dash, RealYieldText, reasonOf } from "./cells";
@@ -66,11 +69,11 @@ const CHART_MIN_HEIGHT = 210;
 /** The single-chain routes stop at 15 s and ask to be retried (`Retry-After: 5`). */
 const TIMEOUT_RETRY_MS = 5_000;
 
-export function ChainDetailPage({ chain }: { chain: ChainEntry }) {
+export function ChainDetailPage({ chain, initial = null }: { chain: ChainEntry; initial?: ApiInitial | null }) {
   const follow = useFollow();
   const { account, restoring } = useWallet();
   const connect = useConnectModal();
-  const detail = useChainDetail(chain.chainId);
+  const detail = useChainDetail(chain.chainId, initial);
   // This chain and the followed chains of its network: the peer bars of the
   // yield card, and a quick first paint (the stats route is often warm from
   // the Chains table) while the heavier detail read (validator set,
