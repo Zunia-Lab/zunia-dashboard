@@ -39,7 +39,7 @@
  *    wallet, not a second row.
  * 3. "Other wallets": a small "Get Keplr" link for each one missing that this
  *    browser can install (Cosmostation's is a Chrome Web Store listing: Chromium
- *    on a computer only; Leap shut down, so it shows only where detected).
+ *    on a computer only; Leap is no longer offered, so it shows only where detected).
  * 4. "or", then the Zunia Mobile zone; on a phone or tablet with no wallet
  *    injected, the zone leads instead.
  */

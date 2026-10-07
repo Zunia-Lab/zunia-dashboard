@@ -11,8 +11,8 @@
  * against Cosmostation's own inject script (cosmostation-chrome-extension,
  * develop, src/script/inject):
  * - Keplr: `window.keplr`, `keplr_keystorechange`.
- * - Leap: `window.leap`, `leap_keystorechange`. Leap shut down on
- *   28 May 2026 (extensions, apps and site): an extension still installed
+ * - Leap: `window.leap`, `leap_keystorechange`. Leap is no longer offered:
+ *   its site and store listings are gone (checked 2026-10-07). An extension still installed
  *   keeps its keys and still connects, but there is nowhere to get one, so
  *   it is offered only where it is detected.
  * - Cosmostation: a Keplr-compatible provider at
@@ -129,11 +129,11 @@ export const WALLETS: Readonly<Record<ExtensionWallet, WalletInfo>> = {
     label: "Leap",
     keystoreEvent: "leap_keystorechange",
     logo: "/wallets/leap.svg",
-    // Shut down on 28 May 2026: its store listings and site are gone.
+    // No longer offered: its site and store listings are gone (checked 2026-10-07).
     install: null,
     provider: (scope) => scope.leap,
     suggestBeforeEnable: true,
-    detectedLine: "Leap shut down in May 2026.",
+    detectedLine: "Leap is no longer offered for download.",
   },
   cosmostation: {
     id: "cosmostation",
@@ -193,7 +193,7 @@ export function walletsIn(scope: WalletScope | undefined): ExtensionWallet[] {
 /**
  * Whether the page can send someone to get `wallet` in this browser: a
  * Chrome Web Store listing only helps in a Chromium browser on a computer,
- * and a wallet that shut down has nothing to get.
+ * and a wallet that is no longer offered has nothing to get.
  */
 export function canGetWallet(wallet: ExtensionWallet, browser: { chromiumDesktop: boolean }): boolean {
   const install = WALLETS[wallet].install;

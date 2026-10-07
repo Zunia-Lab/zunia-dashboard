@@ -6,7 +6,7 @@
 
 > Zunia's decision desk for Cosmos: balances, staking, governance, swaps and IBC across every chain you follow, at [app.zunialab.com](https://app.zunialab.com). The former address, wallet.zunialab.com, permanently redirects there.
 
-**Non-custodial.** Keys never reach the dashboard. Every transaction is approved and signed in the wallet: the Zunia extension (`window.zunia`), Keplr (`window.keplr`), Leap (`window.leap`, shut down in May 2026, still connected where installed), Cosmostation (`window.cosmostation.providers.keplr`), or Zunia Mobile. The browser wallets are one registry, `src/lib/connect/wallets.ts`; where the Zunia extension can be installed, per browser, is `src/lib/connect/install.ts`. Zunia Mobile is one of the options in the Connect wallet modal: scan its QR code with the Zunia app (the session runs over Zunia Connect), then approve each transaction on the phone. The dashboard never asks for a recovery phrase.
+**Non-custodial.** Keys never reach the dashboard. Every transaction is approved and signed in the wallet: the Zunia extension (`window.zunia`), Keplr (`window.keplr`), Leap (`window.leap`, no longer offered for download, still connected where installed), Cosmostation (`window.cosmostation.providers.keplr`), or Zunia Mobile. The browser wallets are one registry, `src/lib/connect/wallets.ts`; where the Zunia extension can be installed, per browser, is `src/lib/connect/install.ts`. Zunia Mobile is one of the options in the Connect wallet modal: scan its QR code with the Zunia app (the session runs over Zunia Connect), then approve each transaction on the phone. The dashboard never asks for a recovery phrase.
 
 ## Routes
 

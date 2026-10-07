@@ -63,12 +63,12 @@ test("one entry per wallet, Zunia first: its name, its keystore event, its logo,
   }
 
   // Where to get each: Keplr's own page (it picks the build), Cosmostation's
-  // Chrome Web Store listing, nothing for Leap (shut down on 28 May 2026).
+  // Chrome Web Store listing, nothing for Leap (no longer offered).
   assert.deepEqual(WALLETS.keplr.install, { url: "https://www.keplr.app/get", browsers: "any" });
   assert.equal(WALLETS.cosmostation.install?.browsers, "chromium-desktop");
   assert.match(WALLETS.cosmostation.install!.url, /^https:\/\/chromewebstore\.google\.com\/detail\/[\w-]+\/fpkhgmpbidmiogeglndfbkegfdlnajnf$/);
   assert.equal(WALLETS.leap.install, null);
-  assert.match(WALLETS.leap.detectedLine, /shut down in May 2026/);
+  assert.match(WALLETS.leap.detectedLine, /no longer offered/);
 });
 
 test("what this browser can be sent to get: Keplr anywhere, Cosmostation in Chromium on a computer, Leap nowhere", () => {
