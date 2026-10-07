@@ -1,10 +1,11 @@
 /**
  * Direct mode, pinned byte for byte to CosmJS: `TxBody`, `AuthInfo` and the
- * `SignDoc` a wallet signs, for all thirteen zunia-core vectors.
+ * `SignDoc` a wallet signs, for all eighteen zunia-core vectors (vendored in
+ * `vectors/`; see amino-golden for where from).
  *
- * The ten message types this app builds go through its own builders
- * (`messages.ts`); the three Osmosis poolmanager swaps take their message
- * bytes from the vector (osmojs encoded them; `osmosis.ts` owns those
+ * The fifteen cases whose message types this app builds go through its own
+ * builders (`messages.ts`); the three Osmosis poolmanager swaps take their
+ * message bytes from the vector (osmojs encoded them; `osmosis.ts` owns those
  * builders), so the envelope around them — the part this file owns — is still
  * what is tested. A disagreement anywhere is an "unauthorized" on chain.
  */
@@ -53,12 +54,16 @@ const file = JSON.parse(readFileSync(VECTORS, "utf8")) as {
   cases: Case[];
 };
 
-const OPTIONS: Record<string, VoteOption> = {
-  VOTE_OPTION_YES: "yes",
-  VOTE_OPTION_NO: "no",
-  VOTE_OPTION_NO_WITH_VETO: "veto",
-  VOTE_OPTION_ABSTAIN: "abstain",
+/** `cosmos.gov.v1beta1.VoteOption`, by the number the vectors (and the chain) write. */
+const OPTIONS: Record<number, VoteOption> = {
+  1: "yes",
+  2: "abstain",
+  3: "no",
+  4: "veto",
 };
+
+/** The cases with no builder here, the Osmosis swaps: their message bytes come from the vector. */
+const OSMOSIS_SWAPS = new Set(["msg_swap_exact_amount_in", "msg_swap_exact_amount_in_multi_hop", "msg_split_route_swap_exact_amount_in"]);
 
 type V = Record<string, string & { denom: string; amount: string } & Array<{ denom: string; amount: string }> & Record<string, unknown>>;
 
@@ -67,6 +72,8 @@ function build(name: string, v: V): TxMessage | null {
   switch (name) {
     case "msg_send":
     case "msg_send_with_memo":
+    case "msg_send_memo_html":
+    case "msg_send_to_32_byte":
       return buildSend({ fromAddress: v.from_address, toAddress: v.to_address, amount: v.amount });
     case "msg_delegate":
       return buildDelegate({ delegatorAddress: v.delegator_address, validatorAddress: v.validator_address, amount: v.amount });
@@ -82,7 +89,7 @@ function build(name: string, v: V): TxMessage | null {
     case "msg_withdraw_delegator_reward":
       return buildWithdrawReward({ delegatorAddress: v.delegator_address, validatorAddress: v.validator_address });
     case "msg_vote":
-      return buildVote({ proposalId: v.proposal_id, voter: v.voter, option: OPTIONS[v.option]! });
+      return buildVote({ proposalId: v.proposal_id, voter: v.voter, option: OPTIONS[Number(v.option)]! });
     case "msg_transfer_no_timeout":
       // No timeout at all is not something buildTransfer produces (it always
       // sets one); "0" spells the vector's absent timestamp exactly.
@@ -105,7 +112,19 @@ function build(name: string, v: V): TxMessage | null {
         timeoutHeight: v.timeout_height as unknown as { revision_number: string; revision_height: string },
         memo: v.memo,
       });
+    case "msg_transfer_timestamp_only":
+      // No height timeout: the builder is not handed one.
+      return buildTransfer({
+        sourcePort: v.source_port,
+        sourceChannel: v.source_channel,
+        token: v.token,
+        sender: v.sender,
+        receiver: v.receiver,
+        timeoutTimestamp: v.timeout_timestamp,
+      });
     case "msg_execute_contract":
+    case "msg_execute_contract_32_no_funds":
+    case "msg_execute_contract_nft_html":
       return buildExecuteContract({
         sender: v.sender,
         contract: v.contract,
@@ -134,6 +153,9 @@ for (const c of file.cases) {
   });
 
   test(`${c.name}: message, body, auth info and sign doc match CosmJS`, () => {
+    // Only the Osmosis swaps may borrow the vector's message bytes: any other
+    // case without a builder would pass here without testing one.
+    assert.ok(built || OSMOSIS_SWAPS.has(c.name), `${c.name} has no builder here`);
     assert.equal(message.typeUrl, c.type_url);
     assert.equal(toHex(message.value), c.direct.msg_proto_hex);
     assert.equal(toHex(bodyBytes), c.direct.body_bytes_hex);
@@ -148,8 +170,9 @@ for (const c of file.cases) {
   });
 }
 
-test("ten of the thirteen vectors went through this app's own builders", () => {
-  assert.equal(ownBuilders, 10);
+test("fifteen of the eighteen vectors went through this app's own builders", () => {
+  assert.equal(file.cases.length, 18);
+  assert.equal(ownBuilders, 15);
 });
 
 test("a TxRaw carries the signed body and auth info unchanged, then the signature", () => {

@@ -6,7 +6,7 @@
  * byte from the one inside the signed `SignDoc` verifies against nothing, and
  * the chain reports it as an opaque `unauthorized`. Every function in this file
  * is pinned by the zunia-core CosmJS vectors in `__tests__/direct-golden.test.ts`
- * (body, auth info and sign bytes for thirteen transactions).
+ * (body, auth info and sign bytes for eighteen transactions).
  *
  * Field rules that bite (all from the proto definitions, all mirrored from
  * zunia-core `crates/cosmos/src/tx.rs`):

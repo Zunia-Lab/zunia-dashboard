@@ -10,8 +10,8 @@
  *
  * Two of the amino shapes below were verified against the chain itself, not
  * only against a reference library, because the reference vectors this file
- * was first pinned to (zunia-core `tests/vectors/cosmos-signing.json`) spell
- * them differently from what Cosmos Hub verifies:
+ * was first pinned to (zunia-core `tests/vectors/cosmos-signing.json` before
+ * 22ae866) spelled them differently from what Cosmos Hub verifies:
  *
  * - `MsgVote.option` is a number (`4`), not the enum name
  *   (`"VOTE_OPTION_NO_WITH_VETO"`).

@@ -2,13 +2,14 @@
  * The amino builders rebuild sign documents the chain actually accepted.
  *
  * Reference libraries and hand-written vectors can agree with each other and
- * still be wrong about the chain: zunia-core's vectors spell `MsgVote.option`
- * as `"VOTE_OPTION_NO"` and leave `timeout_height` out of a timestamp-only
- * `MsgTransfer`, and amino documents built that way verify against nothing on
- * cosmoshub-4. The fixtures here are real amino-signed Hub transactions; each
- * one's sign bytes were checked against its on-chain secp256k1 signature when
- * the fixture was generated, so matching them byte for byte means the chain
- * will verify what this app asks a wallet to sign.
+ * still be wrong about the chain: until zunia-core 22ae866 its vectors spelled
+ * `MsgVote.option` as `"VOTE_OPTION_NO_WITH_VETO"` and left `timeout_height`
+ * out of a timestamp-only `MsgTransfer`, and amino documents built that way
+ * verify against nothing on cosmoshub-4. The fixtures here are real
+ * amino-signed Hub transactions; each one's sign bytes were checked against
+ * its on-chain secp256k1 signature when the fixture was generated, so matching
+ * them byte for byte means the chain will verify what this app asks a wallet
+ * to sign.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
