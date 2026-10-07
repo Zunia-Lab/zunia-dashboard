@@ -10,11 +10,12 @@
 
 import { createContext, useContext } from "react";
 import type { MobileSnapshot } from "@/lib/connect/mobile";
-import type { ExtensionWallet } from "@/lib/connect/extension";
+import { walletLabel, type ExtensionWallet } from "@/lib/connect/wallets";
 import type { NativeWsTransport } from "@zunialab/sdk-web";
 import type { TxSigner } from "@/lib/tx/flow";
 
-export type WalletKind = "zunia" | "keplr" | "zunia-mobile";
+/** A browser wallet of the registry (`@/lib/connect/wallets`), or the phone. */
+export type WalletKind = ExtensionWallet | "zunia-mobile";
 
 export type WalletStatus = "disconnected" | "connecting" | "connected";
 
@@ -133,6 +134,12 @@ export interface WalletContextValue {
   zuniaLocked: boolean;
   zuniaAvailable: boolean;
   keplrAvailable: boolean;
+  /**
+   * Which browser wallets this page can see, live: one that injects after
+   * the page loads lights up. An alias (Zunia or Cosmostation at
+   * `window.keplr`) counts as its own wallet only.
+   */
+  walletsAvailable: Readonly<Record<ExtensionWallet, boolean>>;
   /** Zunia Mobile pairing / session state and actions. */
   mobile: MobileState;
   /** The signer the sign flow uses; null when disconnected. */
@@ -181,9 +188,12 @@ export function useWallet(): WalletContextValue {
 
 export function accountLabel(account: ConnectedAccount): string {
   if (account.mode === "walletconnect" || account.mode === "native-ws") return account.peerName;
-  return account.wallet === "keplr" ? account.name || "Keplr" : account.name;
+  return account.wallet === "zunia" ? account.name : account.name || walletLabel(account.wallet);
 }
 
+/** "Zunia extension", "Keplr", "Leap", "Cosmostation", "Zunia Mobile": how a page says which wallet is connected. */
 export function walletKindLabel(kind: WalletKind): string {
-  return kind === "zunia" ? "Zunia extension" : kind === "keplr" ? "Keplr" : "Zunia Mobile";
+  if (kind === "zunia") return "Zunia extension";
+  if (kind === "zunia-mobile") return "Zunia Mobile";
+  return walletLabel(kind);
 }

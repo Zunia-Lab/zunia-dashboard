@@ -19,17 +19,22 @@
  *   message types, fee and memo (zunia-mobile native_request_sheets.dart), so
  *   amino is the more legible prompt for a standard send, stake or vote.
  *
+ * Keplr, Leap and Cosmostation take these general rules as they are: their
+ * signers accept any message in either mode, and each prompt reads a
+ * standard message best in amino.
+ *
  * An explicit `requested` mode is honoured or refused, never silently
  * changed: the policy only decides `"auto"`.
  */
 
 import { bech32 } from "@scure/base";
+import type { ExtensionWallet } from "@/lib/connect/wallets";
 import { isStandardMessage } from "./messages";
 import type { ResolvedSignMode, SignMode, TxMessage } from "./types";
 import type { ZuniaCapabilities } from "./zunia-capabilities";
 
-/** Which wallet signs (`TxSigner.kind`). */
-export type SignerKind = "zunia" | "keplr" | "zunia-mobile";
+/** Which wallet signs (`TxSigner.kind`): a browser wallet of the registry, or the phone. */
+export type SignerKind = ExtensionWallet | "zunia-mobile";
 
 export interface SignerCapabilities {
   amino: boolean;

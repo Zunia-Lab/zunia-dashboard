@@ -4,8 +4,8 @@
  * Shown in place of a wallet page's content when no wallet is linked.
  *
  * A compact hero, not a wall: what this page shows once connected, the ways
- * in (the two browser wallets, then the Zunia Mobile zone), and the promise
- * that keys stay in the wallet. Zunia Mobile opens the connect modal on its
+ * in (the browser wallets, then the Zunia Mobile zone), and the promise that
+ * keys stay in the wallet. Zunia Mobile opens the connect modal on its
  * QR view (the code needs the room).
  *
  * When a remembered Zunia connection waits for an unlock, the panel says that

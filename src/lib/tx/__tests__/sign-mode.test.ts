@@ -88,13 +88,20 @@ const ZUNIA_015 = {
   features: ["sign-direct:wasm-contract-32", "sign-direct:send-32", "sign-direct:osmosis-poolmanager", "sign-direct:osmosis-exact-out", "sign-amino:escaped"],
 };
 
-type Row = { name: string; messages: TxMessage[]; memo?: string; expect: Record<SignerKind | "any" | "zunia@0.1.5", ResolvedSignMode> };
+type Row = {
+  name: string;
+  messages: TxMessage[];
+  memo?: string;
+  expect: Record<"zunia" | "keplr" | "zunia-mobile" | "any" | "zunia@0.1.5", ResolvedSignMode>;
+};
 
 /*
  * Keplr and Zunia Mobile (and a caller that names no wallet) share the
  * general rule; the Zunia extension has its own, by build: "zunia" is a build
  * that reports nothing (0.1.4 and older), "zunia@0.1.5" one that reports its
  * version and features. "any" is the no-wallet answer, and must equal Keplr's.
+ * Leap and Cosmostation are Keplr-API signers that accept any message: they
+ * must answer Keplr's column, row for row.
  */
 const ROWS: Row[] = [
   { name: "send", messages: [send], expect: { zunia: "direct", keplr: "amino", "zunia-mobile": "amino", any: "amino", "zunia@0.1.5": "direct" } },
@@ -135,8 +142,28 @@ for (const row of ROWS) {
     assert.equal(chooseSignMode(row.messages, current, "auto", { wallet: "keplr", memo: row.memo }), row.expect.keplr, "keplr, Zunia capabilities ignored");
     assert.equal(chooseSignMode(row.messages, both, "auto", { memo: row.memo }), row.expect.any, "no wallet named");
     assert.equal(row.expect.any, row.expect.keplr, "naming Keplr changes nothing");
+    for (const wallet of ["leap", "cosmostation"] as const) {
+      assert.equal(chooseSignMode(row.messages, both, "auto", { wallet, memo: row.memo }), row.expect.keplr, `${wallet}: Keplr's rule`);
+      assert.equal(chooseSignMode(row.messages, current, "auto", { wallet, memo: row.memo }), row.expect.keplr, `${wallet}, Zunia capabilities ignored`);
+    }
   });
 }
+
+test("Leap and Cosmostation meet the general limits as Keplr does: Ledger amino, explicit modes, Ethereum-key chains, a mode they lack", () => {
+  const wallets: SignerKind[] = ["keplr", "leap", "cosmostation"];
+  for (const wallet of wallets) {
+    assert.equal(chooseSignMode([send], both, "auto", { wallet }), "amino", wallet);
+    assert.equal(chooseSignMode([contract], both, "auto", { wallet }), "direct", wallet);
+    assert.equal(chooseSignMode([poolSwap], both, "auto", { wallet }), "direct", wallet);
+    assert.equal(chooseSignMode([send], { ...both, ledger: true }, "auto", { wallet }), "amino", wallet);
+    assert.throws(() => chooseSignMode([poolSwap], { ...both, ledger: true }, "auto", { wallet }), SignModeError);
+    assert.equal(chooseSignMode([send], both, "direct", { wallet }), "direct", wallet);
+    assert.equal(chooseSignMode([contract], both, "amino", { wallet }), "amino", wallet);
+    assert.equal(chooseSignMode([send], both, "auto", { wallet, ethKeyChain: true }), "direct", wallet);
+    assert.equal(chooseSignMode([send], { amino: false, direct: true }, "auto", { wallet }), "direct", wallet);
+    assert.equal(chooseSignMode([contract], { amino: true, direct: false }, "auto", { wallet }), "amino", wallet);
+  }
+});
 
 test("Zunia 0.1.5 still meets the general limits: Ledger is amino, an explicit mode is honoured, Ethereum-key chains direct", () => {
   const current = { ...both, zunia: zuniaCapabilities(ZUNIA_015) };

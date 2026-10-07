@@ -3,8 +3,8 @@
 /**
  * The connect modal, and `useConnectModal()` to open it from anywhere.
  *
- * Two views: the wallet list (the Zunia extension and Keplr, then the Zunia
- * Mobile zone) and Zunia Mobile's QR view. `WalletProvider` mounts the
+ * Two views: the wallet list (the Zunia extension, the Cosmos wallets this
+ * browser has, then the Zunia Mobile zone) and Zunia Mobile's QR view. `WalletProvider` mounts the
  * provider, so any component under it can call `useConnectModal().open()` —
  * the top bar's Connect button, a page's connect panel, a "Connect to see
  * your position" card, a sign flow that finds no wallet. `open("mobile")` is

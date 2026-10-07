@@ -43,7 +43,7 @@ export function ConnectionsSection() {
       {!account ? (
         <SettingRow
           title={restoring ? "Restoring your wallet…" : "No wallet connected"}
-          description="Connect the Zunia extension or Keplr in this browser, or Zunia Mobile on your phone. The dashboard prepares transactions; your wallet shows each one and signs it. It never asks for a recovery phrase."
+          description="Connect the Zunia extension in this browser (or Keplr, Leap or Cosmostation), or Zunia Mobile on your phone. The dashboard prepares transactions; your wallet shows each one and signs it. It never asks for a recovery phrase."
           control={
             <>
               <Button size="sm" variant="primary" iconLeft="wallet" onClick={() => connect.open()} disabled={restoring}>

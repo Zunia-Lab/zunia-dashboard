@@ -1,8 +1,8 @@
 /**
  * Sign and broadcast, end to end, with every dependency passed in.
  *
- * One path for every flow and every transport (Zunia extension, Keplr, Zunia
- * Mobile), so the rules below hold everywhere:
+ * One path for every flow and every transport (Zunia extension, Keplr, Leap,
+ * Cosmostation, Zunia Mobile), so the rules below hold everywhere:
  *
  * 1. **Prepare.** Make sure the wallet has the chain (enable / suggest) and
  *    get its key; read account number + sequence (`/api/account`); simulate

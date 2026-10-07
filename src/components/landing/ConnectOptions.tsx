@@ -13,8 +13,8 @@
  * connect the wallet the hero says is connected would contradict it.
  */
 
-import { Mark } from "@zunialab/ui";
 import { ConnectFeedback, WalletOptions } from "@/components/connect/WalletOptions";
+import { WalletLogo } from "@/components/connect/WalletLogo";
 import { Icon } from "@/components/icons";
 import { AddressText, Button, Card } from "@/components/ui";
 import type { WalletKind } from "@/lib/connect/context";
@@ -56,18 +56,20 @@ function SigningNote({ kind }: { kind: WalletKind | null }) {
 }
 
 /**
- * The wallet in use, in the connect modal's glyphs (the Zunia mark on the
- * brand ramp, the extension piece for Keplr, the phone for Zunia Mobile),
- * with a success dot: connected is also said in words beside it.
+ * The wallet in use, as the connect list shows it (the Zunia mark on the
+ * brand ramp, a Cosmos wallet's own logo, the phone for Zunia Mobile), with
+ * a success dot: connected is also said in words beside it.
  */
 function WalletGlyph({ kind }: { kind: WalletKind }) {
-  const tile =
-    kind === "zunia"
-      ? "bg-[image:var(--z-accent-gradient)] text-[#111]"
-      : "border border-[var(--z-line)] bg-[var(--z-glass)] text-fg";
   return (
-    <span aria-hidden className={`relative flex size-10 shrink-0 items-center justify-center rounded-[12px] ${tile}`}>
-      {kind === "zunia" ? <Mark size={15} /> : <Icon name={kind === "keplr" ? "extension" : "mobile"} size={20} />}
+    <span aria-hidden className="relative flex size-10 shrink-0">
+      {kind === "zunia-mobile" ? (
+        <span className="flex size-10 items-center justify-center rounded-[12px] border border-[var(--z-line)] bg-[var(--z-glass)] text-fg">
+          <Icon name="mobile" size={20} />
+        </span>
+      ) : (
+        <WalletLogo wallet={kind} />
+      )}
       <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-[var(--z-success)] ring-2 ring-[var(--z-surface-raised)]" />
     </span>
   );

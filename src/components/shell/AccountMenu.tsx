@@ -2,11 +2,11 @@
 
 /**
  * The account chip at the right of the top bar and its panel: who is
- * connected and how (Zunia extension, Keplr or Zunia Mobile, and for the
- * phone the link's state and the time left in its session: the bar has no
- * phone indicator of its own), the address (copy), the networks the wallet
- * did not share, display preferences (theme, currency, privacy) and
- * Disconnect.
+ * connected and how (Zunia extension, Keplr, Leap, Cosmostation or Zunia
+ * Mobile, and for the phone the link's state and the time left in its
+ * session: the bar has no phone indicator of its own), the address (copy),
+ * the networks the wallet did not share, display preferences (theme,
+ * currency, privacy) and Disconnect.
  *
  * A panel rather than a plain menu: theme and currency are three-way choices
  * best shown as segmented controls with their state visible. Popover from

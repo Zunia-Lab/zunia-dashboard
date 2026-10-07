@@ -1,6 +1,6 @@
 /**
- * Resolve an amino signer across the extensions (window.zunia / window.keplr)
- * and the Zunia Mobile session.
+ * Resolve an amino signer across the extensions (window.zunia, window.keplr,
+ * window.leap, Cosmostation's Keplr provider) and the Zunia Mobile session.
  *
  * @deprecated Pre-v2 path, kept so pages that have not moved yet keep signing.
  * New flows use `useSignAndBroadcast` (`./useSignAndBroadcast`), which picks
@@ -8,7 +8,7 @@
  */
 
 import type { ConnectedAccount, LegacyMobileSession } from "@/lib/connect/context";
-import { getExtensionProvider } from "@/lib/connect/extension";
+import { getExtensionProvider, walletLabel } from "@/lib/connect/extension";
 import type { AminoSignResult } from "./sign-broadcast";
 import type { StdSignDoc } from "./amino-tx";
 
@@ -38,7 +38,7 @@ export async function resolveSignAmino(params: {
     const provider = getExtensionProvider(account.wallet);
     const signAmino = provider?.signAmino;
     if (!provider || !signAmino) {
-      throw new Error("Connected wallet cannot signAmino. Unlock Zunia or Keplr and retry.");
+      throw new Error(`Connected wallet cannot signAmino. Unlock ${walletLabel(account.wallet)} and retry.`);
     }
     await provider.enable(params.signingChainId ?? account.chainId);
     return async (chainId, signer, signDoc) => {

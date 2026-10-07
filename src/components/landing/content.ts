@@ -156,7 +156,7 @@ export function landingFaq({ feeRate }: { feeRate: string }): FaqEntry[] {
     {
       q: "Does Zunia hold my funds or my keys?",
       a:
-        "No. The dashboard is non-custodial: it reads public chain data for the addresses your wallet shares, and every transaction goes to your wallet — the Zunia extension, Keplr or Zunia Mobile — to be approved and signed there. It never sees a private key and never asks for a recovery phrase.",
+        "No. The dashboard is non-custodial: it reads public chain data for the addresses your wallet shares, and every transaction goes to your wallet — the Zunia extension, Keplr, Cosmostation or Zunia Mobile — to be approved and signed there. It never sees a private key and never asks for a recovery phrase.",
     },
     {
       q: "What does it cost?",
@@ -175,7 +175,7 @@ export function landingFaq({ feeRate }: { feeRate: string }): FaqEntry[] {
     {
       q: "Which wallets work?",
       a:
-        "The Zunia browser extension for Chrome, Keplr, and Zunia Mobile, connected by scanning a QR code. Hardware wallets are not supported on the dashboard yet. Moving from a wallet that shut down? Import its recovery phrase into the Zunia extension or app — never into a web page.",
+        "The Zunia browser extension for Chrome, Keplr and Cosmostation in the browser (Leap too, where it is still installed), and Zunia Mobile, connected by scanning a QR code. Hardware wallets are not supported on the dashboard yet. Moving from a wallet that shut down? Import its recovery phrase into the Zunia extension or app — never into a web page.",
     },
   ];
 }

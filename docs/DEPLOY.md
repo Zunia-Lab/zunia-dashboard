@@ -95,7 +95,7 @@ curl -sI 'https://wallet.zunialab.com/governance?x=1' | grep -i -E "^HTTP|^locat
 Then check these in Chrome:
 
 1. The landing page loads with live markets.
-2. Connect wallet lists the Zunia extension, Keplr and the Zunia Mobile zone, which shows a QR code.
+2. Connect wallet lists the Zunia extension (Add to Chrome where it is not installed), the Cosmos wallets the browser has (or Get Keplr / Get Cosmostation), and the Zunia Mobile zone, which shows a QR code.
 3. Connect with the extension: its prompt names `app.zunialab.com`. Overview shows your balances.
 4. Pick a chain in the rail: the figures switch to that chain.
 5. Swap shows a quote for OSMO → ATOM. A tiny real swap checks signing end to end.

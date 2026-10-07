@@ -8,12 +8,15 @@
  * before `chains` existed restore their single `chainId`.
  */
 
+import { isExtensionWallet, type ExtensionWallet } from "./wallets";
+
 const KEY = "zunia.dashboard.walletHint";
 
 export type WalletHint =
   | {
       mode: "extension";
-      wallet: "zunia" | "keplr";
+      /** Any browser wallet of the registry (`./wallets`): Zunia, Keplr, Leap, Cosmostation. */
+      wallet: ExtensionWallet;
       /** Primary account chain. */
       chainId: string;
       chains?: string[];
@@ -38,7 +41,7 @@ export function readWalletHint(): WalletHint | null {
     const parsed = JSON.parse(raw) as Record<string, unknown> | null;
     if (!parsed || typeof parsed.chainId !== "string") return null;
     const chains = chainList(parsed.chains);
-    if (parsed.mode === "extension" && (parsed.wallet === "zunia" || parsed.wallet === "keplr")) {
+    if (parsed.mode === "extension" && isExtensionWallet(parsed.wallet)) {
       return { mode: "extension", wallet: parsed.wallet, chainId: parsed.chainId, ...(chains ? { chains } : {}) };
     }
     if (parsed.mode === "walletconnect" || parsed.mode === "native-ws") {

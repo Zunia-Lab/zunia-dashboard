@@ -146,9 +146,9 @@ function useItems(close: () => void) {
       : {
           id: "action:connect",
           label: "Connect wallet",
-          detail: "Zunia extension, Keplr or Zunia Mobile",
+          detail: "Zunia extension, Keplr, Leap, Cosmostation or Zunia Mobile",
           icon: "wallet",
-          keywords: ["login", "sign in", "keplr"],
+          keywords: ["login", "sign in", "keplr", "leap", "cosmostation"],
           run: () => {
             close();
             modal.open();

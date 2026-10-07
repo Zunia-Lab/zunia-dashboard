@@ -14,6 +14,7 @@
  * code table from zunia-sdk packages/interchain/src/tx.ts (`classifyTxFailure`).
  */
 
+import { isExtensionWallet, walletLabel } from "@/lib/connect/wallets";
 import type { SignerKind } from "./sign-mode";
 
 export type TxErrorKind =
@@ -346,7 +347,8 @@ export function signatureMismatch(detail: string | null): ExplainedTxError {
  *   under an open page, whose content script is now orphaned; every call
  *   fails until the page is reloaded. A handshake that never completed ends
  *   the same way. `wallet-disconnected`. Chrome writes those words for any
- *   extension, Keplr included, so the wallet named is `wallet`'s.
+ *   extension, Keplr, Leap and Cosmostation included, so the wallet named is
+ *   `wallet`'s.
  *
  * The last three are kinds every flow already draws on its "sign" step.
  * Null for anything else.
@@ -362,7 +364,12 @@ export function walletRefusal(error: unknown, wallet?: SignerKind): ExplainedTxE
     return walletWords("wallet-timeout", "Wallet locked", "Zunia stayed locked. Unlock it and try again.", text);
   }
   if (/context invalidated|provider handshake timed out|provider port not ready/i.test(text)) {
-    const who = wallet === "keplr" ? "Keplr" : wallet === "zunia" || /zunia/i.test(text) ? "Zunia" : "Your wallet extension";
+    const who =
+      wallet && wallet !== "zunia" && isExtensionWallet(wallet)
+        ? walletLabel(wallet)
+        : wallet === "zunia" || /zunia/i.test(text)
+          ? "Zunia"
+          : "Your wallet extension";
     return walletWords("wallet-disconnected", "Page out of date", `${who} was updated or reloaded. Reload this page.`, text);
   }
   return null;

@@ -4,9 +4,11 @@
  * The wallet: which one is connected, its keys per chain, and how to sign.
  *
  * Three transports, one model:
- * - **Zunia extension / Keplr**: one `enable([home, ...followed])` prompt,
- *   `getKey` per chain, unknown chains suggested from catalog data (the home
- *   chain at connect, others the first time they are needed).
+ * - **Browser wallets** (the Zunia extension, Keplr, Leap, Cosmostation; the
+ *   registry is `lib/connect/wallets`): one `enable([home, ...followed])`
+ *   prompt, `getKey` per chain, unknown chains suggested from catalog data
+ *   (the home chain at connect, others the first time they are needed).
+ *   Zunia alone has more: its silent grant and lock checks on restore.
  * - **Zunia Mobile** (Zunia Connect v2 over the relay): a long-lived
  *   `MobileConnect` created before pairing, so the QR, the verification code
  *   and every status reach the UI; the phone shares one account per approved
@@ -40,16 +42,17 @@ import {
   type WalletKind,
 } from "@/lib/connect/context";
 import {
+  detectedWalletsKey,
   enableChains,
+  enableOptionsFor,
   errorText,
   getExtensionProvider,
   grantedChains,
   isExtensionLocked,
-  isKeplrAvailable,
   isLockedOrClosed,
   isUserRejection,
-  isZuniaAvailable,
   readKey,
+  revokeAccess,
   subscribeExtensions,
   unknownChainOf,
   waitForProvider,
@@ -58,6 +61,7 @@ import {
   type ExtensionProvider,
   type ExtensionWallet,
 } from "@/lib/connect/extension";
+import { EXTENSION_WALLETS, WALLETS } from "@/lib/connect/wallets";
 import { MobileConnect, pairingChains, relayApiBase, type MobileSnapshot } from "@/lib/connect/mobile";
 import {
   announceDisconnect,
@@ -257,7 +261,7 @@ type ExtensionHint = Extract<WalletHint, { mode: "extension" }>;
  *   load, with no click, over pages on skeletons for up to the window's 5
  *   minutes, and closing it used to read as a lost connection. The hint
  *   stays, and `zuniaLocked` offers the unlock on a click.
- * Keplr can answer neither, and restores as before.
+ * Keplr, Leap and Cosmostation can answer neither, and restore as before.
  *
  * Restoring only what is still granted means a reload never opens an
  * approval prompt. Throws what the wallet threw: the caller decides whether
@@ -299,6 +303,7 @@ async function restoreExtension(store: WalletStore, hint: ExtensionHint): Promis
     suggestFirst: [],
     suggest: async () => false,
     nameOf: chainName,
+    ...enableOptionsFor(hint.wallet),
   });
   // A connect made meanwhile (another wallet, or an Unlock click whose
   // unlock also woke this restore) is the user's latest choice.
@@ -359,8 +364,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const state = useSyncExternalStore(store.subscribe, store.get, () => INITIAL);
   const mobileSnapshot = useSyncExternalStore(mobile.subscribe, mobile.getSnapshot, () => SERVER_MOBILE);
-  const zuniaAvailable = useSyncExternalStore(subscribeExtensions, isZuniaAvailable, () => false);
-  const keplrAvailable = useSyncExternalStore(subscribeExtensions, isKeplrAvailable, () => false);
+  // Every browser wallet in one snapshot ("zunia,keplr"), read again when one
+  // injects: `isZuniaAvailable`, `isKeplrAvailable` and the others, as one
+  // subscription.
+  const detected = useSyncExternalStore(subscribeExtensions, detectedWalletsKey, () => "");
+  const walletsAvailable = useMemo(() => {
+    const ids = new Set(detected.split(","));
+    return Object.fromEntries(EXTENSION_WALLETS.map((wallet) => [wallet, ids.has(wallet)])) as Record<ExtensionWallet, boolean>;
+  }, [detected]);
+  const zuniaAvailable = walletsAvailable.zunia;
+  const keplrAvailable = walletsAvailable.keplr;
 
   /* ------------------------------------------------------------ extension */
 
@@ -372,9 +385,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const provider = await waitForProvider(wallet, 1_500);
         if (!provider) {
           throw new Error(
-            wallet === "keplr"
-              ? "Keplr is not installed in this browser."
-              : "The Zunia extension is not installed in this browser.",
+            wallet === "zunia" ? "The Zunia extension is not installed in this browser." : `${label} is not installed in this browser.`,
           );
         }
         const requested = extensionChains(followed);
@@ -382,6 +393,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           suggestFirst: [HOME_CHAIN_ID],
           suggest: (chainId) => suggestChain(provider, chainId),
           nameOf: chainName,
+          ...enableOptionsFor(wallet),
         });
         if (store.get().kind === "zunia-mobile" || mobile.getSnapshot().status !== "idle") await mobile.disconnect();
         const keys: Record<string, WalletKey> = {};
@@ -443,11 +455,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [store],
   );
 
-  // Account switches and revocations in the extension.
+  // Account switches and revocations in the extension: its keystore event
+  // on the window (Keplr's, Leap's, Cosmostation's own; Zunia's Keplr one),
+  // and the provider's own events where it has them (Zunia).
   useEffect(() => {
     const kind = state.kind;
-    if (kind !== "zunia" && kind !== "keplr") return;
+    if (!kind || kind === "zunia-mobile") return;
     const provider = getExtensionProvider(kind);
+    const keystoreEvent = WALLETS[kind].keystoreEvent;
     const refresh = () => void refreshExtensionKeys(kind);
     const onDisconnect = (data?: unknown) => {
       const lost = (data as { chainIds?: unknown } | null | undefined)?.chainIds;
@@ -464,11 +479,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       clearWalletHint();
       forgetWalletData();
     };
-    window.addEventListener("keplr_keystorechange", refresh);
+    window.addEventListener(keystoreEvent, refresh);
     provider?.on?.("accountsChanged", refresh);
     provider?.on?.("disconnect", onDisconnect);
     return () => {
-      window.removeEventListener("keplr_keystorechange", refresh);
+      window.removeEventListener(keystoreEvent, refresh);
       provider?.off?.("accountsChanged", refresh);
       provider?.off?.("disconnect", onDisconnect);
     };
@@ -535,15 +550,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
    * disconnecting moves push to the new wallet's addresses (`usePushSync`).
    */
   const disconnect = useCallback(async () => {
-    const { kind } = store.get();
+    const { kind, keys } = store.get();
     store.set({ kind: null, keys: {}, skipped: [], error: null, endedReason: null, connecting: false, zuniaLocked: false });
     clearWalletHint();
     forgetWalletData();
     announceDisconnect();
     const pushStopped = stopPush().catch(() => undefined);
-    if (kind === "zunia" || kind === "keplr") {
+    if (kind && kind !== "zunia-mobile") {
       // Revoke the site's access too, so "Disconnect" means the next visit asks again.
-      await getExtensionProvider(kind)?.disable?.().catch(() => undefined);
+      await revokeAccess(kind, Object.keys(keys));
     }
     if (kind === "zunia-mobile" || mobile.getSnapshot().status !== "idle") await mobile.disconnect();
     await pushStopped;
@@ -561,7 +576,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const { kind, zuniaLocked } = store.get();
         // The sender cleared the hint a locked Zunia here was waiting on.
         if (zuniaLocked) store.set({ zuniaLocked: false });
-        if (kind !== "zunia" && kind !== "keplr") return;
+        if (!kind || kind === "zunia-mobile") return;
         store.set({ kind: null, keys: {}, skipped: [], error: null, endedReason: null, connecting: false });
         forgetWalletData();
       }),
@@ -683,7 +698,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           (await mobile.signAmino(chainId, signerAddress, doc)) as unknown as Awaited<ReturnType<TxSigner["signAmino"]>>,
       };
     }
-    // Both extensions take `preferNoSetFee`: the fee the review card showed is
+    // Every extension takes `preferNoSetFee`: the fee the review card showed is
     // the fee the wallet prompt shows. The TxRaw is still built from what the
     // wallet returns, so a wallet that changes it anyway is handled.
     const signOptions = { preferNoSetFee: true };
@@ -844,6 +859,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       zuniaLocked: state.zuniaLocked,
       zuniaAvailable,
       keplrAvailable,
+      walletsAvailable,
       mobile: mobileState,
       signer,
       connectExtension,
@@ -870,6 +886,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       state,
       zuniaAvailable,
       keplrAvailable,
+      walletsAvailable,
       mobileState,
       signer,
       connectExtension,

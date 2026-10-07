@@ -206,6 +206,13 @@ test("Zunia refusals: a next step in words, the extension's text kept as the det
 test("an orphaned extension is named by the wallet that raised it: Chrome's words fit any extension", () => {
   const orphaned = new Error("Extension context invalidated.");
   assert.equal(explainError(orphaned, { wallet: "keplr" }).message, "Keplr was updated or reloaded. Reload this page.");
+  assert.equal(explainError(orphaned, { wallet: "leap" }).message, "Leap was updated or reloaded. Reload this page.");
+  assert.equal(explainError(orphaned, { wallet: "cosmostation" }).message, "Cosmostation was updated or reloaded. Reload this page.");
+  // The phone is not an extension: Chrome's words are generic there.
+  assert.equal(explainError(orphaned, { wallet: "zunia-mobile" }).message, "Your wallet extension was updated or reloaded. Reload this page.");
+  // Leap and Cosmostation say no in their own words; it reads as a decline, not a failure.
+  assert.equal(explainError(new Error("User rejected the request."), { wallet: "cosmostation" }).kind, "user-rejected");
+  assert.equal(explainError(new Error("Request rejected"), { wallet: "leap" }).kind, "user-rejected");
   assert.equal(explainError(orphaned, { wallet: "zunia" }).title, "Page out of date");
   assert.equal(explainError(orphaned).message, "Your wallet extension was updated or reloaded. Reload this page.");
 });

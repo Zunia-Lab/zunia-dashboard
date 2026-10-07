@@ -5,7 +5,6 @@ import { test } from "node:test";
 import { clearAddressCaches } from "../cache";
 import {
   enableChains,
-  extensionStoreFor,
   grantedChains,
   isExtensionLocked,
   isLockedOrClosed,
@@ -152,27 +151,96 @@ test("Zunia's silent questions: granted chains and the lock, never a throw", asy
   assert.equal(await isExtensionLocked(answering({ isLocked: async () => Promise.reject(refused) })), false);
 });
 
-test("where this browser installs the extension from", () => {
-  const ua = {
-    chrome: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-    opera: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 OPR/115.0.0.0",
-    firefox: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
-    firefoxAndroid: "Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0",
-    safari: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-    iphoneSafari: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
-    iphoneChrome: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
-    androidChrome: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+
+/*
+ * Wallets the Keplr API cannot ask for their chains (no
+ * `getChainInfosWithoutEndpoints`): Cosmostation's Keplr provider and Leap.
+ * Like Keplr, they refuse a chain they do not know in `enable`, before any
+ * prompt ("There is no chain info for X").
+ */
+function unlisted(options: { knows: string[]; addable?: boolean; reject?: boolean }) {
+  const calls: string[] = [];
+  const knows = new Set(options.knows);
+  const p: ExtensionProvider = {
+    enable: async (ids) => {
+      const list = Array.isArray(ids) ? ids : [ids];
+      calls.push(`enable:${list.join(",")}`);
+      const unknown = list.find((id) => !knows.has(id));
+      if (unknown) throw new Error(`There is no chain info for ${unknown}`);
+    },
+    getKey: async (chainId) => ({ name: "W", algo: "secp256k1", bech32Address: `${chainId}-addr`, pubKey: new Uint8Array(33).fill(2) }),
+    experimentalSuggestChain: async (info) => {
+      const chainId = (info as { chainId: string }).chainId;
+      calls.push(`suggest:${chainId}`);
+      if (options.reject) throw new Error("User rejected the request.");
+      if (options.addable !== false) knows.add(chainId);
+    },
   };
-  assert.equal(extensionStoreFor(ua.chrome), "chrome");
-  assert.equal(extensionStoreFor(ua.edge), "chrome");
-  assert.equal(extensionStoreFor(ua.opera), "chrome");
-  assert.equal(extensionStoreFor(ua.androidChrome), "chrome");
-  assert.equal(extensionStoreFor(ua.firefox), "firefox");
-  assert.equal(extensionStoreFor(ua.firefoxAndroid), "firefox");
-  assert.equal(extensionStoreFor(ua.safari), "safari");
-  assert.equal(extensionStoreFor(ua.iphoneSafari), "safari");
-  // On iPhone only Safari runs extensions, whatever the browser.
-  assert.equal(extensionStoreFor(ua.iphoneChrome), "safari");
-  assert.equal(extensionStoreFor(""), "chrome");
+  return { p, calls };
+}
+
+test("Cosmostation: its own chain list stands in, so the home chain is suggested before the one prompt", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4", "osmosis-1"] });
+  const out = await enableChains(p, "cosmostation", ["safrochain-1", "cosmoshub-4", "osmosis-1", "akashnet-2"], {
+    ...options(p),
+    listChains: async () => new Set(["cosmoshub-4", "osmosis-1"]),
+  });
+  assert.deepEqual(calls, ["suggest:safrochain-1", "enable:safrochain-1,cosmoshub-4,osmosis-1"]);
+  assert.deepEqual(Object.keys(out.keys).sort(), ["cosmoshub-4", "osmosis-1", "safrochain-1"]);
+  assert.deepEqual(out.skipped, [
+    { chainId: "akashnet-2", reason: "Cosmostation does not know akashnet-2 yet; it is added the first time you sign there." },
+  ]);
+});
+
+test("a wallet that cannot list its chains and refuses the home chain: suggested once, then the batch again", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4"] });
+  const out = await enableChains(p, "cosmostation", ["safrochain-1", "cosmoshub-4"], { ...options(p), listChains: async () => null });
+  assert.deepEqual(calls, ["enable:safrochain-1,cosmoshub-4", "suggest:safrochain-1", "enable:safrochain-1,cosmoshub-4"]);
+  assert.deepEqual(Object.keys(out.keys).sort(), ["cosmoshub-4", "safrochain-1"]);
+  assert.deepEqual(out.skipped, []);
+});
+
+test("a home chain the user declines to add is left out with its reason; the rest connect", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4"], reject: true });
+  const out = await enableChains(p, "cosmostation", ["safrochain-1", "cosmoshub-4"], options(p));
+  assert.deepEqual(calls, ["enable:safrochain-1,cosmoshub-4", "suggest:safrochain-1", "enable:cosmoshub-4"]);
+  assert.deepEqual(Object.keys(out.keys), ["cosmoshub-4"]);
+  assert.deepEqual(out.skipped, [{ chainId: "safrochain-1", reason: "You declined adding safrochain-1 to Cosmostation." }]);
+});
+
+test("a home chain still refused after its suggestion is asked for once only, then left out", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4"], addable: false });
+  const out = await enableChains(p, "cosmostation", ["safrochain-1", "cosmoshub-4"], options(p));
+  assert.deepEqual(calls, ["enable:safrochain-1,cosmoshub-4", "suggest:safrochain-1", "enable:safrochain-1,cosmoshub-4", "enable:cosmoshub-4"]);
+  assert.deepEqual(out.skipped, [{ chainId: "safrochain-1", reason: "Cosmostation does not know safrochain-1." }]);
+});
+
+test("Leap: it cannot list its chains, so the home chain is suggested before enable, as its docs ask", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4"] });
+  const out = await enableChains(p, "leap", ["safrochain-1", "cosmoshub-4"], { ...options(p), suggestBeforeEnable: true });
+  assert.deepEqual(calls, ["suggest:safrochain-1", "enable:safrochain-1,cosmoshub-4"]);
+  assert.deepEqual(Object.keys(out.keys).sort(), ["cosmoshub-4", "safrochain-1"]);
+  // A wallet that lists its chains is not asked to add one it has.
+  const listing = provider({ known: ["safrochain-1", "cosmoshub-4"] });
+  await enableChains(listing.p, "keplr", ["safrochain-1", "cosmoshub-4"], { ...options(listing.p), suggestBeforeEnable: true });
+  assert.ok(!listing.calls.some((call) => call.startsWith("suggest")));
+});
+
+test("a restore suggests nothing: a chain the wallet forgot is left out, the rest come back", async () => {
+  const { p, calls } = unlisted({ knows: ["cosmoshub-4"] });
+  const out = await enableChains(p, "cosmostation", ["safrochain-1", "cosmoshub-4"], {
+    suggestFirst: [],
+    suggest: async () => false,
+    nameOf: (id) => id,
+  });
+  assert.ok(!calls.some((call) => call.startsWith("suggest")));
+  assert.deepEqual(Object.keys(out.keys), ["cosmoshub-4"]);
+  assert.deepEqual(out.skipped.map((s) => s.chainId), ["safrochain-1"]);
+});
+
+test("every wallet's no is a rejection: Keplr's and Leap's words, Cosmostation's, the 4001 code", () => {
+  assert.equal(isUserRejection(new Error("Request rejected")), true);
+  assert.equal(isUserRejection(new Error("User rejected the request.")), true);
+  assert.equal(isUserRejection(Object.assign(new Error("Rejected"), { code: 4001 })), true);
+  assert.equal(isUserRejection(new Error("There is no chain info for safrochain-1")), false);
 });
