@@ -4,8 +4,11 @@
  * One path for every flow and every transport (Zunia extension, Keplr, Leap,
  * Cosmostation, Zunia Mobile), so the rules below hold everywhere:
  *
- * 1. **Prepare.** Make sure the wallet has the chain (enable / suggest) and
- *    get its key; read account number + sequence (`/api/account`); simulate
+ * 1. **Prepare.** Settle the memo: the user's, trimmed, or Zunia's default
+ *    for the messages when it is empty (`./memo`), the one string that is
+ *    then simulated, signed and broadcast. Make sure the wallet has the chain
+ *    (enable / suggest) and get its key; read account number + sequence
+ *    (`/api/account`); simulate
  *    with an empty signature (`/api/tx/simulate`) → gas = ceil(used × 1.4).
  *    A simulation the chain refuses stops here, before anyone signs a
  *    transaction that cannot succeed. A simulation that could not run falls
@@ -55,6 +58,7 @@ import {
   type FeeChain,
   type FeeQuote,
 } from "./fees";
+import { resolveTxMemo } from "./memo";
 import { isEthKeyChain, pubKeyTypeUrlFor, type KeyChain } from "./pubkey";
 import { readProtoFields } from "./proto";
 import { chooseSignMode, type SignerCapabilities, type SignerKind } from "./sign-mode";
@@ -149,16 +153,22 @@ export interface TxPlan {
   mode: ResolvedSignMode;
   gas: GasEstimate;
   fee: FeeQuote;
+  /**
+   * The memo simulated and signed: the user's, trimmed, or Zunia's default
+   * for the messages (`resolveTxMemo`). A wallet may still change it.
+   */
+  memo: string;
 }
 
 const MAX_MESSAGES = 64;
 const MAX_MEMO_BYTES = 256;
 
-function validate(req: SignRequest, chain: FlowChain): void {
+/** `memo` is the one that will be signed (`resolveTxMemo`). */
+function validate(req: SignRequest, chain: FlowChain, memo: string): void {
   if (req.chainId !== chain.chainId) throw new Error("The request and the chain disagree.");
   if (req.messages.length === 0) throw new Error("Nothing to sign.");
   if (req.messages.length > MAX_MESSAGES) throw new Error(`At most ${MAX_MESSAGES} messages per transaction.`);
-  if (new TextEncoder().encode(req.memo ?? "").length > MAX_MEMO_BYTES) {
+  if (new TextEncoder().encode(memo).length > MAX_MEMO_BYTES) {
     throw new Error("The memo is longer than the 256 bytes chains accept.");
   }
 }
@@ -218,6 +228,7 @@ function maxSequence(a: string, b: string | null | undefined): string {
  */
 async function simulateGas(
   req: SignRequest,
+  memo: string,
   api: Pick<TxApi, "simulate">,
   publicKeyAny: Uint8Array | null,
   sequence: string,
@@ -229,7 +240,7 @@ async function simulateGas(
     toBase64(
       encodeSimulationTx({
         messages: req.messages,
-        memo: req.memo,
+        memo,
         timeoutHeight: req.timeoutHeight,
         publicKeyAny,
         sequence: seq,
@@ -269,21 +280,25 @@ async function simulateGas(
 
 /** Steps 1 of the flow: everything up to the wallet prompt. Also the fee preview. */
 export async function planTx(req: SignRequest, opts: FlowOptions, minSequence?: string | null): Promise<TxPlan> {
-  validate(req, opts.chain);
+  // Settled first, so the policy, the simulation and the signature all see
+  // the one memo the review showed.
+  const memo = resolveTxMemo(req);
+  validate(req, opts.chain, memo);
   // Not in `validate`: the fee preview of such a memo is still right, only
-  // its signature would not be.
-  const memo = memoProblem(req.memo);
-  if (memo) throw new Error(memo);
+  // its signature would not be. A default memo never has a problem.
+  const problem = memoProblem(memo);
+  if (problem) throw new Error(problem);
   const key = await opts.signer.ensureKey(req.chainId);
   const account = await opts.api.getAccount(req.chainId, key.address);
   const pubKeyTypeUrl = pubKeyTypeUrlFor(opts.chain, account.pubKey?.typeUrl);
   const mode = chooseSignMode(req.messages, opts.signer.capabilities(req.chainId, key), req.signMode ?? "auto", {
     ethKeyChain: isEthKeyChain(opts.chain),
     wallet: opts.signer.kind,
-    memo: req.memo,
+    memo,
   });
   const measured = await simulateGas(
     req,
+    memo,
     opts.api,
     encodePubKeyAny(key.pubKey, pubKeyTypeUrl),
     maxSequence(account.sequence, minSequence),
@@ -298,6 +313,7 @@ export async function planTx(req: SignRequest, opts: FlowOptions, minSequence?: 
     mode,
     gas: measured.gas,
     fee,
+    memo,
   };
 }
 
@@ -326,11 +342,13 @@ export interface TxPreview {
  * when it runs (the sequence may have moved).
  */
 export async function previewTx(req: SignRequest, opts: PreviewOptions): Promise<TxPreview> {
-  validate(req, opts.chain);
+  // The memo the sign flow will sign, so the measured gas is that transaction's.
+  const memo = resolveTxMemo(req);
+  validate(req, opts.chain, memo);
   const account = await opts.api.getAccount(req.chainId, opts.address);
   const pubKeyTypeUrl = pubKeyTypeUrlFor(opts.chain, account.pubKey?.typeUrl);
   const publicKeyAny = opts.pubKey ? encodePubKeyAny(opts.pubKey, pubKeyTypeUrl) : null;
-  const { gas } = await simulateGas(req, opts.api, publicKeyAny, account.sequence);
+  const { gas } = await simulateGas(req, memo, opts.api, publicKeyAny, account.sequence);
   const tier = req.feeTier ?? "average";
   const fee = computeFee(opts.chain, gas.gasLimit, tier);
   return { gas, fee, tiers: feeTiers(opts.chain, gas.gasLimit), accountExists: account.exists };
@@ -378,7 +396,7 @@ function assertSameKey(signature: WalletSignature, expected: Uint8Array): void {
 async function signPlan(req: SignRequest, plan: TxPlan, opts: FlowOptions): Promise<Signed> {
   const { signer } = opts;
   if (plan.mode === "direct") {
-    const bodyBytes = encodeTxBody({ messages: req.messages, memo: req.memo, timeoutHeight: req.timeoutHeight });
+    const bodyBytes = encodeTxBody({ messages: req.messages, memo: plan.memo, timeoutHeight: req.timeoutHeight });
     const authInfoBytes = encodeAuthInfo({
       signers: [
         {
@@ -437,7 +455,7 @@ async function signPlan(req: SignRequest, plan: TxPlan, opts: FlowOptions): Prom
     sequence: plan.sequence,
     fee: { amount: plan.fee.amount, gas: plan.fee.gasLimit },
     msgs,
-    memo: req.memo,
+    memo: plan.memo,
     timeoutHeight: req.timeoutHeight,
   });
   const response = await signer.signAmino(req.chainId, plan.signer.address, doc);

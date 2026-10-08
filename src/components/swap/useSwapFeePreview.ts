@@ -74,7 +74,7 @@ export function useSwapFeePreview({
     if (!measured) return null;
     try {
       const tx = buildSwapTx(measured, { now: measured.frozenAt });
-      return { chainId: tx.chainId, messages: tx.messages, memo: tx.memo, signMode: "direct" };
+      return { chainId: tx.chainId, messages: tx.messages, memoContext: tx.memoContext, signMode: "direct" };
     } catch {
       return null;
     }

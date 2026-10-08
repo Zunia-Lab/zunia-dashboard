@@ -3,12 +3,13 @@
 /**
  * The last two steps of casting a vote (see ./VoteFlow): the review of what
  * will be signed — proposal, option, voting power, signer, the simulated
- * network fee and the exact message type — and the staged progress after
- * the click: approve in the wallet, broadcast, confirm, then the result or
- * an explained failure with Retry.
+ * network fee, the memo and the exact message type — and the staged
+ * progress after the click: approve in the wallet, broadcast, confirm, then
+ * the result or an explained failure with Retry.
  */
 
 import { Icon } from "@/components/icons";
+import { txMemoItem } from "@/components/TxMemoItem";
 import {
   AddressText,
   Button,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/cn";
 import type { ProposalRow, VoteChoice, VoteOptionName } from "@/lib/chain/types";
 import type { useTxPreview } from "@/lib/data/wallet";
 import type { ExplainedTxError } from "@/lib/tx/errors";
+import type { TxMemoView } from "@/lib/tx/memo";
 import type { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { VOTE_LABEL, voteChoiceText } from "./model";
 import { VoteSwatch } from "./TallyBar";
@@ -44,6 +46,7 @@ export function ReviewCard({
   voter,
   token,
   preview,
+  memo,
   endText,
 }: {
   proposal: ProposalRow;
@@ -53,6 +56,8 @@ export function ReviewCard({
   voter: string | null;
   token: { symbol: string; decimals: number | null };
   preview: ReturnType<typeof useTxPreview>;
+  /** The memo the vote signs (`describeTxMemo` of the request); null before there is one. */
+  memo: TxMemoView | null;
   endText: string | null;
 }) {
   const fee = preview.preview?.fee ?? null;
@@ -123,6 +128,7 @@ export function ReviewCard({
             ),
             sub: !fee && !preview.loading && preview.error ? preview.error.message : undefined,
           },
+          ...(memo ? [txMemoItem(memo)] : []),
           {
             key: "message",
             label: "Message",

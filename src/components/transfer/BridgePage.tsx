@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "@/components/icons";
 import { Page } from "@/components/shell/Page";
+import { txMemoItem } from "@/components/TxMemoItem";
 import {
   Badge,
   Button,
@@ -57,8 +58,9 @@ import { explainMemo } from "@/lib/interchain/memo-summary";
 import type { RoutePlanWire } from "@/lib/interchain/wire";
 import { countInFlight, pendingTransfers, usePendingTransfers } from "@/lib/pending-transfers";
 import { SWAP_INTENT_KEY, takeSwapIntent, type SwapIntent } from "@/lib/swap/intent";
+import { describeTxMemo } from "@/lib/tx/memo";
 import { buildTransfer } from "@/lib/tx/messages";
-import type { FeeTier, SignRequest } from "@/lib/tx/types";
+import type { FeeTier, SignRequest, TxMemoContext } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { useActivity } from "@/lib/useActivity";
 import { useChainScope } from "@/lib/useChainScope";
@@ -350,7 +352,17 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
     });
   }, [asset, sender, candidate, hop, sendAmount]);
   const message = useMemo(() => makeMessage(), [makeMessage]);
-  const preview = useWalletTxPreview(asset && message ? { chainId: asset.chainId, messages: [message] } : null, fromChain, tier, "transfer");
+  // Bridge has no memo field: the transfer always carries Zunia's default,
+  // naming the token as this page shows it and the chain it goes to.
+  const memoContext = useMemo<TxMemoContext | undefined>(
+    () => (asset ? { tokens: [asset.identity], ...(toChainId ? { destinationChainId: toChainId } : {}) } : undefined),
+    [asset, toChainId],
+  );
+  const memoView = useMemo(
+    () => (asset && message ? describeTxMemo({ chainId: asset.chainId, messages: [message], memoContext }) : null),
+    [asset, message, memoContext],
+  );
+  const preview = useWalletTxPreview(asset && message ? { chainId: asset.chainId, messages: [message], memoContext } : null, fromChain, tier, "transfer");
   const reserve = isFeeToken ? preview.reserve : null;
   const maxBase = asset ? maxSendable(asset.liquid, reserve) : "0";
   const feeBase = isFeeToken ? (preview.fee?.amount[0]?.amount ?? null) : null;
@@ -478,7 +490,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
     const signed = makeMessage();
     if (!signed) return;
     setStep("signing");
-    const request: SignRequest = { chainId: asset.chainId, messages: [signed], feeTier: tier };
+    const request: SignRequest = { chainId: asset.chainId, messages: [signed], memoContext, feeTier: tier };
     const result = await tx.submit(request);
     if (!result) return;
     pendingTransfers.add({
@@ -642,6 +654,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
               : `In about ${Math.max(1, Math.round(candidate.plan.estimatedDurationSeconds / 60))} min (estimate)`,
             sub: `${observedTiming ? `Your last ${observedTiming.count} on this route. ` : ""}If no relayer delivers it within ${IBC_TIMEOUT_MINUTES} min, it comes back to you`,
           },
+          ...(memoView ? [txMemoItem(memoView)] : []),
           ...(leftAfter !== null
             ? [{ key: "after", label: `Left on ${fromChain.chainName}`, value: <TokenAmount amount={leftAfter} decimals={decimals} symbol={symbol} maxFraction={6} /> }]
             : []),

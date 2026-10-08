@@ -130,7 +130,11 @@ describe("the review a form freezes", () => {
     assert.equal(review.path, "pool");
     assert.equal(review.amountUnits, "10000000");
     assert.deepEqual(review.fee, feeToWire(swapFeeFor("osmosis-1", BigInt(10_000_000))));
-    assert.deepEqual(review.from, { chainId: "osmosis-1", chainName: "Osmosis", denom: "uosmo", ticker: "OSMO", decimals: 6, osmosisDenom: "uosmo" });
+    assert.deepEqual(review.from, { chainId: "osmosis-1", chainName: "Osmosis", denom: "uosmo", ticker: "OSMO", proven: true, decimals: 6, osmosisDenom: "uosmo" });
+    // Whether a side's ticker is proven travels with the review: only a proven one names the default memo.
+    const unproven = freezeReview({ id: 8, from: OSMO, to: { ...USDCN, identity: { ...USDCN.identity, proven: false } }, amountUnits: BigInt(10_000_000), quote: QUOTE, slippagePercent: 1, signer: OSMO_ME, recipient: OSMO_ME, recoveryAddress: null, now: NOW });
+    assert.ok("review" in unproven);
+    assert.equal(unproven.review.to.proven, false);
   });
 
   test("refuses a price for another amount, an estimate, move-first, and a contract path without recovery", () => {

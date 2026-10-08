@@ -102,7 +102,8 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
           summary: "Recover your swap output from Zunia's swap contract",
         }),
       ],
-      memo: "Recover swap output · by Zunia-wallet",
+      // No memo: the sign flow writes Zunia's default for this call,
+      // "Recover swap - by Zunia-dashboard" (`@/lib/tx/memo`).
       // No forced mode: a contract call signs direct in Keplr and Zunia
       // Mobile, amino in the Zunia extension (`chooseSignMode`).
     });

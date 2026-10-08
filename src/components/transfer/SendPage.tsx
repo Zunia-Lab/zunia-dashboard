@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RecipientAddressField } from "@/components/RecipientAddressField";
+import { txMemoItem } from "@/components/TxMemoItem";
 import { Icon } from "@/components/icons";
 import { Page } from "@/components/shell/Page";
 import {
@@ -53,8 +54,9 @@ import type { RoutePlanWire } from "@/lib/interchain/wire";
 import { maskAmounts } from "@/lib/notifications/text";
 import { pendingTransfers } from "@/lib/pending-transfers";
 import { memoProblem } from "@/lib/tx/flow";
+import { describeTxMemo } from "@/lib/tx/memo";
 import { buildSend, buildTransfer } from "@/lib/tx/messages";
-import type { FeeTier, SignRequest } from "@/lib/tx/types";
+import type { FeeTier, SignRequest, TxMemoContext } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { useActivity } from "@/lib/useActivity";
 import { useChainScope } from "@/lib/useChainScope";
@@ -298,8 +300,19 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
     });
   }, [asset, sender, mode, candidate, firstHop, sendAmount, recipient]);
   const message = useMemo(() => makeMessage(), [makeMessage]);
+  // What names the default memo when the field is left empty: the token as
+  // this page shows it, and where an IBC transfer goes.
+  const memoContext = useMemo<TxMemoContext | undefined>(
+    () => (asset ? { tokens: [asset.identity], ...(mode === "ibc" && destChainId ? { destinationChainId: destChainId } : {}) } : undefined),
+    [asset, mode, destChainId],
+  );
+  // The memo as it will be signed (the review shows it): the user's, trimmed, or Zunia's default.
+  const memoView = useMemo(
+    () => (asset && message ? describeTxMemo({ chainId: asset.chainId, messages: [message], memo, memoContext }) : null),
+    [asset, message, memo, memoContext],
+  );
 
-  const preview = useWalletTxPreview(asset ? { chainId: asset.chainId, messages: message ? [message] : [], memo } : null, chain, tier, mode === "ibc" ? "transfer" : "send");
+  const preview = useWalletTxPreview(asset ? { chainId: asset.chainId, messages: message ? [message] : [], memo, memoContext } : null, chain, tier, mode === "ibc" ? "transfer" : "send");
   const reserve = isFeeToken ? preview.reserve : null;
   const maxBase = asset ? maxSendable(asset.liquid, reserve) : "0";
   const feeBase = isFeeToken ? (preview.fee?.amount[0]?.amount ?? null) : null;
@@ -464,7 +477,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
     const signed = makeMessage();
     if (!signed) return;
     setStep("signing");
-    const request: SignRequest = { chainId: asset.chainId, messages: [signed], memo: memo.trim() || undefined, feeTier: tier };
+    const request: SignRequest = { chainId: asset.chainId, messages: [signed], memo: memo.trim() || undefined, memoContext, feeTier: tier };
     const result = await tx.submit(request);
     if (!result) return;
     book.touch(recipient);
@@ -591,7 +604,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
               </>
             ),
           },
-          { key: "memo", label: "Memo", value: memo.trim() ? <span className="break-all font-mono text-[12.5px]">{memo.trim()}</span> : <span className="text-fg-dim">None</span> },
+          ...(memoView ? [txMemoItem(memoView)] : []),
           mode === "ibc" && candidate
             ? {
                 key: "time",
@@ -755,7 +768,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
               label="Memo"
               value={memo}
               maxLength={MAX_MEMO + 40}
-              placeholder="Optional"
+              placeholder="Optional. Zunia adds one if empty"
               onChange={(event) => setMemo(event.target.value)}
               error={memo.length > MAX_MEMO ? `${memo.length - MAX_MEMO} characters over the ${MAX_MEMO} a chain accepts` : (memoIssue ?? undefined)}
               hint={

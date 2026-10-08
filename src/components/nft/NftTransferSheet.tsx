@@ -29,6 +29,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { checkAddress, type ChainInfoLike, type NftTransferRequest } from "@zunialab/interchain";
 import { Icon } from "@/components/icons";
+import { txMemoItem } from "@/components/TxMemoItem";
 import {
   AddressText,
   Button,
@@ -53,6 +54,7 @@ import { useTxPreview } from "@/lib/data/wallet";
 import { describeNftTransfer, type NftAction, type NftStatementTone } from "@/lib/nft/describe";
 import type { NftConfigWire } from "@/lib/nft/wire";
 import { explainError, TxError, type ExplainedTxError } from "@/lib/tx/errors";
+import { describeTxMemo } from "@/lib/tx/memo";
 import { buildExecuteContract } from "@/lib/tx/messages";
 import type { SignRequest, SignStage } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
@@ -187,6 +189,8 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
   }, [action, chain.chainId, cross, token.tokenId]);
 
   const preview = useTxPreview(step === "review" ? signRequest : null);
+  // The memo the transfer signs: Zunia's default for it ("Send NFT 42").
+  const memoView = useMemo(() => (signRequest ? describeTxMemo(signRequest) : null), [signRequest]);
 
   const blockers: string[] = [];
   if (!account) blockers.push("Connect a wallet to move this token.");
@@ -256,6 +260,7 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
       ),
       sub: preview.preview?.gas.estimate ? "Estimate" : undefined,
     },
+    ...(memoView ? [txMemoItem(memoView)] : []),
   ];
 
   const footer =

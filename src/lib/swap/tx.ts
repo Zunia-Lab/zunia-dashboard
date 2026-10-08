@@ -35,7 +35,7 @@ import {
 
 import { PACKET_TIMEOUT_MINUTES, SWAP_VENUE_CHAIN_ID, TWAP_WINDOW_SECONDS } from "@/config/interchain";
 import { findChain } from "@/lib/chains";
-import type { TxMessage } from "@/lib/tx/types";
+import type { TxMemoContext, TxMessage } from "@/lib/tx/types";
 import {
   poolSwapTermsProblems,
   PRICE_EXPIRED,
@@ -55,8 +55,6 @@ import type { MsgJson } from "@/lib/swap/types";
 
 const VENUE = SWAP_VENUE_CHAIN_ID;
 const ZERO = BigInt(0);
-/** The tag every Zunia default memo ends with (the extension's `ZUNIA_WALLET_TAG`). */
-export const ZUNIA_WALLET_TAG = "by Zunia-wallet";
 
 /** A swap that cannot be built from its review; the message is user-facing. */
 export class SwapBuildError extends Error {
@@ -71,8 +69,12 @@ export interface SwapTx {
   /** The chain whose account signs (`signingChainFor`). */
   readonly chainId: string;
   readonly messages: TxMessage[];
-  /** The transaction body memo (not a packet memo): `Swap OSMO to USDC.n · by Zunia-wallet`. */
-  readonly memo: string;
+  /**
+   * What names the swap in the transaction body memo, which the sign flow
+   * writes (`@/lib/tx/memo`: `Swap OSMO to USDC.n - by Zunia-dashboard`);
+   * never a packet memo. See {@link swapMemoContext}.
+   */
+  readonly memoContext: TxMemoContext;
 }
 
 /** Why `address` is not an account on `chainId` (prefix, checksum, length), or `null` when it is. */
@@ -95,9 +97,22 @@ export function timeoutAfter(now: number, minutes: number = PACKET_TIMEOUT_MINUT
   return (BigInt(Math.floor(now)) * BigInt(1_000_000) + BigInt(minutes) * BigInt(60_000_000_000)).toString();
 }
 
-/** The default body memo, naming both tokens: the extension's `Swap X to Y · by Zunia-wallet`. */
-export function swapMemo(review: Pick<SwapReview, "from" | "to">): string {
-  return `Swap ${review.from.ticker} to ${review.to.ticker} · ${ZUNIA_WALLET_TAG}`;
+/**
+ * The two tokens of a reviewed swap as its messages carry them, for the
+ * default memo (`Swap OSMO to ATOM`): the From's denom on the chain that signs
+ * (every path sells from there), and the To as the swap buys it on Osmosis,
+ * `quote.venueOutputDenom` (delivered elsewhere afterwards, by a transfer or
+ * by the contract). Each is named only when the review showed it proven;
+ * a message whose denoms are not these names neither.
+ */
+export function swapMemoContext(review: Pick<SwapReview, "from" | "to" | "quote">): TxMemoContext {
+  const { from, to } = review;
+  return {
+    tokens: [
+      { chainId: from.chainId, denom: from.denom, ticker: from.ticker, proven: from.proven === true },
+      { chainId: VENUE, denom: review.quote.venueOutputDenom, ticker: to.ticker, proven: to.proven === true },
+    ],
+  };
 }
 
 function feeOrThrow(review: SwapReview): SwapFee {
@@ -153,7 +168,7 @@ export function buildSwapTx(review: SwapReview, options: { readonly now?: number
   }
   const fee = feeOrThrow(review);
   const feeMsg = feeMessage(review, fee);
-  const memo = swapMemo(review);
+  const memoContext = swapMemoContext(review);
 
   if (review.path === "pool" || review.path === "pool-deliver") {
     const routes = routesOfSplits(quote.route.splits);
@@ -199,7 +214,7 @@ export function buildSwapTx(review: SwapReview, options: { readonly now?: number
         ),
       );
     }
-    return { chainId, messages, memo };
+    return { chainId, messages, memoContext };
   }
 
   // The contract path.
@@ -252,7 +267,7 @@ export function buildSwapTx(review: SwapReview, options: { readonly now?: number
   }
   const messages: TxMessage[] = [toTxMessage(swapMsg, summary)];
   if (feeMsg) messages.push(feeMsg);
-  return { chainId, messages, memo };
+  return { chainId, messages, memoContext };
 }
 
 /**

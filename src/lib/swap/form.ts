@@ -169,6 +169,7 @@ function sideOf(option: AssetOption): ReviewSide {
     chainName: option.chainName,
     denom: option.denom,
     ticker: option.ticker,
+    proven: option.identity.proven,
     decimals: option.decimals,
     osmosisDenom: option.osmosisDenom,
   };

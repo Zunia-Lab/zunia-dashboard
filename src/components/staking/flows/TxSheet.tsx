@@ -8,7 +8,8 @@
  * The review card is what the user checks before their wallet opens: the
  * flow's own rows (network, validator, amount…) plus the network fee, which
  * this sheet measures by simulating the exact transaction (`useTxPreview`,
- * no wallet prompt). Progress then follows `useSignAndBroadcast`'s stages
+ * no wallet prompt), and the memo it signs (Zunia's default: these flows
+ * have no memo field). Progress then follows `useSignAndBroadcast`'s stages
  * (prepare → approve in wallet → broadcast → confirm), explains a failure in
  * plain words, and announces the outcome with a toast — so closing the sheet
  * while the wallet is open loses nothing: the toast still says how it went.
@@ -16,7 +17,8 @@
  * Signing never starts on its own: only the Confirm button calls it.
  */
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { txMemoItem } from "@/components/TxMemoItem";
 import {
   Button,
   Callout,
@@ -38,6 +40,7 @@ import { useWallet, walletKindLabel } from "@/lib/connect/context";
 import { useTxPreview } from "@/lib/data/wallet";
 import { shortenHash } from "@/lib/format";
 import { explainError, TxError, type ExplainedTxError, type TxErrorKind } from "@/lib/tx/errors";
+import { describeTxMemo } from "@/lib/tx/memo";
 import type { SignRequest, SignStage } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { usePrefs } from "@/providers/PrefsProvider";
@@ -241,6 +244,9 @@ export function TxSheet({
         : undefined,
   };
 
+  // The memo the sign flow will write, from the same request it signs.
+  const memoView = useMemo(() => (request ? describeTxMemo(request) : null), [request]);
+
   const canConfirm =
     Boolean(request && chainId) &&
     !busy &&
@@ -322,7 +328,7 @@ export function TxSheet({
       ) : step === "review" ? (
         <div className="flex flex-col gap-4 pt-1">
           <div className="rounded-[var(--d-radius-inner)] border border-[var(--d-hairline)] bg-[var(--d-card-2)] px-3.5 py-3">
-            <KeyValueList divided items={[...reviewItems, feeItem]} />
+            <KeyValueList divided items={[...reviewItems, feeItem, ...(memoView ? [txMemoItem(memoView)] : [])]} />
           </div>
           {reviewExtra}
           {feeEatsPayout && payout ? (

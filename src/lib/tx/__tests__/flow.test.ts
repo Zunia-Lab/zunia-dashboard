@@ -6,6 +6,8 @@
  * "abandon … about" test phrase): the flow verifies every signature before
  * broadcasting it, so a wallet that signs other bytes is a test of its own.
  */
+// The flow names its default memo from the chain catalog (a JSON module).
+import "../../swap/__tests__/json-modules";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -31,7 +33,8 @@ import {
   type TxApi,
   type TxSigner,
 } from "../flow";
-import { buildExecuteContract, buildSend } from "../messages";
+import { ZUNIA_DASHBOARD_TAG } from "../memo";
+import { buildDelegate, buildExecuteContract, buildSend, buildTransfer, buildVote } from "../messages";
 import { readProtoFields } from "../proto";
 import { INJECTIVE_PUBKEY_TYPE_URL } from "../pubkey";
 import type { SignStage, TxOutcome } from "../types";
@@ -653,4 +656,115 @@ test("a memo with a line separator or half a character is refused before the wal
     { api: opts.api, chain: CHAIN, address: ADDRESS, pubKey: PUBKEY },
   );
   assert.equal(preview.gas.method, "simulated");
+});
+
+/* ------------------------------------------------- the default memo, end to end */
+
+/** The memo inside a TxRaw (or a simulation tx): body (field 1), then its field 2. */
+function memoInTx(base64: string): string {
+  return memoInBody(txRawParts(base64).body);
+}
+
+function memoInBody(body: Uint8Array): string {
+  const field = readProtoFields(body).find((f) => f.field === 2);
+  return field ? new TextDecoder().decode(field.value as Uint8Array) : "";
+}
+
+const TAG = ` - ${ZUNIA_DASHBOARD_TAG}`;
+const VALOPER = bech32.encode("cosmosvaloper", bech32.toWords(new Uint8Array(20).fill(9)));
+
+test("an empty memo signs Zunia's default: the one string the plan, the simulation, the signature and the broadcast carry (amino)", async () => {
+  const { calls, opts } = harness();
+  const req = { chainId: CHAIN.chainId, messages: [send] };
+  const plan = await planTx(req, opts);
+  assert.equal(plan.memo, `Send ATOM${TAG}`);
+  assert.equal(plan.mode, "amino");
+  assert.equal(memoInTx(calls.simulate[0]!), `Send ATOM${TAG}`);
+
+  const result = await signAndBroadcast(req, opts);
+  assert.equal(result.signMode, "amino");
+  assert.equal(calls.signAmino[0]!.memo, `Send ATOM${TAG}`);
+  assert.equal(memoInTx(calls.simulate.at(-1)!), `Send ATOM${TAG}`);
+  assert.equal(memoInTx(calls.broadcast[0]!), `Send ATOM${TAG}`);
+  // The request is not rewritten: the memo is the flow's, the caller's object stays as it was.
+  assert.equal("memo" in req, false);
+});
+
+test("an empty memo signs Zunia's default in direct mode too, and the signature over it verifies", async () => {
+  const { calls, opts } = harness();
+  const vote = buildVote({ proposalId: "42", voter: ADDRESS, option: "veto" });
+  const result = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [vote], signMode: "direct" }, opts);
+  assert.equal(result.signMode, "direct");
+  assert.equal(memoInBody(calls.signDirect[0]!.bodyBytes), `Vote No with veto on proposal 42${TAG}`);
+  assert.equal(memoInTx(calls.simulate[0]!), `Vote No with veto on proposal 42${TAG}`);
+  assert.equal(memoInTx(calls.broadcast[0]!), `Vote No with veto on proposal 42${TAG}`);
+  assert.equal(calls.broadcast.length, 1);
+});
+
+test("a memo the user wrote is signed as written, trimmed, never suffixed", async () => {
+  const { calls, opts } = harness();
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "  rent & food  " }, opts);
+  assert.equal(calls.signAmino[0]!.memo, "rent & food");
+  assert.equal(memoInTx(calls.simulate[0]!), "rent & food");
+  assert.equal(memoInTx(calls.broadcast[0]!), "rent & food");
+  // Only spaces is no memo: the default is signed.
+  const blank = harness();
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send], memo: "   " }, blank.opts);
+  assert.equal(blank.calls.signAmino[0]!.memo, `Send ATOM${TAG}`);
+  assert.equal(memoInTx(blank.calls.broadcast[0]!), `Send ATOM${TAG}`);
+});
+
+test("the default is named from the request's context: the token the page shows, the chain it goes to", async () => {
+  const { calls, opts } = harness();
+  const delegate = buildDelegate({ delegatorAddress: ADDRESS, validatorAddress: VALOPER, amount: { denom: "uatom", amount: "1" } });
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [delegate] }, opts);
+  assert.equal(memoInTx(calls.broadcast[0]!), `Stake ATOM${TAG}`);
+  const voucher = "ibc/14F9BC3E44B8A9C1BE1FB08980FAB87034C9905EF17CF2F5008FC085218811CC";
+  const sendVoucher = buildSend({ fromAddress: ADDRESS, toAddress: ADDRESS, amount: [{ denom: voucher, amount: "1" }] });
+  const named = harness();
+  await signAndBroadcast(
+    { chainId: CHAIN.chainId, messages: [sendVoucher], memoContext: { tokens: [{ chainId: CHAIN.chainId, denom: voucher, ticker: "OSMO", proven: true }] } },
+    named.opts,
+  );
+  assert.equal(memoInTx(named.calls.broadcast[0]!), `Send OSMO${TAG}`);
+  // The same voucher with nothing to prove it reads "Send".
+  const unnamed = harness();
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [sendVoucher] }, unnamed.opts);
+  assert.equal(memoInTx(unnamed.calls.broadcast[0]!), `Send${TAG}`);
+  // An IBC transfer names where it goes; its packet memo is the message's, untouched.
+  const osmo = bech32.encode("osmo", bech32.toWords(new Uint8Array(20).fill(7)));
+  const ibc = buildTransfer({ sourceChannel: "channel-141", token: { denom: "uatom", amount: "1" }, sender: ADDRESS, receiver: osmo, memo: "deposit 104857" });
+  const before = toHex(ibc.value);
+  const moved = harness();
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [ibc], memoContext: { destinationChainId: "osmosis-1" } }, moved.opts);
+  assert.equal(memoInTx(moved.calls.broadcast[0]!), `IBC transfer of ATOM to Osmosis${TAG}`);
+  assert.equal(moved.calls.signAmino[0]!.msgs[0]!.value.memo, "deposit 104857");
+  assert.equal(toHex(ibc.value), before);
+});
+
+test("a default memo leaves the sign-mode policy where it was: Ledger, Zunia 0.1.4 and 0.1.5 sign as before", async () => {
+  // A Ledger signs amino, the default memo included, and the signature verifies before broadcast.
+  const ledger = harness({ signer: { ensureKey: async () => ({ address: ADDRESS, pubKey: PUBKEY, isNanoLedger: true }), capabilities: () => ({ amino: true, direct: true, ledger: true }) } });
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send] }, ledger.opts)).signMode, "amino");
+  assert.match(ledger.calls.signAmino[0]!.memo, /^[\x20-\x7e]+$/);
+  assert.equal(memoInTx(ledger.calls.broadcast[0]!), `Send ATOM${TAG}`);
+  // Zunia up to 0.1.4: a contract call and a send to a 32-byte address still sign amino (nothing to escape in the default).
+  const zunia = harness({ signer: { kind: "zunia" } });
+  const call = buildExecuteContract({ sender: ADDRESS, contract: ADDRESS, msg: { recover: {} } });
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [call] }, zunia.opts)).signMode, "amino");
+  assert.equal(zunia.calls.signAmino[0]!.memo, `Recover swap${TAG}`);
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [sendTo32] }, zunia.opts)).signMode, "amino");
+  assert.equal(zunia.calls.signAmino[1]!.memo, `Send ATOM${TAG}`);
+  // Zunia 0.1.5: direct for everything.
+  const current = harness({ signer: { kind: "zunia", capabilities: () => ({ amino: true, direct: true, zunia: zuniaCapabilities(ZUNIA_015) }) } });
+  assert.equal((await signAndBroadcast({ chainId: CHAIN.chainId, messages: [call] }, current.opts)).signMode, "direct");
+  assert.equal(memoInBody(current.calls.signDirect[0]!.bodyBytes), `Recover swap${TAG}`);
+});
+
+test("the fee preview measures the transaction with the memo it will sign", async () => {
+  const { calls, opts } = harness();
+  await previewTx({ chainId: CHAIN.chainId, messages: [send] }, { api: opts.api, chain: CHAIN, address: ADDRESS, pubKey: PUBKEY });
+  assert.equal(memoInTx(calls.simulate[0]!), `Send ATOM${TAG}`);
+  await previewTx({ chainId: CHAIN.chainId, messages: [send], memo: " mine " }, { api: opts.api, chain: CHAIN, address: ADDRESS, pubKey: PUBKEY });
+  assert.equal(memoInTx(calls.simulate[1]!), "mine");
 });

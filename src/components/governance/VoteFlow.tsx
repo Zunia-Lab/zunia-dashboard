@@ -27,6 +27,7 @@ import { cn } from "@/lib/cn";
 import type { InheritedVote, ProposalRow, VoteChoice, VoteOptionName } from "@/lib/chain/types";
 import { useTxPreview } from "@/lib/data/wallet";
 import { explainError, TxError, type ExplainedTxError } from "@/lib/tx/errors";
+import { describeTxMemo } from "@/lib/tx/memo";
 import { buildVote } from "@/lib/tx/messages";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { useWallet } from "@/providers/WalletProvider";
@@ -91,6 +92,8 @@ export function VoteFlow({ proposal, variant = "card", onDone, onBusyChange, cla
     }
   }, [phase, choice, voter, proposal.chainId, proposal.id, proposal.api]);
   const preview = useTxPreview(request);
+  // The memo the vote signs: Zunia's default for it ("Vote Yes on proposal 42").
+  const memo = useMemo(() => (request ? describeTxMemo(request) : null), [request]);
 
   const current: VoteChoice | null = justVoted ?? proposal.myVote;
   const power = powerState(proposal.myVotingPower);
@@ -267,6 +270,7 @@ export function VoteFlow({ proposal, variant = "card", onDone, onBusyChange, cla
             voter={voter}
             token={token}
             preview={preview}
+            memo={memo}
             endText={endText}
           />
           <div className="flex flex-col-reverse gap-2 sm:flex-row">

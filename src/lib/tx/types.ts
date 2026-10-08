@@ -10,6 +10,7 @@
  */
 
 import type { AminoMsg, Coin } from "@/lib/tx/amino-tx";
+import type { TokenIdentity } from "@/lib/token/types";
 
 export type { AminoMsg, Coin };
 
@@ -31,10 +32,41 @@ export type SignMode = "auto" | "direct" | "amino";
 /** The mode a signature was actually made in. */
 export type ResolvedSignMode = "direct" | "amino";
 
+/**
+ * A coin as the page names it: the fields of its `TokenIdentity` (from the
+ * API, where the identity tables live) that the default memo reads. Pass the
+ * identity itself.
+ */
+export type MemoToken = Pick<TokenIdentity, "chainId" | "denom" | "ticker" | "proven"> & Partial<Pick<TokenIdentity, "listed">>;
+
+/**
+ * What the page already shows about a transaction, for its default memo
+ * (`./memo`). Read only when the user leaves the memo empty, and only to
+ * name: what the transaction is comes from its first message, never from here.
+ */
+export interface TxMemoContext {
+  /**
+   * The coins the messages move, as the page names them. A coin is named
+   * only by an entry for its exact chain and denom whose identity is proven.
+   */
+  readonly tokens?: readonly MemoToken[];
+  /**
+   * Where an IBC transfer's funds end up: the chain the user picked. Named
+   * only when the transfer's last receiver is an address of that chain.
+   */
+  readonly destinationChainId?: string;
+}
+
 export interface SignRequest {
   chainId: string;
   messages: TxMessage[];
+  /**
+   * The user's memo. Signed trimmed; when empty, the flow writes Zunia's
+   * default for the messages instead (`./memo` `resolveTxMemo`).
+   */
   memo?: string;
+  /** Names for the default memo; ignored when `memo` has text. */
+  memoContext?: TxMemoContext;
   /** Fixed gas limit. When omitted the transaction is simulated first. */
   gasLimit?: number;
   feeTier?: FeeTier;

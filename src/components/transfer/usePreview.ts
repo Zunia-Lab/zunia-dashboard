@@ -17,7 +17,7 @@ import type { ChainEntry } from "@/lib/chains";
 import { useTxPreview } from "@/lib/data/wallet";
 import { computeFee, FALLBACK_GAS, type FeeQuote } from "@/lib/tx/fees";
 import type { GasEstimate } from "@/lib/tx/flow";
-import type { FeeTier, TxMessage } from "@/lib/tx/types";
+import type { FeeTier, TxMemoContext, TxMessage } from "@/lib/tx/types";
 
 export interface FeePreview {
   tiers: Record<FeeTier, FeeQuote> | null;
@@ -36,7 +36,7 @@ const MARGIN_NUM = BigInt(13);
 const MARGIN_DEN = BigInt(10);
 
 export function useWalletTxPreview(
-  request: { chainId: string; messages: TxMessage[]; memo?: string } | null,
+  request: { chainId: string; messages: TxMessage[]; memo?: string; memoContext?: TxMemoContext } | null,
   chain: ChainEntry | undefined,
   tier: FeeTier,
   kind: "send" | "transfer",
@@ -44,7 +44,14 @@ export function useWalletTxPreview(
   const signRequest = useMemo(
     () =>
       request && request.messages.length > 0
-        ? { chainId: request.chainId, messages: request.messages, memo: request.memo?.trim() || undefined, feeTier: "average" as const }
+        ? {
+            chainId: request.chainId,
+            messages: request.messages,
+            memo: request.memo?.trim() || undefined,
+            // Names the default memo when the field is empty: measured as signed.
+            ...(request.memoContext ? { memoContext: request.memoContext } : {}),
+            feeTier: "average" as const,
+          }
         : null,
     [request],
   );

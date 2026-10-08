@@ -28,6 +28,7 @@ import { toHex } from "@/lib/tx/bytes";
 import type { AccountInfo, TxOutcomeAnswer } from "@/lib/tx/client";
 import { explainError, explainTxError, type ExplainedTxError } from "@/lib/tx/errors";
 import { previewTx, type TxPreview } from "@/lib/tx/flow";
+import { resolveTxMemo } from "@/lib/tx/memo";
 import { DASHBOARD_TX_API } from "@/lib/tx/useSignAndBroadcast";
 import type { SignRequest, TxOutcome } from "@/lib/tx/types";
 
@@ -133,11 +134,15 @@ export interface TxPreviewState {
   error: ExplainedTxError | null;
 }
 
-/** A stable key for a request (messages are bytes, so they are compared as hex). */
+/**
+ * A stable key for a request (messages are bytes, so they are compared as
+ * hex). The memo is the one that will be signed, a default included: its
+ * length is part of the gas.
+ */
 function requestKey(req: SignRequest): string {
   return JSON.stringify([
     req.chainId,
-    req.memo ?? "",
+    resolveTxMemo(req),
     req.feeTier ?? "average",
     req.gasLimit ?? null,
     req.gasAdjustment ?? null,

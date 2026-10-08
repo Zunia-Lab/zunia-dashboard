@@ -24,6 +24,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icons";
+import { txMemoItem } from "@/components/TxMemoItem";
 import {
   AddressText,
   AssetLogo,
@@ -60,6 +61,7 @@ import {
 import { feeFromWire } from "@/lib/swap/fee";
 import { tickerAmount } from "@/lib/swap/format";
 import { explainError, TxError } from "@/lib/tx/errors";
+import { describeTxMemo } from "@/lib/tx/memo";
 import type { SignStage } from "@/lib/tx/types";
 import { useSignAndBroadcast } from "@/lib/tx/useSignAndBroadcast";
 import { usePrefs } from "@/providers/PrefsProvider";
@@ -179,6 +181,12 @@ function ReviewContent({
     () => (built.tx ? checkSwapTx(review, built.tx.messages, { now: review.frozenAt, chainId: built.tx.chainId }) : []),
     [built.tx, review],
   );
+  // The body memo the swap signs: Zunia's default naming the pair (the swap
+  // has no memo field), the same string the sign flow writes.
+  const memoView = useMemo(
+    () => (built.tx ? describeTxMemo({ chainId: built.tx.chainId, messages: built.tx.messages, memoContext: built.tx.memoContext }) : null),
+    [built.tx],
+  );
   const problems = [...(built.problem ? [built.problem] : []), ...termProblems, ...(cannotSign ? [cannotSign] : []), ...signProblems];
   const drift = signed ? null : reviewDrift(review, live);
   const expired = now >= quote.expiresAt;
@@ -223,7 +231,7 @@ function ReviewContent({
     onBusyChange(true);
     const sentence = mask(`${tickerAmount(spent, from)} for about ${tickerAmount(receive.amount, to)}`);
     try {
-      const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memo: tx.memo });
+      const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memoContext: tx.memoContext });
       const swap: SignedSwap = { review, txHash: result.txHash, chainId: result.chainId, confirmed: result.confirmed !== false, at: Date.now() };
       setSigned(swap);
       onSigned(swap);
@@ -323,6 +331,7 @@ function ReviewContent({
           },
         ]
       : []),
+    ...(memoView ? [txMemoItem(memoView)] : []),
   ];
 
   const steps =
@@ -474,9 +483,12 @@ function ReviewContent({
                     </li>
                   ))}
                 </ol>
-                <p className="text-[12px] text-fg-dim">
-                  Memo <span className="font-mono text-fg-muted">{built.tx.memo}</span>
-                </p>
+                {memoView ? (
+                  <p className="text-[12px] text-fg-dim">
+                    Memo <span className="font-mono text-fg-muted">{memoView.memo}</span>
+                    {memoView.automatic ? " (added automatically)" : null}
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-[12.5px] text-fg-dim">Nothing was built for this review.</p>

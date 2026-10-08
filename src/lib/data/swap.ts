@@ -40,7 +40,7 @@ import {
   type SwapQuoteResponse,
 } from "@/lib/swap/wire";
 
-export { buildSwapTx, checkSwapTx, SwapBuildError, swapMemo, type SwapTx } from "@/lib/swap/tx";
+export { buildSwapTx, checkSwapTx, SwapBuildError, swapMemoContext, type SwapTx } from "@/lib/swap/tx";
 export {
   freezeReview,
   minimumReceived,

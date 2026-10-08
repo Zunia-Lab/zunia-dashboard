@@ -20,13 +20,15 @@ import { validateMemo } from "@zunialab/interchain";
 
 import { SWAP_FEE_RECIPIENTS } from "@/config/fees";
 import { msgProtoBytes } from "@/lib/tx/amino-tx";
+import { toHex } from "@/lib/tx/bytes";
+import { resolveTxMemo } from "@/lib/tx/memo";
 import type { TxMessage } from "@/lib/tx/types";
 import { EXTRA_MESSAGES, HEIGHT_TIMEOUT, PRICE_EXPIRED, UNREADABLE_SWAP } from "../checks";
 import { buildSwapFeeMsg, feeToWire, swapFeeFor } from "../fee";
 import { EXECUTE_CONTRACT_TYPE_URL, toTxMessage, viewOf } from "../messages";
 import { POOL_SPLIT_SWAP_TYPE_URL, POOL_SWAP_TYPE_URL, TRANSFER_TYPE_URL } from "../pool";
 import type { SwapReview } from "../review";
-import { buildSwapTx, checkSwapTx, SwapBuildError, swapMemo, timeoutAfter } from "../tx";
+import { buildSwapTx, checkSwapTx, SwapBuildError, swapMemoContext, timeoutAfter } from "../tx";
 import type { MsgJson } from "../types";
 import type { SwapQuoteOk } from "../wire";
 
@@ -46,7 +48,7 @@ const ATOM = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5E
 
 const NOW = 1_791_330_000_000;
 
-const OSMO_SIDE = { chainId: "osmosis-1", chainName: "Osmosis", denom: "uosmo", ticker: "OSMO", decimals: 6, osmosisDenom: "uosmo" };
+const OSMO_SIDE = { chainId: "osmosis-1", chainName: "Osmosis", denom: "uosmo", ticker: "OSMO", proven: true, decimals: 6, osmosisDenom: "uosmo" };
 
 function quoteBase(overrides: Partial<SwapQuoteOk>): SwapQuoteOk {
   return {
@@ -83,7 +85,7 @@ function review(overrides: Partial<SwapReview> & Pick<SwapReview, "path" | "quot
   return {
     id: 1,
     from: OSMO_SIDE,
-    to: { chainId: "osmosis-1", chainName: "Osmosis", denom: USDC_N, ticker: "USDC.n", decimals: 6, osmosisDenom: USDC_N },
+    to: { chainId: "osmosis-1", chainName: "Osmosis", denom: USDC_N, ticker: "USDC.n", proven: true, decimals: 6, osmosisDenom: USDC_N },
     amountUnits,
     fee: feeToWire(swapFeeFor(signingChain, BigInt(amountUnits))),
     slippagePercent: 1,
@@ -99,7 +101,7 @@ const POOL = review({ path: "pool", quote: quoteBase({}) });
 
 const DELIVER = review({
   path: "pool-deliver",
-  to: { chainId: "injective-1", chainName: "Injective", denom: USDC_INJ_ERC20, ticker: "USDC.inj", decimals: 6, osmosisDenom: USDC_INJ },
+  to: { chainId: "injective-1", chainName: "Injective", denom: USDC_INJ_ERC20, ticker: "USDC.inj", proven: true, decimals: 6, osmosisDenom: USDC_INJ },
   recipient: INJ_ME,
   quote: quoteBase({
     path: "pool-deliver",
@@ -119,7 +121,7 @@ const DELIVER = review({
 
 const CONTRACT_FROM_HUB = review({
   path: "contract",
-  from: { chainId: "cosmoshub-4", chainName: "Cosmos Hub", denom: "uatom", ticker: "ATOM", decimals: 6, osmosisDenom: ATOM },
+  from: { chainId: "cosmoshub-4", chainName: "Cosmos Hub", denom: "uatom", ticker: "ATOM", proven: true, decimals: 6, osmosisDenom: ATOM },
   to: OSMO_SIDE,
   amountUnits: "1000000",
   signer: HUB_ME,
@@ -143,7 +145,7 @@ const CONTRACT_FROM_HUB = review({
 
 const CONTRACT_FROM_OSMOSIS = review({
   path: "contract",
-  to: { chainId: "axelar-dojo-1", chainName: "Axelar", denom: "uusdc", ticker: "USDC.axl", decimals: 6, osmosisDenom: USDC_AXL },
+  to: { chainId: "axelar-dojo-1", chainName: "Axelar", denom: "uusdc", ticker: "USDC.axl", proven: true, decimals: 6, osmosisDenom: USDC_AXL },
   recipient: AXL_ME,
   quote: quoteBase({
     path: "contract",
@@ -185,7 +187,8 @@ describe("pool: a swap in Osmosis's pools", () => {
 
   test("signs on Osmosis: the poolmanager swap of the net amount, then the 0.5% fee", () => {
     assert.equal(tx.chainId, "osmosis-1");
-    assert.equal(tx.memo, "Swap OSMO to USDC.n · by Zunia-wallet");
+    // The body memo the sign flow writes for it names the pair, never the fee beside it.
+    assert.equal(resolveTxMemo(tx), "Swap OSMO to USDC.n - by Zunia-dashboard");
     assert.deepEqual(tx.messages.map((msg) => msg.typeUrl), [POOL_SWAP_TYPE_URL, "/cosmos.bank.v1beta1.MsgSend"]);
     assert.deepEqual(viewOf(tx.messages[0])?.value, {
       sender: OSMO_ME,
@@ -407,6 +410,58 @@ describe("contract, from Osmosis: one contract call", () => {
   });
 
   test("names the default memo after both tokens", () => {
-    assert.equal(swapMemo(CONTRACT_FROM_OSMOSIS), "Swap OSMO to USDC.axl · by Zunia-wallet");
+    assert.equal(resolveTxMemo(buildSwapTx(CONTRACT_FROM_OSMOSIS, { now: NOW })), "Swap OSMO to USDC.axl - by Zunia-dashboard");
+  });
+});
+
+describe("the body memo a swap signs when the user writes none", () => {
+  const SPLIT = { ...DELIVER, path: "pool" as const, to: POOL.to, recipient: OSMO_ME, quote: { ...DELIVER.quote, path: "pool" as const, delivery: undefined, venueOutputDenom: USDC_N, route: { pools: [{ id: "3498", tokenOutDenom: USDC_N }], splits: [{ inAmount: "5970000", outAmount: "1", pools: [{ id: "3498", tokenOutDenom: USDC_N }] }, { inAmount: "3980000", outAmount: "1", pools: [{ id: "3586", tokenOutDenom: USDC_N }] }] } } };
+
+  test("names the pair on every path, the swap first and never the fee beside it", () => {
+    const cases: Array<[string, SwapReview, string]> = [
+      ["pool", POOL, "Swap OSMO to USDC.n - by Zunia-dashboard"],
+      ["pool, split route", SPLIT, "Swap OSMO to USDC.n - by Zunia-dashboard"],
+      ["pool-deliver", DELIVER, "Swap OSMO to USDC.inj - by Zunia-dashboard"],
+      ["contract from the Hub", CONTRACT_FROM_HUB, "Swap ATOM to OSMO - by Zunia-dashboard"],
+      ["contract from Osmosis", CONTRACT_FROM_OSMOSIS, "Swap OSMO to USDC.axl - by Zunia-dashboard"],
+    ];
+    for (const [name, reviewed, expected] of cases) {
+      const tx = buildSwapTx(reviewed, { now: NOW });
+      assert.equal(tx.messages[1]?.typeUrl, "/cosmos.bank.v1beta1.MsgSend", `${name}: the fee is signed beside the swap`);
+      assert.equal(resolveTxMemo(tx), expected, name);
+      // A memo the user wrote is kept as written, trimmed, never suffixed.
+      assert.equal(resolveTxMemo({ ...tx, memo: "  my swap  " }), "my swap", name);
+    }
+  });
+
+  test("says only 'Swap' when the review did not prove a side, and names nothing the messages do not carry", () => {
+    const unproven = { ...POOL, to: { ...POOL.to, proven: false } };
+    assert.equal(resolveTxMemo(buildSwapTx(unproven, { now: NOW })), "Swap - by Zunia-dashboard");
+    const older = { ...POOL, to: { ...POOL.to, proven: undefined } };
+    assert.equal(resolveTxMemo(buildSwapTx(older, { now: NOW })), "Swap - by Zunia-dashboard");
+    // The context names denoms, not paths: the same names for another output say nothing.
+    const tx = buildSwapTx(POOL, { now: NOW });
+    const elsewhere = { ...tx, memoContext: swapMemoContext({ ...POOL, quote: { ...POOL.quote, venueOutputDenom: USDC_INJ } }) };
+    assert.equal(resolveTxMemo(elsewhere), "Swap - by Zunia-dashboard");
+  });
+
+  test("names the From on the chain that signs and the To as Osmosis holds it", () => {
+    assert.deepEqual(swapMemoContext(CONTRACT_FROM_HUB), {
+      tokens: [
+        { chainId: "cosmoshub-4", denom: "uatom", ticker: "ATOM", proven: true },
+        { chainId: "osmosis-1", denom: "uosmo", ticker: "OSMO", proven: true },
+      ],
+    });
+    assert.deepEqual(swapMemoContext(DELIVER).tokens?.[1], { chainId: "osmosis-1", denom: USDC_INJ, ticker: "USDC.inj", proven: true });
+  });
+
+  test("leaves the packet memo that runs the contract exactly as built", () => {
+    const tx = buildSwapTx(CONTRACT_FROM_HUB, { now: NOW });
+    const before = toHex(tx.messages[0]!.value);
+    const packet = viewOf(tx.messages[0])!.value.memo;
+    assert.equal(resolveTxMemo(tx), "Swap ATOM to OSMO - by Zunia-dashboard");
+    assert.equal(toHex(tx.messages[0]!.value), before);
+    assert.equal(viewOf(tx.messages[0])!.value.memo, packet);
+    assert.equal(validateMemo(String(packet), { receiver: XCS }).kind, "xcs");
   });
 });

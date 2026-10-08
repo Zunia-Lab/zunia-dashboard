@@ -26,6 +26,11 @@ export interface ReviewSide {
   readonly denom: string;
   /** Display only. */
   readonly ticker: string;
+  /**
+   * The ticker is the token's proven identity (`TokenIdentity.proven`). Only
+   * a proven ticker is written into the default memo; absent reads as not.
+   */
+  readonly proven?: boolean;
   /** `null` when unknown: amounts then read in base units. */
   readonly decimals: number | null;
   /** The side's name on Osmosis as the review showed it, when it has one. */
