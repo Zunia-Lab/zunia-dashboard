@@ -54,7 +54,7 @@ const WHERE: ReadonlyArray<{ icon: IconName; title: string; body: string }> = [
   {
     icon: "lock",
     title: "On this browser",
-    body: "Followed networks, preferences, notification history, address book, watchlist, and copies of recent reads so pages open at once (ignored after 10 minutes).",
+    body: "Followed networks, preferences, notification history, insights you hid, address book, watchlist, and copies of recent reads so pages open at once (ignored after 10 minutes).",
   },
   {
     icon: "shield",
@@ -182,8 +182,8 @@ export function PrivacySection() {
       >
         <div className="flex flex-col gap-3 text-[13px] leading-[1.5] text-fg-muted">
           <Listed title="Goes">
-            Followed networks and their order · currency, privacy, small-balance and artwork choices · notification history and read state ·
-            address book and watchlist · cached reads and tracked transfers{account ? " · this wallet connection (you connect again after)" : ""}.
+            Followed networks and their order · currency, privacy, small-balance, artwork and insight choices · notification history and read
+            state · insights you hid · address book and watchlist · cached reads and tracked transfers{account ? " · this wallet connection (you connect again after)" : ""}.
           </Listed>
           <Listed title="Turned off">
             Push alerts for this browser are turned off, and Zunia&apos;s server forgets the addresses they watched. Turn them on again in

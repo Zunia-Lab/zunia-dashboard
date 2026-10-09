@@ -123,13 +123,15 @@ export interface SummaryText {
  * gained, then what to review, so the first words are always the most urgent
  * thing on the page. `where` is "on 5 networks" or "on Osmosis". `failed`:
  * neither balances nor staking positions could be read, so nothing was
- * measured at all, which is not the same as nothing found.
+ * measured at all, which is not the same as nothing found. `hidden`: found
+ * but cleared by the reader, so an empty page says so rather than "nothing".
  */
 export function summaryText(
   groups: Readonly<Record<InsightGroup, readonly unknown[]>>,
   where: string,
   partial = false,
   failed = false,
+  hidden = 0,
 ): SummaryText {
   const doNow = groups["do-now"].length;
   const opportunities = groups.opportunities.length;
@@ -139,6 +141,12 @@ export function summaryText(
     return {
       title: "Nothing could be measured",
       sub: `Your balances and staking positions didn't load ${where}, and every insight is measured from them.`,
+    };
+  }
+  if (total === 0 && hidden > 0) {
+    return {
+      title: "All caught up",
+      sub: `${plural(hidden, "insight")} ${where} ${hidden === 1 ? "is" : "are"} hidden. Each comes back if it becomes more urgent, or in a week if it still holds.`,
     };
   }
   if (total === 0) {

@@ -18,6 +18,12 @@ const CURRENCY_KEY = "zunia.dashboard.currency";
  * has to fetch itself, so it is the one thing that needs a switch.
  */
 const NFT_MEDIA_KEY = "zunia.dashboard.nftMedia";
+/**
+ * Show insights (Overview row, Insights page). On by default: they are worked
+ * out on this device from reads the pages make anyway, and the reader can
+ * turn them off in Settings.
+ */
+const INSIGHTS_KEY = "zunia.dashboard.insights.on";
 
 export type FiatCurrency = "usd" | "eur" | "gbp";
 
@@ -41,6 +47,9 @@ interface Prefs {
    */
   nftMediaAllowed: boolean;
   nftMediaBlockedReason: string | null;
+  /** Insights on the Overview and the Insights page. Default true. */
+  insightsOn: boolean;
+  setInsightsOn: (value: boolean) => void;
 }
 
 const PrefsContext = createContext<Prefs | null>(null);
@@ -52,6 +61,7 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
     "usd",
   );
   const [nftMedia, setNftMedia] = useStoredValue(NFT_MEDIA_KEY, false);
+  const [insightsOn, setInsightsOn] = useStoredValue(INSIGHTS_KEY, true);
 
   const toggleHideAmounts = useCallback(
     () => setHideAmounts((prev) => !prev),
@@ -78,8 +88,10 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
       nftMediaBlockedReason: hideAmounts
         ? "Privacy mode is on, so artwork stays off: loading it would tell every host named in your tokens which NFTs this account holds."
         : null,
+      insightsOn,
+      setInsightsOn,
     }),
-    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia],
+    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia, insightsOn, setInsightsOn],
   );
 
   return (

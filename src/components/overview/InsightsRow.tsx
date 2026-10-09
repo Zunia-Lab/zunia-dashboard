@@ -5,6 +5,10 @@
  * first, in one row that scrolls sideways with snap points (a swipe on
  * phones, arrows or the keyboard on desktop). "All insights" opens the full
  * list on the Insights page.
+ *
+ * Opening a card's action, or its close button, hides that insight; "Clear
+ * all" hides every one shown. Hidden ones return when they become more
+ * urgent, or a week later if they still hold (`lib/insights/dismissals.ts`).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -79,6 +83,11 @@ export function InsightsRow({ insights }: { insights: InsightsState }) {
               <IconButton label="Next insights" icon="chevronRight" size="sm" variant="ghost" disabled={edges.end} onClick={() => page(1)} />
             </span>
           ) : null}
+          {items.length > 0 ? (
+            <Button size="sm" variant="ghost" iconLeft="check" onClick={insights.clearAll}>
+              Clear all
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" href="/insights" iconRight="arrowRight">
             All insights
           </Button>
@@ -99,6 +108,22 @@ export function InsightsRow({ insights }: { insights: InsightsState }) {
               <Skeleton className="mt-auto h-7 w-24 self-end" />
             </div>
           ))}
+        </div>
+      ) : items.length === 0 && insights.hiddenItems.length > 0 ? (
+        // Cleared, not absent: "nothing needs your attention" would claim a
+        // measurement the reader's own clearing made.
+        <div className="d-card px-[var(--d-pad)]">
+          <EmptyState
+            inline
+            icon="success"
+            title="All caught up"
+            body={`${insights.hiddenItems.length} ${insights.hiddenItems.length === 1 ? "insight is" : "insights are"} hidden. Each comes back if it becomes more urgent, or in a week if it still holds.`}
+            action={
+              <Button size="sm" variant="ghost" iconLeft="eye" onClick={insights.restore}>
+                Show them again
+              </Button>
+            }
+          />
         </div>
       ) : items.length === 0 ? (
         <div className="d-card px-[var(--d-pad)]">
@@ -129,7 +154,7 @@ export function InsightsRow({ insights }: { insights: InsightsState }) {
           )}
         >
           {items.map((insight) => (
-            <InsightCard key={insight.id} insight={insight} className={CARD} />
+            <InsightCard key={insight.id} insight={insight} onDismiss={() => insights.dismiss([insight])} className={CARD} />
           ))}
         </div>
       )}

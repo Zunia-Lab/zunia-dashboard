@@ -20,6 +20,7 @@ import { cn } from "@/lib/cn";
 import { AboutSection } from "./AboutSection";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { GeneralSection } from "./GeneralSection";
+import { InsightsSection } from "./InsightsSection";
 import { NetworksSection } from "./NetworksSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { PrivacySection } from "./PrivacySection";
@@ -29,6 +30,7 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: IconName }> = [
   { id: "networks", label: "Networks", icon: "networks" },
   { id: "connections", label: "Connections", icon: "wallet" },
   { id: "notifications", label: "Notifications", icon: "notifications" },
+  { id: "insights", label: "Insights", icon: "insights" },
   { id: "privacy", label: "Data & privacy", icon: "lock" },
   { id: "about", label: "About", icon: "info" },
 ];
@@ -100,6 +102,7 @@ function SettingsBody({ version }: { version: string }) {
           <NetworksSection />
           <ConnectionsSection />
           <NotificationsSection />
+          <InsightsSection />
           <PrivacySection />
           <AboutSection version={version} />
         </div>

@@ -25,8 +25,9 @@ import { useProposals } from "@/lib/data/governance";
 import { usePortfolio } from "@/lib/data/portfolio";
 import { useSecurityReview, useStakingPositions } from "@/lib/data/staking";
 import { findChain } from "@/lib/chains";
-import { INSIGHT_PROPOSALS, useInsights } from "@/lib/insights";
+import { INSIGHT_PROPOSALS, useInsights, type Insight } from "@/lib/insights";
 import { useChainScope } from "@/lib/useChainScope";
+import { usePrefs } from "@/providers/PrefsProvider";
 import { ByNetworkCard } from "./ByNetworkCard";
 import { ChainContextCard } from "./ChainContextCard";
 import { CompareTeaser } from "./CompareTeaser";
@@ -77,7 +78,9 @@ function InsightsBody() {
   const now = useNow();
   const reduced = useReducedMotion();
 
+  const { setInsightsOn } = usePrefs();
   const groups = useMemo(() => splitByGroup(insights.items), [insights.items]);
+  const hiddenGroups = useMemo(() => splitByGroup(insights.hiddenItems), [insights.hiddenItems]);
   const steps = useMemo(() => nextSteps(groups), [groups]);
   const counts = useMemo(() => countBySeverity(insights.items), [insights.items]);
   const networks = scopedChainIds.length;
@@ -91,7 +94,7 @@ function InsightsBody() {
   const partial = errors.length > 0;
   // Neither of the reads every insight is measured from answered.
   const nothingRead = portfolio.status === "error" && staking.status === "error" && insights.items.length === 0;
-  const text = summaryText(groups, where, partial, nothingRead);
+  const text = summaryText(groups, where, partial, nothingRead, insights.hiddenItems.length);
   // Scope change: the lists still show the previous scope's answer.
   const pending = portfolio.stale || staking.stale;
 
@@ -141,6 +144,23 @@ function InsightsBody() {
     return () => window.cancelAnimationFrame(frame);
   }, [settled]);
 
+  if (!insights.enabled) {
+    return (
+      <div className="d-card px-[var(--d-pad)]">
+        <EmptyState
+          icon="insights"
+          title="Insights are off"
+          body="Turn them on to see rewards worth claiming, votes closing, idle balances that could earn and risks found on your chains. They are worked out on this device from what the dashboard already reads."
+          action={
+            <Button variant="primary" size="sm" onClick={() => setInsightsOn(true)}>
+              Turn insights on
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
   if (scopedChainIds.length === 0) {
     return (
       <div className="d-card px-[var(--d-pad)]">
@@ -168,7 +188,7 @@ function InsightsBody() {
     );
   }
 
-  const listState = { loading: insights.loading, pending, refreshing: insights.refreshing, partial };
+  const listState = { loading: insights.loading, pending, refreshing: insights.refreshing, partial, onDismiss: (insight: Insight) => insights.dismiss([insight]) };
 
   return (
     <div className="@container flex flex-col gap-[var(--d-gap)]">
@@ -191,6 +211,10 @@ function InsightsBody() {
         // would read "in under a minute", so it is shown as now.
         updatedAt={portfolio.updatedAt !== null && now !== null ? Math.min(portfolio.updatedAt, now) : portfolio.updatedAt}
         failed={nothingRead}
+        hidden={insights.hiddenItems.length}
+        onClearAll={insights.clearAll}
+        onRestore={insights.restore}
+        onOpenStep={(step) => insights.dismiss([step])}
       />
 
       {/* Nothing was read: three empty lists would only repeat it. The
@@ -207,9 +231,9 @@ function InsightsBody() {
            chain, that chain's economics) and how concentrated the value is. */
         <div className={BOARD}>
           <div className={MAIN}>
-            <InsightGroupCard group="do-now" items={groups["do-now"]} className="order-1" {...listState} />
-            <InsightGroupCard group="opportunities" items={groups.opportunities} limit={4} className="order-2" {...listState} />
-            <InsightGroupCard group="risks" items={groups.risks} limit={5} className="order-4" {...listState} />
+            <InsightGroupCard group="do-now" items={groups["do-now"]} hidden={hiddenGroups["do-now"].length} className="order-1" {...listState} />
+            <InsightGroupCard group="opportunities" items={groups.opportunities} hidden={hiddenGroups.opportunities.length} limit={4} className="order-2" {...listState} />
+            <InsightGroupCard group="risks" items={groups.risks} hidden={hiddenGroups.risks.length} limit={5} className="order-4" {...listState} />
           </div>
           <div className={SIDE}>
             {selectedChain ? (

@@ -429,3 +429,12 @@ test("coverage keeps clean, flagged, partial and failed chains apart", () => {
   // One party with two grants counts once, plus the withdraw address.
   assert.equal(coverage.findings, 2);
 });
+
+test("summaryText says the page was cleared, not that nothing was found", () => {
+  const empty = { "do-now": [], opportunities: [], risks: [] };
+  const text = summaryText(empty, "on 5 networks", false, false, 3);
+  assert.equal(text.title, "All caught up");
+  assert.match(text.sub, /3 insights on 5 networks are hidden/);
+  assert.equal(summaryText(empty, "on Osmosis", false, false, 1).sub.startsWith("1 insight on Osmosis is hidden"), true);
+  assert.equal(summaryText(empty, "on 5 networks").title, "Nothing needs you right now");
+});

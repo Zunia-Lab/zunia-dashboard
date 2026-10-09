@@ -184,12 +184,16 @@ function OverviewBody() {
             selectedChainId={selectedChain?.chainId ?? null}
             now={now}
             chainName={chainName}
-            claimWorthIt={insights.items.some((item) => item.kind === "claim" || item.kind === "compounding")}
+            // A fact about the rewards, not a suggestion: it holds whether or not the reader hid the insight.
+            claimWorthIt={insights.all.some((item) => item.kind === "claim" || item.kind === "compounding")}
           />
 
-          <div className="mt-1">
-            <InsightsRow insights={insights} />
-          </div>
+          {/* Turned off in Settings: the row goes, the cards below move up. */}
+          {insights.enabled ? (
+            <div className="mt-1">
+              <InsightsRow insights={insights} />
+            </div>
+          ) : null}
 
           {selectedChain ? (
             <ChainHeader chain={selectedChain} stats={stats} staking={staking} />
