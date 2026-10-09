@@ -15,7 +15,9 @@
  *
  * The same script restores the sidebar's collapsed / expanded preference as
  * `html[data-sidebar]` so a collapsed sidebar does not paint expanded first
- * (the frame's CSS reads the attribute; see `shell.module.css`).
+ * (the frame's CSS reads the attribute; see `shell.module.css`), and the
+ * Lite / Pro view as `html[data-view]`, so server-rendered pages hide their
+ * Pro-only cards with CSS (`lite:` variant) before React runs.
  *
  * Pure (no DOM at import): `node --test` evaluates the script against a fake
  * document.
@@ -26,6 +28,9 @@ export const THEME_STORAGE_KEY = "zunia-theme";
 
 /** The sidebar width preference, JSON-encoded by `useStoredValue`. */
 export const SIDEBAR_STORAGE_KEY = "zunia.dashboard.sidebar";
+
+/** The Lite / Pro view, JSON-encoded by `useStoredValue` (see `lib/view.ts`). */
+export const VIEW_STORAGE_KEY = "zunia.dashboard.view";
 
 /** Browser chrome colour per theme: the page background (`--z-bg`). */
 export const THEME_COLORS = { dark: "#0B0A09", light: "#F1F0EE" } as const;
@@ -40,6 +45,16 @@ export function resolveBootTheme(stored: string | null | undefined, systemDark: 
   if (stored === "light" || stored === "dark") return stored;
   if (stored === "system") return systemDark ? "dark" : "light";
   return "dark";
+}
+
+/** The view from its raw storage value (a JSON string): Lite only when stored as such; Pro is the default. */
+export function parseViewPref(raw: string | null | undefined): "lite" | "pro" {
+  if (!raw) return "pro";
+  try {
+    return JSON.parse(raw) === "lite" ? "lite" : "pro";
+  } catch {
+    return "pro";
+  }
 }
 
 /** The sidebar preference from its raw storage value (a JSON string). */
@@ -75,8 +90,8 @@ export function applyDocumentTheme(doc: Document, theme: BootTheme): void {
  * `__tests__/theme-boot.test.ts` runs it against the same cases as
  * {@link resolveBootTheme} so the two cannot drift.
  */
-export const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement,s=null,b=null,o=false;try{s=localStorage.getItem(${JSON.stringify(
+export const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement,s=null,b=null,v=null,o=false;try{s=localStorage.getItem(${JSON.stringify(
   THEME_STORAGE_KEY,
-)});b=localStorage.getItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)});}catch(e){}try{o=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}var t=s==="light"||s==="dark"?s:s==="system"?(o?"dark":"light"):"dark";d.setAttribute("data-theme",t);d.classList.toggle("zunia-dark",t==="dark");d.classList.toggle("zunia-light",t==="light");d.style.colorScheme=t;var m=document.querySelectorAll('meta[name="theme-color"]');for(var i=0;i<m.length;i++)m[i].setAttribute("content",t==="dark"?${JSON.stringify(
+)});b=localStorage.getItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)});v=localStorage.getItem(${JSON.stringify(VIEW_STORAGE_KEY)});}catch(e){}try{o=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}var t=s==="light"||s==="dark"?s:s==="system"?(o?"dark":"light"):"dark";d.setAttribute("data-theme",t);d.classList.toggle("zunia-dark",t==="dark");d.classList.toggle("zunia-light",t==="light");d.style.colorScheme=t;var m=document.querySelectorAll('meta[name="theme-color"]');for(var i=0;i<m.length;i++)m[i].setAttribute("content",t==="dark"?${JSON.stringify(
   THEME_COLORS.dark,
-)}:${JSON.stringify(THEME_COLORS.light)});var p=null;try{p=b?JSON.parse(b):null;}catch(e){}if(p==="collapsed"||p==="expanded")d.setAttribute("data-sidebar",p);}catch(e){}})();`;
+)}:${JSON.stringify(THEME_COLORS.light)});var p=null;try{p=b?JSON.parse(b):null;}catch(e){}if(p==="collapsed"||p==="expanded")d.setAttribute("data-sidebar",p);var w="pro";try{w=v&&JSON.parse(v)==="lite"?"lite":"pro";}catch(e){}d.setAttribute("data-view",w);}catch(e){}})();`;

@@ -253,7 +253,8 @@ function ValidatorsContent({ initial }: { initial: ApiInitial | null }) {
         </p>
       ) : null}
 
-      <div className="grid gap-[var(--d-gap)] lg:grid-cols-12">
+      {/* Lite: concentration and commission reach are analysis (CSS: this page renders on the server). */}
+      <div className="grid gap-[var(--d-gap)] lg:grid-cols-12 lite:hidden">
         <Card as="section" aria-label="Voting power concentration" className="lg:col-span-7" pending={bonded.stale}>
           <CardHeader
             title="Voting power concentration"

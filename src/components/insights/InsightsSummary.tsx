@@ -69,6 +69,8 @@ export interface InsightsSummaryProps {
   onRestore?: () => void;
   /** A shortcut was opened: its insight is hidden like a row's action. */
   onOpenStep?: (step: Insight) => void;
+  /** The "By severity" strip (Pro); Lite keeps the sentence and the shortcuts. */
+  severity?: boolean;
 }
 
 export function InsightsSummary({
@@ -86,6 +88,7 @@ export function InsightsSummary({
   onClearAll,
   onRestore,
   onOpenStep,
+  severity = true,
 }: InsightsSummaryProps) {
   const headingId = useId();
   const total = items.length;
@@ -172,7 +175,7 @@ export function InsightsSummary({
         {first ? <span id={headingId} className="sr-only">Loading insights</span> : null}
       </div>
 
-      {failed ? null : (
+      {failed || !severity ? null : (
         <div className="mt-5 flex min-w-0 flex-col gap-3 border-t border-[var(--d-hairline)] pt-4">
           {/* The mix as one bar between the label and the total: a picture of
               the whole row, not of any one column under it. */}

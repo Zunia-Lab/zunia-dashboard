@@ -78,7 +78,7 @@ function InsightsBody() {
   const now = useNow();
   const reduced = useReducedMotion();
 
-  const { setInsightsOn } = usePrefs();
+  const { setInsightsOn, lite } = usePrefs();
   const groups = useMemo(() => splitByGroup(insights.items), [insights.items]);
   const hiddenGroups = useMemo(() => splitByGroup(insights.hiddenItems), [insights.hiddenItems]);
   const steps = useMemo(() => nextSteps(groups), [groups]);
@@ -215,6 +215,7 @@ function InsightsBody() {
         onClearAll={insights.clearAll}
         onRestore={insights.restore}
         onOpenStep={(step) => insights.dismiss([step])}
+        severity={!lite}
       />
 
       {/* Nothing was read: three empty lists would only repeat it. The
@@ -229,34 +230,38 @@ function InsightsBody() {
       ) : (
         /* What to act on and keep an eye on, beside where it is (or, on one
            chain, that chain's economics) and how concentrated the value is. */
-        <div className={BOARD}>
-          <div className={MAIN}>
+        // Lite: the three lists in one column; where they are, the chain's
+        // economics and concentration are analysis.
+        <div className={lite ? "flex flex-col gap-[var(--d-gap)]" : BOARD}>
+          <div className={lite ? "contents" : MAIN}>
             <InsightGroupCard group="do-now" items={groups["do-now"]} hidden={hiddenGroups["do-now"].length} className="order-1" {...listState} />
             <InsightGroupCard group="opportunities" items={groups.opportunities} hidden={hiddenGroups.opportunities.length} limit={4} className="order-2" {...listState} />
             <InsightGroupCard group="risks" items={groups.risks} hidden={hiddenGroups.risks.length} limit={5} className="order-4" {...listState} />
           </div>
-          <div className={SIDE}>
-            {selectedChain ? (
-              <ChainContextCard chain={selectedChain} stats={stats} staking={staking} className="order-3" />
-            ) : (
-              <ByNetworkCard
-                items={insights.items}
-                chainIds={scopedChainIds}
-                portfolio={portfolio.data}
-                loading={insights.loading}
-                pending={pending}
-                onSelect={focusChain}
-                className="order-3"
-              />
-            )}
-            <ConcentrationCard portfolio={portfolio} singleChain={Boolean(selectedChain)} className="order-5" />
-          </div>
+          {lite ? null : (
+            <div className={SIDE}>
+              {selectedChain ? (
+                <ChainContextCard chain={selectedChain} stats={stats} staking={staking} className="order-3" />
+              ) : (
+                <ByNetworkCard
+                  items={insights.items}
+                  chainIds={scopedChainIds}
+                  portfolio={portfolio.data}
+                  loading={insights.loading}
+                  pending={pending}
+                  onSelect={focusChain}
+                  className="order-3"
+                />
+              )}
+              <ConcentrationCard portfolio={portfolio} singleChain={Boolean(selectedChain)} className="order-5" />
+            </div>
+          )}
         </div>
       )}
 
       <SecurityReview state={security} now={now} />
 
-      <CompareTeaser portfolio={portfolio} singleChain={Boolean(selectedChain)} />
+      {lite ? null : <CompareTeaser portfolio={portfolio} singleChain={Boolean(selectedChain)} />}
     </div>
   );
 }

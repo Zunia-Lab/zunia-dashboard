@@ -162,6 +162,31 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
     }
   };
 
+  // Lite moves the list up beside the receive card, where the deposit
+  // breakdowns sit in Pro, so that column never ends in empty space.
+  const recentlyReceived = (className: string) => (
+    <RecentTransfers
+      className={className}
+      title="Recently received"
+      items={incoming.slice(0, 8)}
+      loading={loadingHistory}
+      refreshing={activity.refreshing}
+      error={activity.error?.message ?? null}
+      onRetry={activity.refetch}
+      subtitle={`${scopeName ? `On ${scopeName}` : "All followed chains"}${since ? ` ${since}` : ""} · your own moves included`}
+      nameFor={(entry) => book.byAddress(entry)?.label ?? (ownAddresses.has(entry) ? "your account" : null)}
+      empty={<EmptyState inline icon="receive" title="Nothing received in the loaded history" body="Incoming transfers show here once the chains report them." />}
+      actions={
+        <>
+          <PartialDataBadge errors={activity.errors} />
+          <Button size="sm" variant="ghost" href="/activity" iconRight="arrowRight">
+            All activity
+          </Button>
+        </>
+      }
+    />
+  );
+
   return (
     <div className="grid grid-cols-12 items-start gap-[var(--d-gap)]">
       <StatStrip pending={activity.refreshing} className="order-2 col-span-12 lg:order-1">
@@ -176,13 +201,16 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
           sub={`${keyTypes} key type${keyTypes === 1 ? "" : "s"}`}
           info="Followed networks on this slice where your wallet has an address. Chains on the same key type share one account under different prefixes."
         />
-        <Stat
-          label="Received"
-          value={historyFailed ? <Money value={null} reason="History could not be read" /> : `${deposits.length}`}
-          sub={historyFailed ? "History unreadable" : (since ?? (activity.loading ? "Reading history…" : "No history loaded"))}
-          loading={loadingHistory}
-          info={`Deposits from other addresses (plain sends and IBC)${scopeName ? ` on ${scopeName}` : ""}, from the history public nodes keep. Transfers between your own accounts and refunds of your own transfers are not counted${excluded ? ` (${excluded} here)` : ""}.`}
-        />
+        {/* Pro only: analysis, not needed to act */}
+        {prefs.lite ? null : (
+          <Stat
+            label="Received"
+            value={historyFailed ? <Money value={null} reason="History could not be read" /> : `${deposits.length}`}
+            sub={historyFailed ? "History unreadable" : (since ?? (activity.loading ? "Reading history…" : "No history loaded"))}
+            loading={loadingHistory}
+            info={`Deposits from other addresses (plain sends and IBC)${scopeName ? ` on ${scopeName}` : ""}, from the history public nodes keep. Transfers between your own accounts and refunds of your own transfers are not counted${excluded ? ` (${excluded} here)` : ""}.`}
+          />
+        )}
         <Stat
           label="Last received"
           value={
@@ -208,25 +236,27 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
           loading={loadingHistory}
           info="The newest deposit from another address in the loaded history."
         />
-        <Stat
-          label="Received value"
-          value={
-            <Money
-              // No deposit in a history that was read is a known zero, not an unknown.
-              value={historyFailed ? null : deposits.length === 0 && historyRead ? 0 : inflow.inValue}
-              currency={valueCurrency}
-              compact
-              reason={historyFailed ? "History could not be read" : deposits.length > 0 ? "None of what came in has a price" : "No history read yet"}
-            />
-          }
-          sub={
-            historyFailed
-              ? "History unreadable"
-              : `${deposits.length} deposit${deposits.length === 1 ? "" : "s"}${deposits.length > 0 ? " · est." : ""}${inflow.unpricedIn > 0 ? ` · ${inflow.unpricedIn} unpriced` : ""}`
-          }
-          loading={loadingHistory || (deposits.length > 0 && historyPrices.loading)}
-          info={inflow.method}
-        />
+        {prefs.lite ? null : (
+          <Stat
+            label="Received value"
+            value={
+              <Money
+                // No deposit in a history that was read is a known zero, not an unknown.
+                value={historyFailed ? null : deposits.length === 0 && historyRead ? 0 : inflow.inValue}
+                currency={valueCurrency}
+                compact
+                reason={historyFailed ? "History could not be read" : deposits.length > 0 ? "None of what came in has a price" : "No history read yet"}
+              />
+            }
+            sub={
+              historyFailed
+                ? "History unreadable"
+                : `${deposits.length} deposit${deposits.length === 1 ? "" : "s"}${deposits.length > 0 ? " · est." : ""}${inflow.unpricedIn > 0 ? ` · ${inflow.unpricedIn} unpriced` : ""}`
+            }
+            loading={loadingHistory || (deposits.length > 0 && historyPrices.loading)}
+            info={inflow.method}
+          />
+        )}
       </StatStrip>
 
       <Card variant="hero" className="order-1 col-span-12 gap-4 lg:order-2 lg:col-span-5">
@@ -305,67 +335,54 @@ function ReceiveBody({ initialChainId }: { initialChainId?: string }) {
             ))}
           </ul>
         </Card>
-        <Card pending={activity.refreshing || historyPrices.loading}>
-          <CardHeader
-            title={scopeName ? `Deposits on ${scopeName}` : "Deposits by network"}
-            subtitle={`${scopeName ? "By token, at today's prices (est.)" : "From other addresses"}${since ? ` ${since}` : ""}${excluded ? ` · ${excluded} not counted` : ""}`}
-          />
-          {loadingHistory ? (
-            <BarList items={[]} loading ariaLabel="Deposits" limit={2} />
-          ) : historyFailed ? (
-            <InlineError message={activity.error?.message ?? "History could not be read."} onRetry={activity.refetch} />
-          ) : depositBars.length === 0 ? (
-            <EmptyState
-              inline
-              icon="receive"
-              title={deposits.length > 0 ? "Nothing priced came in" : "No deposits in the loaded history"}
-              body={deposits.length > 0 ? `${deposits.length} deposit${deposits.length === 1 ? "" : "s"}, none with a price to compare.` : "Where deposits from other addresses land shows here."}
-            />
-          ) : (
-            <>
-              <BarList
-                items={depositBars}
-                valueFormatter={scopeName ? moneyFormat : formatCount}
-                ariaLabel={scopeName ? `Deposits on ${scopeName} by token, estimated value` : "Deposits by network, count"}
-                limit={6}
+        {/* Pro only: deposit breakdowns are analysis; Lite keeps your addresses and what came in. */}
+        {prefs.lite ? null : (
+          <>
+            <Card pending={activity.refreshing || historyPrices.loading}>
+              <CardHeader
+                title={scopeName ? `Deposits on ${scopeName}` : "Deposits by network"}
+                subtitle={`${scopeName ? "By token, at today's prices (est.)" : "From other addresses"}${since ? ` ${since}` : ""}${excluded ? ` · ${excluded} not counted` : ""}`}
               />
-              {unpricedTokens > 0 ? (
-                <p className="mt-2 text-[12px] text-fg-dim">
-                  {unpricedTokens} token{unpricedTokens === 1 ? "" : "s"} without a price not shown.
-                </p>
-              ) : null}
-            </>
-          )}
-        </Card>
-        {senders.length > 0 ? (
-          <TopSendersCard
-            rows={senders}
-            contactName={(entry) => book.byAddress(entry)?.label ?? null}
-            subtitle={`By number of deposits${scopeName ? ` on ${scopeName}` : ""}${since ? `, ${since}` : ""}`}
-          />
-        ) : null}
+              {loadingHistory ? (
+                <BarList items={[]} loading ariaLabel="Deposits" limit={2} />
+              ) : historyFailed ? (
+                <InlineError message={activity.error?.message ?? "History could not be read."} onRetry={activity.refetch} />
+              ) : depositBars.length === 0 ? (
+                <EmptyState
+                  inline
+                  icon="receive"
+                  title={deposits.length > 0 ? "Nothing priced came in" : "No deposits in the loaded history"}
+                  body={deposits.length > 0 ? `${deposits.length} deposit${deposits.length === 1 ? "" : "s"}, none with a price to compare.` : "Where deposits from other addresses land shows here."}
+                />
+              ) : (
+                <>
+                  <BarList
+                    items={depositBars}
+                    valueFormatter={scopeName ? moneyFormat : formatCount}
+                    ariaLabel={scopeName ? `Deposits on ${scopeName} by token, estimated value` : "Deposits by network, count"}
+                    limit={6}
+                  />
+                  {unpricedTokens > 0 ? (
+                    <p className="mt-2 text-[12px] text-fg-dim">
+                      {unpricedTokens} token{unpricedTokens === 1 ? "" : "s"} without a price not shown.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </Card>
+            {senders.length > 0 ? (
+              <TopSendersCard
+                rows={senders}
+                contactName={(entry) => book.byAddress(entry)?.label ?? null}
+                subtitle={`By number of deposits${scopeName ? ` on ${scopeName}` : ""}${since ? `, ${since}` : ""}`}
+              />
+            ) : null}
+          </>
+        )}
+        {prefs.lite ? recentlyReceived("") : null}
       </div>
 
-      <RecentTransfers
-        className="order-4 col-span-12"
-        title="Recently received"
-        items={incoming.slice(0, 8)}
-        loading={loadingHistory}
-        refreshing={activity.refreshing}
-        error={activity.error?.message ?? null}
-        onRetry={activity.refetch}
-        subtitle={`${scopeName ? `On ${scopeName}` : "All followed chains"}${since ? ` ${since}` : ""} · your own moves included`}
-        nameFor={(entry) => book.byAddress(entry)?.label ?? (ownAddresses.has(entry) ? "your account" : null)}
-        empty={<EmptyState inline icon="receive" title="Nothing received in the loaded history" body="Incoming transfers show here once the chains report them." />}
-        actions={
-          <>
-            <PartialDataBadge errors={activity.errors} />
-            <Button size="sm" variant="ghost" href="/activity" iconRight="arrowRight">
-              All activity
-            </Button>
-          </>
-        }
-      />
+      {prefs.lite ? null : recentlyReceived("order-4 col-span-12")}
     </div>
   );
 }

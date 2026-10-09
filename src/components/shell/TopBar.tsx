@@ -38,6 +38,7 @@ import { NotificationsMenu } from "./NotificationsMenu";
 import { ScopeControl } from "./ScopeControl";
 import { useRouteLoading, useShellMeta, type Crumb } from "./ShellContext";
 import { useShortcutLabel } from "./shortcut";
+import { ViewToggle } from "./ViewToggle";
 
 /* ------------------------------------------------------------------ pieces */
 
@@ -204,6 +205,8 @@ export function TopBar({ pathname, onMenu, onSearch }: { pathname: string; onMen
         <TitleBlock pathname={pathname} />
         <SearchTrigger onSearch={onSearch} />
         {account ? <QuickActions pathname={pathname} /> : null}
+        {/* From lg the bar has room for it; below, the menu sheet holds it. */}
+        <ViewToggle className="hidden shrink-0 lg:flex" />
         <div className="flex shrink-0 items-center gap-0.5">
           {withWallet ? (
             <IconButton

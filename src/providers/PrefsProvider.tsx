@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 import { syncPushPrivacy } from "@/lib/data/push";
+import { VIEW_STORAGE_KEY } from "@/components/shell/theme-boot";
 import { useStoredValue } from "@/lib/useStoredValue";
 
 const HIDE_KEY = "zunia.dashboard.hideAmounts";
@@ -24,6 +25,14 @@ const NFT_MEDIA_KEY = "zunia.dashboard.nftMedia";
  * turn them off in Settings.
  */
 const INSIGHTS_KEY = "zunia.dashboard.insights.on";
+/**
+ * Lite or Pro. Pro (the full analytical dashboard) is the default; Lite keeps
+ * what a holder needs to see and act, without the analysis. The head script
+ * reads the same key to set `html[data-view]` before paint.
+ */
+const VIEW_KEY = VIEW_STORAGE_KEY;
+
+export type ViewMode = "lite" | "pro";
 
 export type FiatCurrency = "usd" | "eur" | "gbp";
 
@@ -50,6 +59,11 @@ interface Prefs {
   /** Insights on the Overview and the Insights page. Default true. */
   insightsOn: boolean;
   setInsightsOn: (value: boolean) => void;
+  /** Lite or Pro (default). */
+  viewMode: ViewMode;
+  setViewMode: (value: ViewMode) => void;
+  /** Shorthand for `viewMode === "lite"`. */
+  lite: boolean;
 }
 
 const PrefsContext = createContext<Prefs | null>(null);
@@ -62,6 +76,14 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   );
   const [nftMedia, setNftMedia] = useStoredValue(NFT_MEDIA_KEY, false);
   const [insightsOn, setInsightsOn] = useStoredValue(INSIGHTS_KEY, true);
+  const [storedView, setViewMode] = useStoredValue<ViewMode>(VIEW_KEY, "pro");
+  const viewMode: ViewMode = storedView === "lite" ? "lite" : "pro";
+
+  // CSS reads the view from <html data-view> (the `lite:` variant): keep it in
+  // step with this tab's toggle and another tab's (through `storage`).
+  useEffect(() => {
+    document.documentElement.setAttribute("data-view", viewMode);
+  }, [viewMode]);
 
   const toggleHideAmounts = useCallback(
     () => setHideAmounts((prev) => !prev),
@@ -90,8 +112,11 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
         : null,
       insightsOn,
       setInsightsOn,
+      viewMode,
+      setViewMode,
+      lite: viewMode === "lite",
     }),
-    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia, insightsOn, setInsightsOn],
+    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia, insightsOn, setInsightsOn, viewMode, setViewMode],
   );
 
   return (

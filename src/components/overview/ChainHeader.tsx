@@ -52,7 +52,7 @@ function shareText(fraction: number): string {
 }
 
 export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stats: ChainStatsState; staking: StakingPositionsState }) {
-  const { hideAmounts } = usePrefs();
+  const { hideAmounts, lite } = usePrefs();
   const s = stats.statsFor(chain.chainId);
   const position = staking.chainFor(chain.chainId);
   const loading = stats.loading && !s;
@@ -127,7 +127,13 @@ export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stat
         <InlineError message={stats.error?.message ?? "Chain economics could not be read."} onRetry={stats.refetch} />
       ) : (
         <CardBody flush className="@container">
-          <dl className="grid grid-cols-2 gap-px border-t border-[var(--d-hairline)] bg-[var(--d-hairline)] @[520px]:grid-cols-4 @[1080px]:grid-cols-8">
+          <dl
+            className={cn(
+              "grid grid-cols-2 gap-px border-t border-[var(--d-hairline)] bg-[var(--d-hairline)] @[520px]:grid-cols-4",
+              // Lite: APR, bonded, unbonding, validators; four across.
+              !lite && "@[1080px]:grid-cols-8",
+            )}
+          >
             <Vital
               label="Staking APR"
               loading={loading}
@@ -142,6 +148,7 @@ export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stat
               info={<AprInfo stats={s} />}
             />
             <Vital
+              pro
               label="Inflation"
               loading={loading}
               value={<Percent value={pct(s?.inflation.actual)} digits={2} reason={reasons.inflation} />}
@@ -192,6 +199,7 @@ export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stat
               sub={s?.top10Share != null ? `top 10 hold ${formatPercent(s.top10Share * 100, { digits: 0 })}` : undefined}
             />
             <Vital
+              pro
               label="Nakamoto"
               loading={loading}
               value={s?.nakamoto != null ? String(s.nakamoto) : <Percent value={null} reason={reasons.nakamoto} />}
@@ -199,6 +207,7 @@ export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stat
               info="The smallest number of validators that together hold more than a third of the voting power: enough to halt the chain. Higher is more decentralised."
             />
             <Vital
+              pro
               label="Block time"
               loading={loading}
               value={s?.blockTimeSec != null ? formatDuration(s.blockTimeSec) : <Percent value={null} reason={reasons.blockTimeSec} />}
@@ -206,6 +215,7 @@ export function ChainHeader({ chain, stats, staking }: { chain: ChainEntry; stat
               info="The average time between the last blocks, against the block time the chain's mint parameters assume. Faster blocks mean more issuance per year than the parameters state, which is why the staking APR differs from the published one."
             />
             <Vital
+              pro
               // Short enough to keep its (i) in an eighth of the card.
               label="Your share"
               loading={loading || staking.loading}
@@ -278,13 +288,18 @@ function Vital({
   sub,
   info,
   loading,
+  pro,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   info?: ReactNode;
   loading?: boolean;
+  /** Analysis the Lite view leaves out (inflation, Nakamoto, block time, your share). */
+  pro?: boolean;
 }) {
+  const { lite } = usePrefs();
+  if (pro && lite) return null;
   return (
     <div className="flex min-w-0 flex-col gap-1 bg-[var(--d-card)] px-[var(--d-pad)] py-3.5">
       <dt className="flex items-center gap-1 text-[12px] text-fg-dim">

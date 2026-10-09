@@ -229,7 +229,7 @@ function GovernanceView({ linkChain, initial }: { linkChain: string | null | und
       />
 
       <div className="grid grid-cols-1 gap-[var(--d-gap)] xl:grid-cols-12 xl:items-start">
-        <section aria-labelledby={`${tabsId}-heading`} className="flex min-w-0 flex-col gap-3 xl:col-span-8 2xl:col-span-9">
+        <section aria-labelledby={`${tabsId}-heading`} className="flex min-w-0 flex-col gap-3 xl:col-span-8 2xl:col-span-9 lite:xl:col-span-12 lite:2xl:col-span-12">
           <h2 id={`${tabsId}-heading`} className="sr-only">
             Proposals
           </h2>
@@ -333,7 +333,7 @@ function GovernanceView({ linkChain, initial }: { linkChain: string | null | und
               ) : (
                 <ul
                   className={cn(
-                    "grid grid-cols-1 gap-[var(--d-gap)] transition-opacity duration-[160ms] 2xl:grid-cols-2",
+                    "grid grid-cols-1 gap-[var(--d-gap)] transition-opacity duration-[160ms] 2xl:grid-cols-2 lite:xl:grid-cols-2",
                     pending && "opacity-60",
                   )}
                   aria-busy={pending || undefined}
@@ -353,7 +353,8 @@ function GovernanceView({ linkChain, initial }: { linkChain: string | null | und
             rather than stretching one per row across the page. */}
         <aside
           aria-label="Deadlines, outcomes and rules"
-          className="grid min-w-0 grid-cols-1 items-start gap-[var(--d-gap)] md:grid-cols-2 md:[&>:only-child]:col-span-2 xl:col-span-4 xl:flex xl:flex-col xl:items-stretch 2xl:col-span-3"
+          // Lite: closing soon, outcomes and each chain's rules are analysis; the proposals take the width.
+          className="grid min-w-0 grid-cols-1 items-start gap-[var(--d-gap)] md:grid-cols-2 md:[&>:only-child]:col-span-2 xl:col-span-4 xl:flex xl:flex-col xl:items-stretch 2xl:col-span-3 lite:hidden"
         >
           <ClosingSoon rows={allRows} now={now} pending={pending} />
           <RecentOutcomes rows={allRows} chainIds={chainIds} loading={listLoading} pending={all.stale} />

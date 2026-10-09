@@ -55,7 +55,7 @@ export function Lockup() {
 /* ------------------------------------------------------------------ nav list */
 
 interface NavLinkProps {
-  item: Pick<NavItem, "href" | "label" | "icon" | "badge">;
+  item: Pick<NavItem, "href" | "label" | "icon" | "badge" | "pro">;
   active: boolean;
   onNavigate?: () => void;
   /** Icon mode: show the label as a hover / focus tip. */
@@ -74,6 +74,7 @@ export function NavLink({ item, active, onNavigate, tip }: NavLinkProps) {
         "transition-[background-color,color] duration-[160ms] ease-[var(--d-ease)] pointer-coarse:h-11",
         // Short laptop windows: a tighter list so the whole nav fits.
         "[@media(max-height:820px)_and_(pointer:fine)]:h-[30px]",
+        item.pro && "lite:hidden",
         active
           ? "bg-[var(--d-glass-2)] font-medium text-fg"
           : "text-fg-muted hover:bg-[var(--d-glass)] hover:text-fg active:bg-[var(--d-glass-2)]",

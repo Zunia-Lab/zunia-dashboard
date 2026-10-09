@@ -92,7 +92,7 @@ function useItems(close: () => void) {
   const { account, walletKind, disconnect } = useWallet();
   const modal = useConnectModal();
   const { resolved, setTheme } = useTheme();
-  const { hideAmounts, toggleHideAmounts } = usePrefs();
+  const { hideAmounts, toggleHideAmounts, lite, setViewMode } = usePrefs();
   const { followedAll, selectedChainId, selectChain } = useChainScope();
   const markets = useMarkets();
 
@@ -119,6 +119,17 @@ function useItems(close: () => void) {
       run: () => {
         close();
         toggleHideAmounts();
+      },
+    },
+    {
+      id: "action:view",
+      label: lite ? "Switch to Pro view" : "Switch to Lite view",
+      detail: lite ? "Every chart and analysis" : "The essentials: balances, sends, swaps, staking, votes, activity",
+      icon: lite ? "layers" : "grid",
+      keywords: ["lite", "pro", "simple", "advanced", "view", "mode"],
+      run: () => {
+        close();
+        setViewMode(lite ? "pro" : "lite");
       },
     },
     {

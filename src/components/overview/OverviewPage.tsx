@@ -41,6 +41,7 @@ import { OverviewOnboarding } from "./OverviewOnboarding";
 import { RecentActivity } from "./RecentActivity";
 import { TopAssets } from "./TopAssets";
 import { UnbondingReleases } from "./UnbondingReleases";
+import { usePrefs } from "@/providers/PrefsProvider";
 
 const chainName = (chainId: string) => findChain(chainId)?.chainName ?? chainId;
 
@@ -66,6 +67,7 @@ function OverviewBody() {
   const activity = useActivity();
   const markets = useMarkets();
   const insights = useInsights();
+  const { lite } = usePrefs();
   const now = useNow();
   const reduced = useReducedMotion();
 
@@ -195,9 +197,10 @@ function OverviewBody() {
             </div>
           ) : null}
 
+          {/* Lite: the one-chain header stays (four vitals); the chains table is analysis. */}
           {selectedChain ? (
             <ChainHeader chain={selectedChain} stats={stats} staking={staking} />
-          ) : (
+          ) : lite ? null : (
             <ChainsBreakdown portfolio={portfolio} stats={stats} onSelect={focusChain} skipped={skipped} />
           )}
 

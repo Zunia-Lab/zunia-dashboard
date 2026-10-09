@@ -1004,48 +1004,53 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
           loading={loadingHistory}
           info={`Counted from the history public nodes keep${since ? ` (loaded ${since})` : ""}${scopeName ? `, touching ${scopeName}` : ""}. A move between two of your own accounts ("to yourself") counts once.`}
         />
-        <Stat
-          label="Away from home"
-          value={
-            balancesFailed ? (
-              <Money value={null} reason="Balances could not be read" />
-            ) : away.count > 0 ? (
-              <Money value={away.value} currency={currency} compact reason="None of them is priced" />
-            ) : (
-              <span className="text-fg-dim">None</span>
-            )
-          }
-          sub={
-            balancesFailed
-              ? "Balances unreadable"
-              : away.count > 0
-                ? `${away.count} IBC token${away.count === 1 ? "" : "s"} off their home chain${away.unpriced > 0 ? ` · ${away.unpriced} unpriced` : ""}`
-                : portfolio.data
-                  ? "All on their home chains"
-                  : undefined
-          }
-          loading={portfolio.loading && !portfolio.data}
-          info="IBC vouchers held on a chain other than the one that issues them. Sending one home turns it back into the native token."
-        />
-        <Stat
-          label="Moved out"
-          value={
-            <Money
-              // Nothing moved out in a history that was read is a known zero, not an unknown.
-              value={historyFailed ? null : movedOutItems.length === 0 && historyRead ? 0 : movedOut.outValue}
-              currency={historyPrices.currency ?? currency}
-              compact
-              reason={historyFailed ? "History could not be read" : movedOutItems.length > 0 ? "None of what moved has a price" : "No history read yet"}
-            />
-          }
-          sub={
-            historyFailed
-              ? "History unreadable"
-              : `${movedOutItems.length} transfer${movedOutItems.length === 1 ? "" : "s"}${movedOutItems.length > 0 ? " · est." : ""}${movedOut.unpricedOut > 0 ? ` · ${movedOut.unpricedOut} unpriced` : ""}`
-          }
-          loading={loadingHistory || (movedOutItems.length > 0 && historyPrices.loading)}
-          info={`IBC transfers out ${since ?? "in the loaded history"}${scopeName ? `, touching ${scopeName}` : ""}. ${movedOut.method}`}
-        />
+        {/* Pro only: analysis, not needed to act */}
+        {prefs.lite ? null : (
+          <Stat
+            label="Away from home"
+            value={
+              balancesFailed ? (
+                <Money value={null} reason="Balances could not be read" />
+              ) : away.count > 0 ? (
+                <Money value={away.value} currency={currency} compact reason="None of them is priced" />
+              ) : (
+                <span className="text-fg-dim">None</span>
+              )
+            }
+            sub={
+              balancesFailed
+                ? "Balances unreadable"
+                : away.count > 0
+                  ? `${away.count} IBC token${away.count === 1 ? "" : "s"} off their home chain${away.unpriced > 0 ? ` · ${away.unpriced} unpriced` : ""}`
+                  : portfolio.data
+                    ? "All on their home chains"
+                    : undefined
+            }
+            loading={portfolio.loading && !portfolio.data}
+            info="IBC vouchers held on a chain other than the one that issues them. Sending one home turns it back into the native token."
+          />
+        )}
+        {prefs.lite ? null : (
+          <Stat
+            label="Moved out"
+            value={
+              <Money
+                // Nothing moved out in a history that was read is a known zero, not an unknown.
+                value={historyFailed ? null : movedOutItems.length === 0 && historyRead ? 0 : movedOut.outValue}
+                currency={historyPrices.currency ?? currency}
+                compact
+                reason={historyFailed ? "History could not be read" : movedOutItems.length > 0 ? "None of what moved has a price" : "No history read yet"}
+              />
+            }
+            sub={
+              historyFailed
+                ? "History unreadable"
+                : `${movedOutItems.length} transfer${movedOutItems.length === 1 ? "" : "s"}${movedOutItems.length > 0 ? " · est." : ""}${movedOut.unpricedOut > 0 ? ` · ${movedOut.unpricedOut} unpriced` : ""}`
+            }
+            loading={loadingHistory || (movedOutItems.length > 0 && historyPrices.loading)}
+            info={`IBC transfers out ${since ?? "in the loaded history"}${scopeName ? `, touching ${scopeName}` : ""}. ${movedOut.method}`}
+          />
+        )}
       </StatStrip>
 
       <div className="order-1 col-span-12 flex min-w-0 flex-col gap-[var(--d-gap)] lg:order-2 lg:col-span-7">
@@ -1058,14 +1063,17 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
       <div className="order-3 col-span-12 grid min-w-0 grid-cols-1 items-start gap-[var(--d-gap)] md:grid-cols-2 lg:col-span-5 lg:grid-cols-1">
         <div className={SIDE_STACK}>
           <InFlightCard pending={pending} />
-          <ChainSpreadCard
-            items={chainBars}
-            loading={portfolio.loading && !portfolio.data}
-            refreshing={portfolio.refreshing}
-            valueFormatter={moneyFormat}
-            error={balancesFailed ? (portfolio.error?.message ?? "Balances could not be read.") : null}
-            onRetry={portfolio.refetch}
-          />
+          {/* Pro only: where the tokens are is analysis; Lite keeps what is in flight and where to send next. */}
+          {prefs.lite ? null : (
+            <ChainSpreadCard
+              items={chainBars}
+              loading={portfolio.loading && !portfolio.data}
+              refreshing={portfolio.refreshing}
+              valueFormatter={moneyFormat}
+              error={balancesFailed ? (portfolio.error?.message ?? "Balances could not be read.") : null}
+              onRetry={portfolio.refetch}
+            />
+          )}
         </div>
         <div className={SIDE_STACK}>
           <RouteSuggestionsCard
@@ -1077,7 +1085,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
             error={balancesFailed ? (portfolio.error?.message ?? "Balances could not be read.") : null}
             onRetry={portfolio.refetch}
           />
-          {routeTimings.length > 0 ? <DeliveryTimesCard rows={routeTimings} since={allSince} /> : null}
+          {routeTimings.length > 0 && !prefs.lite ? <DeliveryTimesCard rows={routeTimings} since={allSince} /> : null}
         </div>
       </div>
 

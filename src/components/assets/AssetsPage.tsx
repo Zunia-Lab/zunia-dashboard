@@ -56,7 +56,7 @@ function AssetsBody() {
   const markets = useMarkets();
   // The scope's chain stats: which coin each chain stakes, and its APR.
   const { bondDenomOf, stats: chainStats } = useBondDenoms();
-  const { currency: preferred } = usePrefs();
+  const { currency: preferred, lite } = usePrefs();
   const floor = useSmallFloor();
 
   const data = portfolio.data;
@@ -152,38 +152,41 @@ function AssetsBody() {
         </Callout>
       ) : null}
       <AssetsSummary summary={summary} currency={currency} loading={loading} scopeShare={scopeShare} stale={pending} floor={floor} />
-      {/* Three across from 1440 px; below, two and the staking card under them
+      {/* Lite: the holdings list is the page; allocation, movers and staking coverage are analysis.
+          Pro: three across from 1440 px; below, two and the staking card under them
           (a 1280 px third leaves the movers' bars no room). */}
-      <div className="grid gap-[var(--d-gap)] md:grid-cols-2 min-[90rem]:grid-cols-3">
-        <AllocationCard
-          data={data}
-          groups={groups}
-          currency={currency}
-          loading={loading}
-          pending={pending}
-          refreshing={refreshing}
-          singleChain={singleChain}
-        />
-        <MoversCard
-          data={data}
-          groups={groups}
-          marketPct={marketPct}
-          currency={currency}
-          loading={loading}
-          pending={pending}
-          refreshing={refreshing}
-        />
-        <StakingCoverageCard
-          data={data}
-          bondDenomOf={bondDenomOf}
-          stats={chainStats}
-          currency={currency}
-          loading={loading}
-          pending={pending}
-          refreshing={refreshing}
-          className="md:col-span-2 min-[90rem]:col-span-1"
-        />
-      </div>
+      {lite ? null : (
+        <div className="grid gap-[var(--d-gap)] md:grid-cols-2 min-[90rem]:grid-cols-3">
+          <AllocationCard
+            data={data}
+            groups={groups}
+            currency={currency}
+            loading={loading}
+            pending={pending}
+            refreshing={refreshing}
+            singleChain={singleChain}
+          />
+          <MoversCard
+            data={data}
+            groups={groups}
+            marketPct={marketPct}
+            currency={currency}
+            loading={loading}
+            pending={pending}
+            refreshing={refreshing}
+          />
+          <StakingCoverageCard
+            data={data}
+            bondDenomOf={bondDenomOf}
+            stats={chainStats}
+            currency={currency}
+            loading={loading}
+            pending={pending}
+            refreshing={refreshing}
+            className="md:col-span-2 min-[90rem]:col-span-1"
+          />
+        </div>
+      )}
       <HoldingsCard
         data={data}
         markets={marketByKey}

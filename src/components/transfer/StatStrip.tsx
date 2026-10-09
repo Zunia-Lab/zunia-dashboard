@@ -5,11 +5,17 @@
  * bare tiles split by hairlines (two by two on phones). Each tile says what
  * its figure covers in its sub line; a figure the reads cannot back is "—"
  * with the reason.
+ *
+ * The columns follow the number of tiles (the Lite view passes fewer, as
+ * `null` children), so a strip of two never ends in an empty half.
  */
 
 import { Children, type ReactNode } from "react";
 import { Card, StatTile, type StatTileProps } from "@/components/ui";
 import { cn } from "@/lib/cn";
+
+/** Literal classes (Tailwind only generates what it can read in the source). */
+const DESKTOP_COLUMNS: Readonly<Record<number, string>> = { 1: "lg:grid-cols-1", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4" };
 
 /**
  * `pending`: a refetch is in flight; the figures stay on screen, dimmed
@@ -17,24 +23,30 @@ import { cn } from "@/lib/cn";
  */
 export function StatStrip({ children, pending, className }: { children: ReactNode; pending?: boolean; className?: string }) {
   const cells = Children.toArray(children);
+  const count = cells.length;
+  const rows = Math.ceil(count / 2);
   return (
-    <Card padding="none" pending={pending} className={cn("grid gap-0 grid-cols-2 lg:grid-cols-4", className)}>
-      {cells.map((cell, index) => (
-        <div
-          key={index}
-          className={cn(
-            "d-card-body min-w-0 border-[var(--d-hairline)] px-[var(--d-pad)] py-3.5",
-            // Phones and tablets: 2 × 2 — a right rule on the left column, a bottom rule on the first row.
-            index % 2 === 0 && "border-r",
-            index < 2 && "max-lg:border-b",
-            // Desktop: one row, a rule between cells.
-            "lg:border-b-0",
-            index < cells.length - 1 ? "lg:border-r" : "lg:border-r-0",
-          )}
-        >
-          {cell}
-        </div>
-      ))}
+    <Card padding="none" pending={pending} className={cn("grid gap-0 grid-cols-2", DESKTOP_COLUMNS[Math.min(4, Math.max(1, count))], className)}>
+      {cells.map((cell, index) => {
+        // An odd last tile takes the whole row on phones and tablets.
+        const alone = count % 2 === 1 && index === count - 1;
+        return (
+          <div
+            key={index}
+            className={cn(
+              "d-card-body min-w-0 border-[var(--d-hairline)] px-[var(--d-pad)] py-3.5",
+              // Phones and tablets: two by two — a right rule on the left column, a bottom rule above the last row.
+              index % 2 === 0 && !alone && "max-lg:border-r",
+              alone && "max-lg:col-span-2",
+              Math.floor(index / 2) < rows - 1 && "max-lg:border-b",
+              // Desktop: one row, a rule between cells.
+              index < count - 1 && "lg:border-r",
+            )}
+          >
+            {cell}
+          </div>
+        );
+      })}
     </Card>
   );
 }

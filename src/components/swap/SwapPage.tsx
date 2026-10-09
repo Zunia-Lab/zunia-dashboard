@@ -731,8 +731,8 @@ function SwapDesk({ link }: { link: SwapLink }) {
           tablets: the swap card first, then the figures, then the rest. */}
       <div className="grid grid-cols-1 items-start gap-[var(--d-gap)] lg:grid-cols-[380px_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)] min-[90rem]:grid-cols-[440px_minmax(0,1fr)] 2xl:grid-cols-[460px_minmax(0,1fr)]">
         {/* Nothing to count without balances or the venue's listing: the swap
-            card says which is missing on its own. */}
-        {holdingsError || noHoldings || (swapAssets.error && !swapAssets.data) ? null : (
+            card says which is missing on its own. Lite leaves the counts out. */}
+        {prefs.lite || holdingsError || noHoldings || (swapAssets.error && !swapAssets.data) ? null : (
           <SwapStrip
             sell={sell}
             listed={listed}
@@ -789,13 +789,15 @@ function SwapDesk({ link }: { link: SwapLink }) {
             nothingToSell={holdingsError ? "error" : noHoldings ? "empty" : null}
             now={now}
           />
-          {from && to ? (
+          {from && to && !prefs.lite ? (
             <PairChart from={from} to={to} quoteRate={typedShown && !quoteState.stale && typedShown.rate.toPerFrom ? Number(typedShown.rate.toPerFrom) : null} />
           ) : null}
+          {/* Lite: recent swaps take the chart's place beside the card. */}
+          {prefs.lite ? <RecentSwaps /> : null}
         </div>
       </div>
 
-      <RecentSwaps />
+      {prefs.lite ? null : <RecentSwaps />}
 
       <ReviewDialog
         open={dialogOpen}

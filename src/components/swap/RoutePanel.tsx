@@ -30,6 +30,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Disclosure,
   EmptyState,
   InfoTip,
   InlineError,
@@ -44,6 +45,7 @@ import { minimumReceived, type SwapQuotePrice } from "@/lib/data/swap";
 import type { AssetOption } from "@/lib/swap/assets";
 import type { SwapFee } from "@/lib/swap/fee";
 import { ratioText } from "@/lib/swap/format";
+import { usePrefs } from "@/providers/PrefsProvider";
 import { CostBreakdown } from "./CostBreakdown";
 import { QuoteClock, type QuoteClockProps } from "./QuoteClock";
 import { RouteDiagram, type VenueToken } from "./RouteDiagram";
@@ -230,6 +232,7 @@ function QuoteBody({
   venueToken,
   slippagePercent,
 }: RoutePanelProps & { quote: SwapQuotePrice; from: AssetOption; to: AssetOption; inverted: boolean; onInvert: () => void }) {
+  const { lite } = usePrefs();
   const impact = impactView(quote.priceImpact);
   const minimum = minimumReceived(quote, { ticker: to.ticker, decimals: to.decimals });
   const market = marketRate(prices.from, prices.to);
@@ -288,6 +291,53 @@ function QuoteBody({
       ? `1 ${to.ticker} = ${quote.rate.fromPerTo} ${from.ticker}`
       : null;
   const marketText = market !== null ? ratioText(inverted ? 1 / market : market) : null;
+
+  // The route and the cost lines (see the Lite note where they render).
+  const routeAndCosts = (
+    <>
+      {/* Route */}
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="d-label">Route</h3>
+          {quote.path === "move-first" ? (
+            <Badge tone="warning" size="sm" icon="hourglass">
+              Estimate
+            </Badge>
+          ) : null}
+        </div>
+        <RouteDiagram quote={quote} splits={splits} from={from} to={to} venueToken={venueToken} />
+      </div>
+
+      {/* What it costs, line by line */}
+      {breakdown ? (
+        <CostBreakdown
+          breakdown={breakdown}
+          currency={prices.currency}
+          allInPercent={cost?.percent ?? null}
+          subs={{
+            ...(fee && fee.fee > BigInt(0)
+              ? { zunia: <TokenAmount amount={fee.fee} decimals={from.decimals} symbol={from.ticker} masked={false} /> }
+              : {}),
+            ...(networkReady
+              ? {
+                  network: (
+                    <span className={cn(networkFee.stale && "opacity-60")}>
+                      {formatAmount(networkFee.amount ?? null, { maxFraction: 6 })} {networkFee.symbol} · {networkFee.measured ? "simulated" : "estimate"}
+                    </span>
+                  ),
+                }
+              : {}),
+          }}
+          reasons={{
+            taker: "Not reported by the router",
+            spread: "Not reported for every pool",
+            impact: "Not reported by the router",
+            network: networkFee.state === "loading" ? "Simulating…" : (networkFee.reason ?? "Not measured"),
+          }}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -395,47 +445,16 @@ function QuoteBody({
         />
       </div>
 
-      {/* Route */}
-      <div className="flex flex-col gap-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="d-label">Route</h3>
-          {quote.path === "move-first" ? (
-            <Badge tone="warning" size="sm" icon="hourglass">
-              Estimate
-            </Badge>
-          ) : null}
-        </div>
-        <RouteDiagram quote={quote} splits={splits} from={from} to={to} venueToken={venueToken} />
-      </div>
-
-      {/* What it costs, line by line */}
-      {breakdown ? (
-        <CostBreakdown
-          breakdown={breakdown}
-          currency={prices.currency}
-          allInPercent={cost?.percent ?? null}
-          subs={{
-            ...(fee && fee.fee > BigInt(0)
-              ? { zunia: <TokenAmount amount={fee.fee} decimals={from.decimals} symbol={from.ticker} masked={false} /> }
-              : {}),
-            ...(networkReady
-              ? {
-                  network: (
-                    <span className={cn(networkFee.stale && "opacity-60")}>
-                      {formatAmount(networkFee.amount ?? null, { maxFraction: 6 })} {networkFee.symbol} · {networkFee.measured ? "simulated" : "estimate"}
-                    </span>
-                  ),
-                }
-              : {}),
-          }}
-          reasons={{
-            taker: "Not reported by the router",
-            spread: "Not reported for every pool",
-            impact: "Not reported by the router",
-            network: networkFee.state === "loading" ? "Simulating…" : (networkFee.reason ?? "Not measured"),
-          }}
-        />
-      ) : null}
+      {/* Lite folds the route and the cost lines into one disclosure: the
+          figures above (impact, minimum, network fee) are what a swap needs,
+          and every cost, the 0.5% Zunia fee included, stays one click away. */}
+      {lite ? (
+        <Disclosure summary="Route and every cost" variant="inset">
+          <div className="flex flex-col gap-4 pt-1">{routeAndCosts}</div>
+        </Disclosure>
+      ) : (
+        routeAndCosts
+      )}
 
       {quote.warnings.length > 0 ? (
         <ul className="flex flex-col gap-1.5">

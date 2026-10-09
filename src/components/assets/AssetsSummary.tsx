@@ -15,6 +15,7 @@
 import { AssetLogo, Delta, Dot, Money, Percent, StatTile } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { UNPRICED_TEXT } from "@/lib/token/wire";
+import { usePrefs } from "@/providers/PrefsProvider";
 import { SMALL_VALUE, floorText, type HoldingsSummary, type Mover } from "./holdings";
 
 export interface AssetsSummaryProps {
@@ -52,6 +53,7 @@ function MoverLine({ mover, side, floorLabel }: { mover: Mover | null; side: "be
 }
 
 export function AssetsSummary({ summary, currency, loading, scopeShare, stale, floor = SMALL_VALUE }: AssetsSummaryProps) {
+  const { lite } = usePrefs();
   const pending = loading || !summary;
   const unpriced = summary?.unpricedCount ?? 0;
   const floorLabel = floorText(floor, currency);
@@ -79,10 +81,10 @@ export function AssetsSummary({ summary, currency, loading, scopeShare, stale, f
     <section aria-label="Key figures" className="@container">
       <div
         aria-busy={stale || undefined}
-        className={cn("grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms] @[820px]:grid-cols-4", stale && "opacity-60")}
+        className={cn("grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms]", !lite && "@[820px]:grid-cols-4", stale && "opacity-60")}
       >
         <StatTile
-          className="col-span-2 @[600px]:col-span-1"
+          className={lite ? undefined : "col-span-2 @[600px]:col-span-1"}
           label="Total value"
           icon="wallet"
           tone="accent"
@@ -130,46 +132,51 @@ export function AssetsSummary({ summary, currency, loading, scopeShare, stale, f
           }
           info={assetsInfo}
         />
-        <StatTile
-          label="Top position"
-          icon="markets"
-          loading={pending}
-          value={
-            summary?.largest ? (
-              <span className="flex min-w-0 items-center gap-2">
-                <AssetLogo src={summary.largest.group.identity.logoUrl} symbol={summary.largest.group.identity.ticker} size={22} />
-                <span className="truncate">{summary.largest.group.identity.ticker}</span>
+        {/* Lite: total and count; concentration and movers are analysis. */}
+        {lite ? null : (
+          <>
+          <StatTile
+            label="Top position"
+            icon="markets"
+            loading={pending}
+            value={
+              summary?.largest ? (
+                <span className="flex min-w-0 items-center gap-2">
+                  <AssetLogo src={summary.largest.group.identity.logoUrl} symbol={summary.largest.group.identity.ticker} size={22} />
+                  <span className="truncate">{summary.largest.group.identity.ticker}</span>
+                </span>
+              ) : (
+                <span className="text-fg-dim">—</span>
+              )
+            }
+            sub={
+              summary?.largest ? (
+                <span>
+                  <Percent value={summary.largest.share} digits={1} className="font-medium text-fg-muted" /> of total ·{" "}
+                  {/* Cents, as the holdings table prints the same position. */}
+                  <Money value={summary.largest.group.value} currency={currency} compact precision={2} />
+                </span>
+              ) : (
+                "no priced position"
+              )
+            }
+            info="Share of the priced value of this scope; the Allocation card shows the rest and how concentrated it is."
+          />
+          <StatTile
+            className="col-span-2 @[600px]:col-span-1"
+            label="Best / worst 24h"
+            icon="trendingUp"
+            loading={pending}
+            value={
+              <span className="flex flex-col gap-1.5 pt-0.5">
+                <MoverLine mover={summary?.best ?? null} side="best" floorLabel={floorLabel} />
+                <MoverLine mover={summary?.worst ?? null} side="worst" floorLabel={floorLabel} />
               </span>
-            ) : (
-              <span className="text-fg-dim">—</span>
-            )
-          }
-          sub={
-            summary?.largest ? (
-              <span>
-                <Percent value={summary.largest.share} digits={1} className="font-medium text-fg-muted" /> of total ·{" "}
-                {/* Cents, as the holdings table prints the same position. */}
-                <Money value={summary.largest.group.value} currency={currency} compact precision={2} />
-              </span>
-            ) : (
-              "no priced position"
-            )
-          }
-          info="Share of the priced value of this scope; the Allocation card shows the rest and how concentrated it is."
-        />
-        <StatTile
-          className="col-span-2 @[600px]:col-span-1"
-          label="Best / worst 24h"
-          icon="trendingUp"
-          loading={pending}
-          value={
-            <span className="flex flex-col gap-1.5 pt-0.5">
-              <MoverLine mover={summary?.best ?? null} side="best" floorLabel={floorLabel} />
-              <MoverLine mover={summary?.worst ?? null} side="worst" floorLabel={floorLabel} />
-            </span>
-          }
-          info={`Price change over 24 h among positions worth at least ${floorLabel}: dust that tripled is noise, not news.`}
-        />
+            }
+            info={`Price change over 24 h among positions worth at least ${floorLabel}: dust that tripled is noise, not news.`}
+          />
+          </>
+        )}
       </div>
     </section>
   );

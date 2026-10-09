@@ -12,6 +12,7 @@ import {
   THEME_COLORS,
   applyDocumentTheme,
   parseSidebarPref,
+  parseViewPref,
   resolveBootTheme,
 } from "../theme-boot";
 
@@ -121,4 +122,18 @@ test("applyDocumentTheme mirrors the script", () => {
   assert.ok(!state.classes.has("zunia-dark"));
   assert.equal(state.colorScheme, "light");
   for (const meta of state.metas) assert.equal(meta.content, THEME_COLORS.light);
+});
+
+test("the inline script sets the Lite / Pro view, Pro unless Lite is stored", () => {
+  assert.equal(runScript({ "zunia.dashboard.view": JSON.stringify("lite") }, true).attrs["data-view"], "lite");
+  assert.equal(runScript({ "zunia.dashboard.view": JSON.stringify("pro") }, true).attrs["data-view"], "pro");
+  assert.equal(runScript({ "zunia.dashboard.view": "{oops" }, true).attrs["data-view"], "pro");
+  assert.equal(runScript({}, true).attrs["data-view"], "pro");
+});
+
+test("parseViewPref agrees with the script", () => {
+  assert.equal(parseViewPref(JSON.stringify("lite")), "lite");
+  assert.equal(parseViewPref(JSON.stringify("pro")), "pro");
+  assert.equal(parseViewPref("lite"), "pro");
+  assert.equal(parseViewPref(null), "pro");
 });

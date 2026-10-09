@@ -370,62 +370,67 @@ function ActivityView({ initialFilters }: ActivityPageProps) {
         />
       ) : null}
 
-      <ActivitySummary
-        rows={rows}
-        prices={priceMap}
-        currency={currency}
-        window={window_}
-        trend={trend}
-        comparison={comparison}
-        ownBodies={ownBodies}
-        complete={complete}
-        loading={summaryLoading}
-        pricesLoading={pricesLoading}
-      />
-
-      {!emptyView ? (
-        <div className="grid grid-cols-12 gap-[var(--d-gap)]">
-          <ActivityOverTime
-            className="col-span-12 xl:col-span-8"
-            periods={periods}
+      {/* Lite: the list is the page; the summary figures and the charts are analysis. */}
+      {prefs.lite ? null : (
+        <>
+          <ActivitySummary
+            rows={rows}
+            prices={priceMap}
+            currency={currency}
             window={window_}
-            rows={rows}
-            partialBefore={partialBefore}
+            trend={trend}
+            comparison={comparison}
+            ownBodies={ownBodies}
+            complete={complete}
             loading={summaryLoading}
-            pending={pending}
+            pricesLoading={pricesLoading}
           />
-          <ActivityFees
-            className="col-span-12 xl:col-span-4"
-            rows={rows}
-            prices={priceMap}
-            currency={currency}
-            trend={feeTrend}
-            per={window_?.bucket === "week" ? "week" : "day"}
-            singleChain={singleChain}
-            loading={firstLoad || (pricesLoading && rows.length > 0)}
-            pending={pending}
-          />
-          <ActivityUsage
-            className="col-span-12 md:col-span-6 xl:col-span-4"
-            rows={rows}
-            singleChain={singleChain}
-            ownBodies={ownBodies}
-            now={now}
-            loading={firstLoad}
-            pending={pending}
-          />
-          <ActivityRhythm className="col-span-12 md:col-span-6 xl:col-span-4" rows={rows} loading={firstLoad} pending={pending} />
-          <ActivityFlows
-            className="col-span-12 xl:col-span-4"
-            rows={rows}
-            prices={priceMap}
-            currency={currency}
-            ownBodies={ownBodies}
-            loading={firstLoad || (pricesLoading && rows.length > 0)}
-            pending={pending}
-          />
-        </div>
-      ) : null}
+
+          {!emptyView ? (
+            <div className="grid grid-cols-12 gap-[var(--d-gap)]">
+              <ActivityOverTime
+                className="col-span-12 xl:col-span-8"
+                periods={periods}
+                window={window_}
+                rows={rows}
+                partialBefore={partialBefore}
+                loading={summaryLoading}
+                pending={pending}
+              />
+              <ActivityFees
+                className="col-span-12 xl:col-span-4"
+                rows={rows}
+                prices={priceMap}
+                currency={currency}
+                trend={feeTrend}
+                per={window_?.bucket === "week" ? "week" : "day"}
+                singleChain={singleChain}
+                loading={firstLoad || (pricesLoading && rows.length > 0)}
+                pending={pending}
+              />
+              <ActivityUsage
+                className="col-span-12 md:col-span-6 xl:col-span-4"
+                rows={rows}
+                singleChain={singleChain}
+                ownBodies={ownBodies}
+                now={now}
+                loading={firstLoad}
+                pending={pending}
+              />
+              <ActivityRhythm className="col-span-12 md:col-span-6 xl:col-span-4" rows={rows} loading={firstLoad} pending={pending} />
+              <ActivityFlows
+                className="col-span-12 xl:col-span-4"
+                rows={rows}
+                prices={priceMap}
+                currency={currency}
+                ownBodies={ownBodies}
+                loading={firstLoad || (pricesLoading && rows.length > 0)}
+                pending={pending}
+              />
+            </div>
+          ) : null}
+        </>
+      )}
 
       <ActivityList
         rows={rows}

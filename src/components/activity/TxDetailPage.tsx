@@ -622,7 +622,9 @@ function TxView({ tx, address }: { tx: TxDetail; address: string | null }) {
           </Card>
         </div>
 
-        <div className="col-span-12 flex min-w-0 flex-col gap-[var(--d-gap)] lg:col-span-8">
+        {/* Events and the raw answer are for checking against an explorer: Pro only.
+            CSS, not a branch: this page renders on the server, where the view is not known yet. */}
+        <div className="col-span-12 flex min-w-0 flex-col gap-[var(--d-gap)] lg:col-span-8 lite:hidden">
           {tx.events.length > 0 ? (
             <Card as="section" aria-labelledby="tx-events">
               <CardHeader id="tx-events" title="Events" subtitle="What the chain emitted while executing it" />

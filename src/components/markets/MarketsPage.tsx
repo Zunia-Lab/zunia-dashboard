@@ -115,7 +115,8 @@ function MarketsBody({ initial }: { initial: ApiInitial | null }) {
         </p>
       ) : null}
       <MarketsStrip data={data} summary={summary} loading={loading} stale={pending} />
-      <div className="grid gap-[var(--d-gap)] lg:grid-cols-12">
+      {/* Lite: how the market moved and where liquidity sits are analysis (CSS: this page renders on the server). */}
+      <div className="grid gap-[var(--d-gap)] lg:grid-cols-12 lite:hidden">
         <BreadthCard data={data} summary={summary} loading={loading} pending={pending} wide={scopeChainId !== null} className="lg:col-span-7" />
         <DepthCard data={data} loading={loading} pending={pending} wide={scopeChainId !== null} className="lg:col-span-5" />
       </div>

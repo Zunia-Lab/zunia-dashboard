@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * General: how numbers and the page look. Currency, theme, privacy mode, and
+ * General: how numbers and the page look. Currency, theme, the Lite / Pro view, privacy mode, and
  * the small-balance fold on Assets with the threshold it folds at. Each
  * applies at once and is remembered on this browser; nothing here is sent
  * anywhere.
@@ -11,7 +11,7 @@ import { useTheme, type ThemeMode } from "@zunialab/ui";
 import { floorText, SMALL_FLOOR_KEY, SMALL_VALUE, smallFloorOf } from "@/components/assets/holdings";
 import { Segmented, Switch } from "@/components/ui";
 import { useStoredValue } from "@/lib/useStoredValue";
-import { usePrefs, type FiatCurrency } from "@/providers/PrefsProvider";
+import { usePrefs, type FiatCurrency, type ViewMode } from "@/providers/PrefsProvider";
 import { SettingRow, SettingsSection } from "./SettingsBlocks";
 
 /**
@@ -33,7 +33,7 @@ const FLOORS = [1, 10, 100] as const;
 
 export function GeneralSection() {
   const { theme, setTheme } = useTheme();
-  const { currency, setCurrency, hideAmounts, toggleHideAmounts } = usePrefs();
+  const { currency, setCurrency, hideAmounts, toggleHideAmounts, viewMode, setViewMode } = usePrefs();
   const [view, setView] = useStoredValue<AssetsView>(ASSETS_VIEW_KEY, NO_VIEW);
   const [storedFloor, setFloor] = useStoredValue<unknown>(SMALL_FLOOR_KEY, SMALL_VALUE);
   const floor = smallFloorOf(storedFloor);
@@ -72,6 +72,22 @@ export function GeneralSection() {
               { value: "light", label: "Light" },
               { value: "dark", label: "Dark" },
               { value: "system", label: "System" },
+            ]}
+          />
+        }
+      />
+      <SettingRow
+        title="Dashboard view"
+        description="Lite keeps what you need to see and act: balances, sends, swaps, staking, votes and activity. Pro adds every chart and analysis. Also in the top bar."
+        control={
+          <Segmented<ViewMode>
+            ariaLabel="Dashboard view"
+            size="md"
+            value={viewMode}
+            onChange={setViewMode}
+            options={[
+              { value: "lite", label: "Lite" },
+              { value: "pro", label: "Pro" },
             ]}
           />
         }

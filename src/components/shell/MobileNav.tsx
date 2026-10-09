@@ -15,6 +15,7 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { ChainLogo, Chip, Sheet, useMediaQuery } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { ViewToggle } from "./ViewToggle";
 import { findChain, type ChainEntry } from "@/lib/chains";
 import { MOBILE_TABS, NAV_GROUPS, isNavActive, type NavItem } from "@/lib/nav";
 import { useChainScope } from "@/lib/useChainScope";
@@ -148,7 +149,10 @@ function Tile({ item, active, onNavigate }: { item: NavItem; active: boolean; on
       href={item.href}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
-      className="flex min-h-[78px] flex-col items-center gap-1.5 rounded-[14px] px-1 py-2 text-center transition-colors duration-[160ms] active:bg-[var(--d-glass)]"
+      className={cn(
+        "flex min-h-[78px] flex-col items-center gap-1.5 rounded-[14px] px-1 py-2 text-center transition-colors duration-[160ms] active:bg-[var(--d-glass)]",
+        item.pro && "lite:hidden",
+      )}
     >
       <span
         className={cn(
@@ -194,6 +198,10 @@ export function NavSheet({
   );
   const footer = (
     <div className="flex flex-col gap-1 border-t border-[var(--d-hairline)] pt-3">
+      <div className="flex items-center justify-between gap-3 px-2.5 pb-1">
+        <span className="text-[13.5px] text-fg-muted">View</span>
+        <ViewToggle size="md" />
+      </div>
       <NavLink item={{ href: "/settings", label: "Settings", icon: "settings" }} active={isNavActive(pathname, "/settings")} onNavigate={close} />
       <p className="px-2.5 pt-1 font-mono text-[10.5px] text-fg-dim">Zunia Dashboard v{version}</p>
     </div>

@@ -26,6 +26,7 @@ import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/format";
 import { percentOf, type ChainView, type StakingView } from "./model";
 import { Unavailable } from "./ValidatorBits";
+import { usePrefs } from "@/providers/PrefsProvider";
 
 /**
  * Exact figures up to six digits ("$18,517.15" fits a tile), compact above
@@ -73,6 +74,7 @@ export function StakingKpis({
   pending = false,
   onClaim,
 }: StakingKpisProps) {
+  const { lite } = usePrefs();
   const totals = view?.totals;
   const claimableChains = view?.claimable.length ?? 0;
   const next = view?.nextRelease ?? null;
@@ -100,7 +102,7 @@ export function StakingKpis({
       aria-busy={pending || undefined}
       className={cn("@container transition-opacity duration-[160ms]", pending && "opacity-60")}
     >
-      <div className="grid grid-cols-2 gap-[var(--d-gap)] @[640px]:grid-cols-3 @[1180px]:grid-cols-6">
+      <div className={cn("grid grid-cols-2 gap-[var(--d-gap)]", lite ? "@[1000px]:grid-cols-4" : "@[640px]:grid-cols-3 @[1180px]:grid-cols-6")}>
         <StatTile
           label="Staked"
           icon="staking"
@@ -142,24 +144,27 @@ export function StakingKpis({
             ) : null,
           )}
         />
-        <StatTile
-          label="Actual APR"
-          icon="trendingUp"
-          loading={single ? loading : priced}
-          info="What your stake earns now: each chain's APR from its real block time (mint rewards, after the community tax), minus each validator's commission, weighted by value across networks. Excludes fee and MEV income."
-          value={<Percent value={apr === null ? null : apr * 100} reason={noPrice(single ? "APR unavailable for this chain" : "No priced stake to weigh")} />}
-          sub={caption(
-            single
-              ? single.aprChain !== null
-                ? `chain APR ${percentOf(single.aprChain)}`
-                : "after commission"
-              : totals && totals.aprExcluded.length > 0
-                ? pricesError
-                  ? PRICES_FAILED_CAPTION
-                  : `excludes ${names(totals.aprExcluded)}`
-                : "after commission",
-          )}
-        />
+        {/* Lite: staked, claimable, monthly estimate and unbonding; the APR and the validator count are analysis. */}
+        {lite ? null : (
+          <StatTile
+            label="Actual APR"
+            icon="trendingUp"
+            loading={single ? loading : priced}
+            info="What your stake earns now: each chain's APR from its real block time (mint rewards, after the community tax), minus each validator's commission, weighted by value across networks. Excludes fee and MEV income."
+            value={<Percent value={apr === null ? null : apr * 100} reason={noPrice(single ? "APR unavailable for this chain" : "No priced stake to weigh")} />}
+            sub={caption(
+              single
+                ? single.aprChain !== null
+                  ? `chain APR ${percentOf(single.aprChain)}`
+                  : "after commission"
+                : totals && totals.aprExcluded.length > 0
+                  ? pricesError
+                    ? PRICES_FAILED_CAPTION
+                    : `excludes ${names(totals.aprExcluded)}`
+                  : "after commission",
+            )}
+          />
+        )}
         <StatTile
           label="Claimable"
           tone={claimableChains > 0 ? "accent" : "default"}
@@ -280,31 +285,33 @@ export function StakingKpis({
             ),
           )}
         />
-        <StatTile
-          label="Validators"
-          icon="validators"
-          loading={loading}
-          tone={totals && totals.attention > 0 ? "warning" : "default"}
-          value={
-            // No validator read anywhere, and some networks unread: a count of 0 would be a guess.
-            totals && !(totals.validators === 0 && totals.unreadable.length > 0) ? (
-              String(totals.validators)
-            ) : (
-              <Unavailable reason={unread ? READ_FAILED : totals ? "Positions could not be read" : undefined} />
-            )
-          }
-          sub={caption(
-            totals && totals.attention > 0
-              ? `${totals.attention} need${totals.attention === 1 ? "s" : ""} attention`
-              : totals && totals.unreadable.length > 0
-                ? `${names(totals.unreadable)} unreadable`
-                : totals && totals.validators > 0
-                  ? single
-                    ? "all earning"
-                    : `on ${totals.chainsWithStake} network${totals.chainsWithStake === 1 ? "" : "s"}`
-                  : "none yet",
-          )}
-        />
+        {lite ? null : (
+          <StatTile
+            label="Validators"
+            icon="validators"
+            loading={loading}
+            tone={totals && totals.attention > 0 ? "warning" : "default"}
+            value={
+              // No validator read anywhere, and some networks unread: a count of 0 would be a guess.
+              totals && !(totals.validators === 0 && totals.unreadable.length > 0) ? (
+                String(totals.validators)
+              ) : (
+                <Unavailable reason={unread ? READ_FAILED : totals ? "Positions could not be read" : undefined} />
+              )
+            }
+            sub={caption(
+              totals && totals.attention > 0
+                ? `${totals.attention} need${totals.attention === 1 ? "s" : ""} attention`
+                : totals && totals.unreadable.length > 0
+                  ? `${names(totals.unreadable)} unreadable`
+                  : totals && totals.validators > 0
+                    ? single
+                      ? "all earning"
+                      : `on ${totals.chainsWithStake} network${totals.chainsWithStake === 1 ? "" : "s"}`
+                    : "none yet",
+            )}
+          />
+        )}
       </div>
     </section>
   );

@@ -69,7 +69,12 @@ export function MarketsStrip({ data, summary, loading, stale }: MarketsStripProp
   return (
     <div
       aria-busy={stale || undefined}
-      className={cn("grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms] md:grid-cols-3 2xl:grid-cols-6", stale && "opacity-60")}
+      className={cn(
+        "grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms] md:grid-cols-3 2xl:grid-cols-6",
+        // Lite: four tiles (cap, volume, best / worst, SAF); liquidity and breadth are analysis.
+        "lite:md:grid-cols-2 lite:2xl:grid-cols-4",
+        stale && "opacity-60",
+      )}
     >
       <StatTile
         label="Cosmos market cap"
@@ -88,6 +93,7 @@ export function MarketsStrip({ data, summary, loading, stale }: MarketsStripProp
         info="Sum of the market caps of the Cosmos-native assets listed here. Bridged and alloyed forms of outside assets (USDC.n, allBTC) carry none, so they are not added. The 24 h change is weighted by cap from each asset's price change, supplies assumed unchanged (an estimate)."
       />
       <StatTile
+        className="lite:hidden"
         label="Osmosis liquidity"
         loading={pending}
         value={
@@ -110,6 +116,7 @@ export function MarketsStrip({ data, summary, loading, stale }: MarketsStripProp
         info="Each asset's 24 h volume, summed. A swap counts for both of its tokens, so this is about twice the value that changed hands."
       />
       <StatTile
+        className="lite:hidden"
         label="Breadth 24h"
         loading={pending}
         value={

@@ -256,12 +256,13 @@ function ProposalBody({
         </div>
 
         {proposal.validatorVotes && proposal.validatorVotes.length > 0 ? (
-          <div className="min-w-0 xl:col-span-12">
+          <div className="min-w-0 xl:col-span-12 lite:hidden">
             <ValidatorVotes chainId={proposal.chainId} votes={proposal.validatorVotes} pending={refreshing} />
           </div>
         ) : null}
 
-        <div className="min-w-0 xl:col-span-12">
+        {/* Lite: how validators voted and the raw messages are Pro. CSS, not a branch: this page renders on the server. */}
+        <div className="min-w-0 xl:col-span-12 lite:hidden">
           <ProposalMessages messages={proposal.messages} truncated={proposal.messagesTruncated} />
         </div>
       </div>

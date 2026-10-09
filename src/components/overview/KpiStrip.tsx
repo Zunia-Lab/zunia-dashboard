@@ -24,6 +24,7 @@ import type { PortfolioState } from "@/lib/data/portfolio";
 import type { StakingPositionsState } from "@/lib/data/staking";
 import { untilText } from "@/lib/insights/rules";
 import { groupAssets } from "@/lib/token/holdings";
+import { usePrefs } from "@/providers/PrefsProvider";
 import {
   assetCounts,
   rewardChainCount,
@@ -69,6 +70,7 @@ function line(sub: ReactNode, loading: boolean): ReactNode {
 }
 
 export function KpiStrip({ portfolio, staking, stats, proposals, scopedCount, selectedChainId, now, chainName, claimWorthIt }: KpiStripProps) {
+  const { lite } = usePrefs();
   const data = portfolio.data;
   const currency = data?.currency ?? "usd";
   const portfolioFailed = portfolio.status === "error" && !data;
@@ -181,7 +183,9 @@ export function KpiStrip({ portfolio, staking, stats, proposals, scopedCount, se
         className={cn(
           // Six across only when each tile keeps ~230px: narrower, the
           // Claimable tile's label and its button no longer share a line.
-          "grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms] @[640px]:grid-cols-3 @[1460px]:grid-cols-6",
+          "grid grid-cols-2 gap-[var(--d-gap)] transition-opacity duration-[160ms]",
+          // Lite keeps four tiles: two by two, then one row from 1000px.
+          lite ? "@[1000px]:grid-cols-4" : "@[640px]:grid-cols-3 @[1460px]:grid-cols-6",
           stale && "opacity-60",
         )}
       >
@@ -259,107 +263,113 @@ export function KpiStrip({ portfolio, staking, stats, proposals, scopedCount, se
             </Button>
           }
         />
-        <StatTile
-          label="Staked ratio"
-          icon="staking"
-          loading={portfolio.loading}
-          value={
-            <span className="flex items-center gap-3">
-              <Percent value={ratio?.ratio != null ? ratio.ratio * 100 : null} digits={1} reason={ratioReason} />
-              {ratio?.ratio != null ? (
-                <Meter value={ratio.ratio} size="sm" ariaLabel="Staked share of stakeable tokens" className="w-full max-w-[96px]" />
-              ) : null}
-            </span>
-          }
-          sub={line(ratioSub, portfolio.loading)}
-          info={
-            <p className={INFO}>
-              Staked value of each chain&apos;s staking token ÷ its staked, liquid and unbonding value; idle is the
-              part neither staked nor unbonding. Other tokens (stablecoins, IBC assets) cannot be staked and are left
-              out.
-            </p>
-          }
-        />
-        {selectedChainId ? (
+        {/* Lite: the tiles a holder acts on (yield, claimable, assets, votes); the stake ratio and
+            the networks / validators count are analysis. */}
+        {lite ? null : (
+          <>
           <StatTile
-            label="Validators"
-            icon="validators"
-            href={`/validators?chain=${encodeURIComponent(selectedChainId)}`}
-            loading={usedLoading}
+            label="Staked ratio"
+            icon="staking"
+            loading={portfolio.loading}
             value={
-              used ? (
-                <span className="flex items-center gap-3">
-                  {used.validators.length}
-                  <LogoStack
-                    size={18}
-                    max={3}
-                    items={used.validators.map((validator) => ({ src: validator.logoUrl, label: validator.moniker }))}
-                    label={`Your stake is with ${used.validators.map((validator) => validator.moniker).join(", ")}`}
-                  />
-                </span>
-              ) : (
-                "—"
-              )
+              <span className="flex items-center gap-3">
+                <Percent value={ratio?.ratio != null ? ratio.ratio * 100 : null} digits={1} reason={ratioReason} />
+                {ratio?.ratio != null ? (
+                  <Meter value={ratio.ratio} size="sm" ariaLabel="Staked share of stakeable tokens" className="w-full max-w-[96px]" />
+                ) : null}
+              </span>
             }
-            sub={line(
-              used ? (
-                used.validators.length === 0 ? (
-                  "nothing staked here"
-                ) : used.idle > 0 ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Dot tone="warning" />
-                    {used.idle} not earning
-                  </span>
-                ) : (
-                  "all in the active set"
-                )
-              ) : usedLoading ? undefined : (
-                "staking unreadable"
-              ),
-              usedLoading,
-            )}
+            sub={line(ratioSub, portfolio.loading)}
             info={
               <p className={INFO}>
-                Validators your stake on {chainName(selectedChainId)} sits with. One outside the active set, jailed or
-                tombstoned earns nothing for the stake it holds.
+                Staked value of each chain&apos;s staking token ÷ its staked, liquid and unbonding value; idle is the
+                part neither staked nor unbonding. Other tokens (stablecoins, IBC assets) cannot be staked and are left
+                out.
               </p>
             }
           />
-        ) : (
-          <StatTile
-            label="Networks"
-            icon="networks"
-            href="/networks"
-            loading={portfolio.loading}
-            value={
-              data ? (
-                <span className="flex items-center gap-3">
-                  <span>
-                    {data.totals.chainCount}
-                    <span className="text-[16px] font-medium text-fg-dim"> / {scopedCount}</span>
+          {selectedChainId ? (
+            <StatTile
+              label="Validators"
+              icon="validators"
+              href={`/validators?chain=${encodeURIComponent(selectedChainId)}`}
+              loading={usedLoading}
+              value={
+                used ? (
+                  <span className="flex items-center gap-3">
+                    {used.validators.length}
+                    <LogoStack
+                      size={18}
+                      max={3}
+                      items={used.validators.map((validator) => ({ src: validator.logoUrl, label: validator.moniker }))}
+                      label={`Your stake is with ${used.validators.map((validator) => validator.moniker).join(", ")}`}
+                    />
                   </span>
-                  <LogoStack size={18} max={4} items={heldChains} label={`Holding assets: ${heldChains.map((chain) => chain.label).join(", ")}`} />
-                </span>
-              ) : (
-                "—"
-              )
-            }
-            sub={line(
-              portfolioFailed ? (
-                "balances unreadable"
-              ) : unreachable > 0 ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Dot tone="warning" />
-                  {unreachable} unreachable
-                </span>
-              ) : skipped > 0 ? (
-                `${skipped} without an address`
-              ) : data ? (
-                "with assets"
-              ) : undefined,
-              portfolio.loading,
-            )}
-          />
+                ) : (
+                  "—"
+                )
+              }
+              sub={line(
+                used ? (
+                  used.validators.length === 0 ? (
+                    "nothing staked here"
+                  ) : used.idle > 0 ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Dot tone="warning" />
+                      {used.idle} not earning
+                    </span>
+                  ) : (
+                    "all in the active set"
+                  )
+                ) : usedLoading ? undefined : (
+                  "staking unreadable"
+                ),
+                usedLoading,
+              )}
+              info={
+                <p className={INFO}>
+                  Validators your stake on {chainName(selectedChainId)} sits with. One outside the active set, jailed or
+                  tombstoned earns nothing for the stake it holds.
+                </p>
+              }
+            />
+          ) : (
+            <StatTile
+              label="Networks"
+              icon="networks"
+              href="/networks"
+              loading={portfolio.loading}
+              value={
+                data ? (
+                  <span className="flex items-center gap-3">
+                    <span>
+                      {data.totals.chainCount}
+                      <span className="text-[16px] font-medium text-fg-dim"> / {scopedCount}</span>
+                    </span>
+                    <LogoStack size={18} max={4} items={heldChains} label={`Holding assets: ${heldChains.map((chain) => chain.label).join(", ")}`} />
+                  </span>
+                ) : (
+                  "—"
+                )
+              }
+              sub={line(
+                portfolioFailed ? (
+                  "balances unreadable"
+                ) : unreachable > 0 ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Dot tone="warning" />
+                    {unreachable} unreachable
+                  </span>
+                ) : skipped > 0 ? (
+                  `${skipped} without an address`
+                ) : data ? (
+                  "with assets"
+                ) : undefined,
+                portfolio.loading,
+              )}
+            />
+          )}
+          </>
         )}
         <StatTile
           label="Assets"

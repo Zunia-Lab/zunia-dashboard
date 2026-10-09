@@ -51,6 +51,7 @@ import { UnbondingTimeline } from "./UnbondingTimeline";
 import { StakingFlowsProvider, useStakingFlows } from "./flows/StakingFlows";
 import { useStakingView } from "./hooks";
 import { knownNotStaking, positive } from "./model";
+import { usePrefs } from "@/providers/PrefsProvider";
 
 export function StakingPage() {
   return (
@@ -228,6 +229,7 @@ function NoAddressCard({ chainIds }: { chainIds: string[] }) {
 function StakingContent() {
   const state = useStakingView();
   const flows = useStakingFlows();
+  const { lite } = usePrefs();
   const { view, currency, loading, pending, statsLoading, statsError } = state;
   // Single-chain mode follows the data on screen, not the scope alone: while
   // a new scope loads, the previous answer stays (dimmed), and its first
@@ -302,7 +304,10 @@ function StakingContent() {
           pending={pending}
           skipped={state.skipped.map((id) => findChain(id)?.chainName ?? id)}
         />
-        {idleWorthShowing ? (
+        {/* Lite: what could be staked, full width; the APR comparison and validator picks are analysis. */}
+        {lite ? (
+          idleWorthShowing ? idleCard() : null
+        ) : idleWorthShowing ? (
           <Columns stretch left={nextCard(cn(ORDER.next, "[&>*]:h-full"))} right={idleCard(cn(ORDER.idle, "[&>*]:h-full"))} />
         ) : scopeChainId ? (
           // One chain, nothing to stake: its validators beside its unbonding period.
@@ -365,7 +370,11 @@ function StakingContent() {
         <UnbondingTimeline timeline={view.timeline} chains={view.chains} currency={currency} unbondingDays={unbondingDays} pending={pending} wide />
       ) : null}
 
-      {view ? (
+      {/* Lite: the idle balances to stake, full width. The forecast, the stake
+          mix's health checks and the APR comparison are analysis. */}
+      {view && lite ? idleCard() : null}
+
+      {view && !lite ? (
         // Which card goes where balances the columns: the simulator is the
         // tallest card, so the left takes the shorter companion (the APR
         // comparison across chains; the one-chain idle line in one scope)

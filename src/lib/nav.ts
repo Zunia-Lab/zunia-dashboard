@@ -46,6 +46,11 @@ export interface NavItem {
   badge?: "soon" | "new";
   /** Extra words the command palette matches on. */
   keywords?: string[];
+  /**
+   * Analysis pages the Lite view leaves out of the menus. They stay reachable
+   * by address, from search (⌘K) and from links on other pages.
+   */
+  pro?: true;
 }
 
 export interface NavGroup {
@@ -138,6 +143,7 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         href: "/validators",
+        pro: true,
         label: "Validators",
         icon: "validators",
         access: "public",
@@ -168,6 +174,7 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         href: "/compare",
+        pro: true,
         label: "Compare",
         icon: "compare",
         access: "public",
@@ -184,6 +191,7 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         href: "/chains",
+        pro: true,
         label: "Chains",
         icon: "chains",
         access: "public",

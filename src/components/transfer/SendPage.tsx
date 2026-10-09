@@ -938,28 +938,31 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
           loading={portfolio.loading && !portfolio.data}
           info="Liquid balances in this scope, valued at current prices; a token without a price is counted, not valued. Staked and unbonding tokens cannot be sent until they are released."
         />
-        <Stat
-          label="Staked & unbonding"
-          value={
-            <Money
-              value={balancesFailed ? null : (locked?.value ?? null)}
-              currency={currency}
-              compact
-              reason={
-                balancesFailed
-                  ? "Balances could not be read"
-                  : !locked
-                    ? "No staking read yet"
-                    : locked.unpriced > 0
-                      ? `${locked.unpriced} staked or unbonding ${locked.unpriced === 1 ? "token has" : "tokens have"} no price`
-                      : `Staking not read on ${locked.unread} ${locked.unread === 1 ? "network" : "networks"}`
-              }
-            />
-          }
-          sub={balancesFailed ? "Balances unreadable" : rewards ? <LockedSub rewards={rewards} unpriced={unpricedHeld} currency={currency} /> : undefined}
-          loading={portfolio.loading && !portfolio.data}
-          info="Not spendable as is: undelegate (and wait out the unbonding period) or claim the rewards first. Valued at current prices; a token without a price is counted, not valued."
-        />
+        {/* Pro only: analysis, not needed to act */}
+        {prefs.lite ? null : (
+          <Stat
+            label="Staked & unbonding"
+            value={
+              <Money
+                value={balancesFailed ? null : (locked?.value ?? null)}
+                currency={currency}
+                compact
+                reason={
+                  balancesFailed
+                    ? "Balances could not be read"
+                    : !locked
+                      ? "No staking read yet"
+                      : locked.unpriced > 0
+                        ? `${locked.unpriced} staked or unbonding ${locked.unpriced === 1 ? "token has" : "tokens have"} no price`
+                        : `Staking not read on ${locked.unread} ${locked.unread === 1 ? "network" : "networks"}`
+                }
+              />
+            }
+            sub={balancesFailed ? "Balances unreadable" : rewards ? <LockedSub rewards={rewards} unpriced={unpricedHeld} currency={currency} /> : undefined}
+            loading={portfolio.loading && !portfolio.data}
+            info="Not spendable as is: undelegate (and wait out the unbonding period) or claim the rewards first. Valued at current prices; a token without a price is counted, not valued."
+          />
+        )}
         <Stat
           label="Last sent"
           value={
@@ -987,25 +990,27 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
           loading={loadingHistory}
           info="From the history the chains keep (public nodes prune old transactions)."
         />
-        <Stat
-          label="Sent"
-          value={
-            <Money
-              // Nothing sent in a history that was read is a known zero, not an unknown.
-              value={historyFailed ? null : outgoing.length === 0 && historyRead ? 0 : sentFlow.outValue}
-              currency={sentCurrency}
-              compact
-              reason={historyFailed ? "History could not be read" : outgoing.length > 0 ? "None of what you sent has a price" : "No history read yet"}
-            />
-          }
-          sub={
-            historyFailed
-              ? "History unreadable"
-              : `${outgoing.length} transfer${outgoing.length === 1 ? "" : "s"}${outgoing.length > 0 ? " · est." : ""}${sentFlow.unpricedOut > 0 ? ` · ${sentFlow.unpricedOut} unpriced` : ""}`
-          }
-          loading={loadingHistory || (outgoing.length > 0 && historyPrices.loading)}
-          info={`Sends and IBC transfers out ${since ?? "in the loaded history"}. ${sentFlow.method}`}
-        />
+        {prefs.lite ? null : (
+          <Stat
+            label="Sent"
+            value={
+              <Money
+                // Nothing sent in a history that was read is a known zero, not an unknown.
+                value={historyFailed ? null : outgoing.length === 0 && historyRead ? 0 : sentFlow.outValue}
+                currency={sentCurrency}
+                compact
+                reason={historyFailed ? "History could not be read" : outgoing.length > 0 ? "None of what you sent has a price" : "No history read yet"}
+              />
+            }
+            sub={
+              historyFailed
+                ? "History unreadable"
+                : `${outgoing.length} transfer${outgoing.length === 1 ? "" : "s"}${outgoing.length > 0 ? " · est." : ""}${sentFlow.unpricedOut > 0 ? ` · ${sentFlow.unpricedOut} unpriced` : ""}`
+            }
+            loading={loadingHistory || (outgoing.length > 0 && historyPrices.loading)}
+            info={`Sends and IBC transfers out ${since ?? "in the loaded history"}. ${sentFlow.method}`}
+          />
+        )}
       </StatStrip>
 
       <div className="order-1 col-span-12 flex min-w-0 flex-col gap-[var(--d-gap)] lg:order-2 lg:col-span-7">

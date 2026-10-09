@@ -11,6 +11,13 @@
 @source "../**/*.{ts,tsx}";
 
 /*
+ * Lite view: `lite:hidden` and friends apply while <html data-view="lite">,
+ * which the head script sets before paint (components/shell/theme-boot.ts),
+ * so server-rendered pages never flash their Pro-only cards.
+ */
+@custom-variant lite (&:where([data-view="lite"], [data-view="lite"] *));
+
+/*
  * Dashboard theme layer.
  *
  * `@zunialab/tokens` owns the brand roles (--z-*) and is shared with the
