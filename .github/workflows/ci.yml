@@ -93,7 +93,7 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: zunia-dashboard/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('zunia-dashboard/pnpm-lock.yaml') }}-${{ hashFiles('zunia-dashboard/src/**', 'zunia-dashboard/next.config.ts') }}
