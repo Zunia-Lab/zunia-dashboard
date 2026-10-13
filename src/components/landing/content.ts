@@ -186,10 +186,16 @@ export function landingDescription(mainnets: number): string {
 }
 
 /**
+ * The product name: the structured data's WebApplication, and the title of
+ * /llms.txt (src/lib/llms.ts).
+ */
+export const APP_NAME = "Zunia Dashboard";
+
+/**
  * Other names the site goes by: the product lock-up, and "Zunia Wallet", the
  * installed app's name until the v2 launch (the manifest now says "Zunia").
  */
-const SITE_ALTERNATE_NAMES = ["Zunia Dashboard", "Zunia Wallet"] as const;
+const SITE_ALTERNATE_NAMES = [APP_NAME, "Zunia Wallet"] as const;
 
 /**
  * Structured data for the landing page: who publishes it (the same
@@ -229,7 +235,7 @@ export function landingJsonLd({ mainnets }: { mainnets: number }): Record<string
       {
         "@type": "WebApplication",
         "@id": `${SITE_URL}/#app`,
-        name: "Zunia Dashboard",
+        name: APP_NAME,
         url: SITE_URL,
         description,
         applicationCategory: "FinanceApplication",
