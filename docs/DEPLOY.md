@@ -88,6 +88,7 @@ curl -s https://app.zunialab.com/api/push/config     # enabled: true (after step
 curl -sI https://app.zunialab.com/mobile | head -3   # 308 to /?connect=mobile
 curl -s -o /dev/null -w '%{http_code}\n' https://app.zunialab.com/chains/not-a-chain   # 404
 curl -s https://app.zunialab.com/robots.txt | grep -i sitemap   # Sitemap: https://app.zunialab.com/sitemap.xml
+curl -sI https://app.zunialab.com/llms.txt | grep -i -E "^HTTP|^content-type"   # 200, text/plain; charset=utf-8
 curl -s https://app.zunialab.com/markets | grep -o '<link rel="canonical"[^>]*>'   # href on app.zunialab.com
 curl -sI 'https://wallet.zunialab.com/governance?x=1' | grep -i -E "^HTTP|^location"   # 301, location https://app.zunialab.com/governance?x=1
 ```

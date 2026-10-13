@@ -24,7 +24,7 @@
 
 **Wallet** (a connect panel until a wallet is linked; noindex): `/overview` (`/portfolio` redirects here), `/assets` and asset pages, `/activity`, `/activity/[hash]`, `/send`, `/receive`, `/swap`, `/bridge`, `/staking`, `/insights`, `/nfts`, `/nfts/[chainId]/[contract]/[tokenId]`, `/notifications`, `/settings`, `/networks`. `/dapps` redirects to `/apps`, and `/mobile` to `/?connect=mobile`, which opens the Connect wallet modal on Zunia Mobile. These are permanent (308) redirects in `next.config.ts`.
 
-**Generated:** `/robots.txt`, `/sitemap.xml`, `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/opengraph-image`. The service worker for Web Push is `public/sw.js`.
+**Generated:** `/robots.txt`, `/sitemap.xml`, `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/opengraph-image`, and `/llms.txt` for assistants (`src/lib/llms.ts`, built from the registries the pages read). The service worker for Web Push is `public/sw.js`.
 
 ## Architecture
 
