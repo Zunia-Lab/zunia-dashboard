@@ -23,6 +23,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { PhoneSignNote } from "@/components/connect/PhoneSignNote";
 import { Icon } from "@/components/icons";
 import { txMemoItem } from "@/components/TxMemoItem";
 import {
@@ -387,6 +388,7 @@ function ReviewContent({
                 </p>
               ) : null}
               <Stepper steps={steps} orientation="vertical" />
+              {signer.stage === "awaiting-signature" ? <PhoneSignNote /> : null}
               {signer.stage === "failed" && signer.explained ? (
                 <p className="text-[12.5px] leading-snug text-fg-muted">
                   <span className="font-medium text-[var(--z-danger)]">{signer.explained.title}.</span> {signer.explained.message}

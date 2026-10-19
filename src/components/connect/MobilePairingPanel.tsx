@@ -14,18 +14,20 @@
  * - The QR is dark on a white card in both themes, ≥ 264 px, four-module
  *   quiet zone: what phone cameras read first time.
  * - On phones the same link opens the app directly ("Open in Zunia app");
- *   the QR stays below it for connecting another phone.
+ *   the QR stays below it for connecting another phone. Once the app has
+ *   scanned, "Open Zunia to approve" goes back to it with the wake link.
  * - The verification code is the security step: the phone shows the same six
  *   digits only if nobody sits between the two. The copy says to compare.
  * - The code waits as long as the relay keeps the session (10 min), with a
  *   countdown; Cancel really ends the relay session.
- * - Labelled Beta, and honest that the apps are in store review.
+ * - Labelled Beta, and honest that the apps are not in the stores yet.
  */
 
 import { useEffect, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icons";
 import { QrCode } from "@/components/QrCode";
 import { useWallet } from "@/lib/connect/context";
+import { openAppLink } from "@/lib/connect/mobile";
 import { findChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
 import { FOCUS_RING, useTouchDevice } from "./WalletOptions";
@@ -86,12 +88,13 @@ function formatRemaining(ms: number): string {
 
 /* ---------------------------------------------------------------- pieces */
 
-// The app's words, as it shows them (zunia-mobile: the unlock screen offers
-// the password and, when set up, biometrics; the Browser tab's scanner button
-// is "Scan a connect code").
+// The app's words, as it shows them (zunia-mobile 0.1.0: the unlock screen
+// offers the password and, when set up, biometrics; the scanner is the scan
+// button at the top of the home screen, and the Browser tab's "Scan a connect
+// code").
 const STEPS = [
   { title: "Open Zunia on your phone", line: "Unlock it with your password or biometrics." },
-  { title: "Open the scanner", line: "Browser tab → “Scan a connect code”." },
+  { title: "Open the scanner", line: "The scan button at the top of the home screen, or Browser → “Scan a connect code”." },
   { title: "Scan, then compare the code", line: "Approve only if both screens show the same six digits." },
 ];
 
@@ -296,6 +299,12 @@ export function MobilePairingPanel({ autoStart = false, onDone, onClose, classNa
               Tap Connect on your phone if it shows the same code. If the codes differ, cancel: someone else may be
               trying to connect.
             </span>
+            {touch ? (
+              <Button variant="primary" href={openAppLink(mobile.sessionId)} className="mt-1 self-start">
+                <Icon name="mobile" size={16} />
+                Open Zunia to approve
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -305,8 +314,8 @@ export function MobilePairingPanel({ autoStart = false, onDone, onClose, classNa
           <p className="text-[13.5px] leading-relaxed text-fg-muted">
             Signing on {approvedNames.length} {approvedNames.length === 1 ? "network" : "networks"}
             {approvedNames.length > 0 ? `: ${approvedNames.slice(0, 6).join(", ")}${approvedNames.length > 6 ? "…" : ""}` : ""}. Every
-            transaction is shown and signed on your phone; open Zunia when the dashboard asks for a signature (no
-            notification is sent yet).
+            transaction is shown and signed on your phone. When the dashboard asks for a signature, open Zunia: the
+            request waits there (no notification is sent yet).
             {secondsLeft !== null ? ` The session ends in ${formatRemaining(secondsLeft * 1_000)}.` : ""}
           </p>
         ) : null}
@@ -363,7 +372,7 @@ export function MobilePairingPanel({ autoStart = false, onDone, onClose, classNa
         </div>
 
         <p className="border-t border-[var(--z-line)] pt-3 text-[12px] leading-snug text-fg-dim">
-          Zunia for iOS and Android is in review on the App Store and Google Play.
+          Zunia for iPhone and Android is coming soon to the App Store and Google Play.
           {walletKind && walletKind !== "zunia-mobile" ? " Connecting a phone replaces the wallet connected now." : ""}
         </p>
       </div>

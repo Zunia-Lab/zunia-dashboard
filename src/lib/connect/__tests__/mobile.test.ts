@@ -13,7 +13,9 @@ import {
   MAX_MOBILE_CHAINS,
   MobileConnect,
   mobileErrorFor,
+  openAppLink,
   pairingChains,
+  sessionIdOf,
   type MobileSnapshot,
   type MobileTransport,
 } from "../mobile";
@@ -35,7 +37,11 @@ class FakeTransport {
   ended: string[] = [];
   connects = 0;
 
-  constructor(private readonly saved: { chains: string[]; accounts: Account[] } | null = null) {}
+  constructor(
+    private readonly saved: { chains: string[]; accounts: Account[] } | null = null,
+    /** Holds restore() until it settles: a relay that answers slowly. */
+    private readonly restoreGate: Promise<void> | null = null,
+  ) {}
 
   on(event: string, listener: Listener) {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
@@ -63,6 +69,7 @@ class FakeTransport {
     });
   }
   async restore() {
+    if (this.restoreGate) await this.restoreGate;
     if (!this.saved) return false;
     this.phase = "active";
     this.chains = this.saved.chains;
@@ -82,9 +89,9 @@ class FakeTransport {
     if (wasActive) this.emit("disconnect", reason);
   }
   /** The relay answered POST /sessions: the code exists. */
-  showPairing() {
+  showPairing(uri = "zunia://connect?v=2&sid=x") {
     this.phase = "pairing";
-    this.pairing = { uri: "zunia://connect?v=2&sid=x", expiresAt: 1_000 };
+    this.pairing = { uri, expiresAt: 1_000 };
     this.emit("pairing", this.pairing);
     this.emit("status", "awaiting_wallet");
   }
@@ -115,14 +122,14 @@ class FakeTransport {
   signDirect = (() => Promise.reject(new Error("unused"))) as unknown as MobileTransport["signDirect"];
 }
 
-function setup(saved: { chains: string[]; accounts: Account[] } | null = null) {
+function setup(saved: { chains: string[]; accounts: Account[] } | null = null, restoreGate: Promise<void> | null = null) {
   const transports: FakeTransport[] = [];
   const ended: string[] = [];
   const shared: number[] = [];
   const mobile = new MobileConnect({
     apiBase: "https://relay.example",
     createTransport: () => {
-      const transport = new FakeTransport(saved);
+      const transport = new FakeTransport(saved, restoreGate);
       transports.push(transport);
       return transport as unknown as MobileTransport;
     },
@@ -284,6 +291,81 @@ test("restore without a saved session stays idle", async () => {
   const { mobile } = setup();
   assert.equal(await mobile.restore(), false);
   assert.equal(mobile.getSnapshot().status, "idle");
+});
+
+test("a QR code asked for while a saved session restores waits for it, then ends it once", async () => {
+  const account: Account = { chainId: "safrochain-1", address: "a", algo: "secp256k1", pubkey: new Uint8Array(33) };
+  let answer!: () => void;
+  const slow = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const { transports, mobile, ended } = setup({ chains: ["safrochain-1"], accounts: [account] }, slow);
+  const restoring = mobile.restore();
+  const started = mobile.start({ chains: ["safrochain-1"], metadata: META });
+  assert.equal(mobile.start({ chains: ["safrochain-1"], metadata: META }), started, "a second click joins the first");
+  assert.equal(transports.length, 1, "no relay session is created while the restore runs");
+  answer();
+  assert.equal(await restoring, true);
+  await tick();
+  assert.equal(transports.length, 2);
+  assert.deepEqual(transports[0]!.ended, ["replaced"], "the restored session is ended, not left open on the phone");
+  assert.deepEqual(ended, ["DISCONNECTED"]);
+  transports[1]!.showPairing();
+  transports[1]!.phoneApproves(["safrochain-1"]);
+  await started;
+  assert.equal(mobile.getSnapshot().status, "connected");
+});
+
+test("a restore asked for while a QR code is showing leaves the pairing alone", async () => {
+  const { transports, current, mobile } = setup({ chains: ["safrochain-1"], accounts: [] });
+  const started = mobile.start({ chains: ["safrochain-1"], metadata: META });
+  current().showPairing();
+  assert.equal(await mobile.restore(), false);
+  assert.equal(transports.length, 1);
+  assert.equal(mobile.getSnapshot().status, "awaiting-scan");
+  current().phoneApproves(["safrochain-1"]);
+  await started;
+  assert.equal(mobile.getSnapshot().status, "connected");
+});
+
+test("the session id comes from the pairing link, wakes the app, and survives a reload", async () => {
+  const memory = new Map<string, string>();
+  const scope = globalThis as { window?: unknown };
+  scope.window = {
+    localStorage: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => void memory.set(key, value),
+      removeItem: (key: string) => void memory.delete(key),
+    },
+  };
+  try {
+    const sid = "0QGVxbcVdiyNwgE8M6Ammg";
+    const first = setup();
+    const started = first.mobile.start({ chains: ["safrochain-1"], metadata: META });
+    first.current().showPairing(`zunia://connect?v=2&sid=${sid}&t=token&pk=key&r=wss%3A%2F%2Frelay.example`);
+    assert.equal(first.mobile.getSnapshot().sessionId, sid);
+    first.current().phoneApproves(["safrochain-1"]);
+    await started;
+    assert.equal(openAppLink(first.mobile.getSnapshot().sessionId), `zunia://connect/wake?sid=${sid}`);
+
+    // The page reloads: the saved session comes back with its id.
+    const account: Account = { chainId: "safrochain-1", address: "a", algo: "secp256k1", pubkey: new Uint8Array(33) };
+    const reloaded = setup({ chains: ["safrochain-1"], accounts: [account] });
+    assert.equal(await reloaded.mobile.restore(), true);
+    assert.equal(reloaded.mobile.getSnapshot().sessionId, sid);
+    await reloaded.mobile.disconnect();
+    assert.equal(reloaded.mobile.getSnapshot().sessionId, undefined);
+    assert.equal(memory.has("zunia.dashboard.mobile.sid"), false);
+  } finally {
+    delete scope.window;
+  }
+});
+
+test("open app link: the wake link for a session, the app's scheme without one", () => {
+  assert.equal(openAppLink(undefined), "zunia://");
+  assert.equal(sessionIdOf("zunia://connect?v=2&sid=x"), undefined, "too short to be a relay session");
+  assert.equal(sessionIdOf("not a link"), undefined);
+  assert.equal(sessionIdOf(undefined), undefined);
 });
 
 test("pairing chains: home first, followed, no Ethereum-key chains, unknown dropped, ≤ 32", () => {

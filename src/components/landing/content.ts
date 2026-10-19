@@ -170,7 +170,7 @@ export function landingFaq({ feeRate }: { feeRate: string }): FaqEntry[] {
     {
       q: "Can I use my phone?",
       a:
-        "Yes, in beta. Connect Zunia Mobile by scanning a QR code: the phone shows and signs every transaction, over an end-to-end encrypted relay. The iOS and Android apps are in review on the App Store and Google Play.",
+        "Yes, in beta. Connect Zunia Mobile by scanning a QR code: the phone shows and signs every transaction, over an end-to-end encrypted relay. The iPhone and Android apps are coming soon to the App Store and Google Play.",
     },
     {
       q: "Which wallets work?",

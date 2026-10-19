@@ -15,6 +15,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { PhoneSignNote } from "@/components/connect/PhoneSignNote";
 import { Icon } from "@/components/icons";
 import {
   Button,
@@ -200,9 +201,12 @@ export function SignProgress({
     <div className="d-fade-in flex flex-col gap-5">
       <Stepper steps={steps} orientation="vertical" />
       {stage === "awaiting-signature" ? (
-        <Callout tone="info" icon="wallet" title="Waiting for your wallet">
-          Check the wallet window (or your phone) and approve the transaction there. Nothing is sent until you do.
-        </Callout>
+        <>
+          <Callout tone="info" icon="wallet" title="Waiting for your wallet">
+            Check the wallet window (or your phone) and approve the transaction there. Nothing is sent until you do.
+          </Callout>
+          <PhoneSignNote />
+        </>
       ) : null}
       {stage === "failed" && explained ? (
         <>

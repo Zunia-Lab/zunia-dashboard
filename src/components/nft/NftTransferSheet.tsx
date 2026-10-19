@@ -28,6 +28,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { checkAddress, type ChainInfoLike, type NftTransferRequest } from "@zunialab/interchain";
+import { PhoneSignNote } from "@/components/connect/PhoneSignNote";
 import { Icon } from "@/components/icons";
 import { txMemoItem } from "@/components/TxMemoItem";
 import {
@@ -516,6 +517,7 @@ function Progress({
           </p>
         </div>
       </div>
+      {stage === "awaiting-signature" ? <PhoneSignNote /> : null}
       <Stepper orientation="vertical" steps={steps} />
       {failure?.detail ? (
         <Disclosure summary="Details from the network">

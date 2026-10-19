@@ -293,7 +293,7 @@ function ReloadHint({ wallet }: { wallet: string }) {
  * Zunia Mobile's zone: its own surface, a phone-and-QR glyph and two short
  * lines on what happens (scan once, then approve each transaction on the
  * phone). Small on purpose — it is a way to connect, explained, not a feature
- * page. Honest about availability: Beta, apps in store review.
+ * page. Honest about availability: Beta, apps not in the stores yet.
  */
 function MobileZone({ cards, disabled, onClick }: { cards: boolean; disabled: boolean; onClick: () => void }) {
   return (
@@ -323,7 +323,7 @@ function MobileZone({ cards, disabled, onClick }: { cards: boolean; disabled: bo
         <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-muted">
           Scan a QR code with the Zunia app, then approve each transaction on your phone.
         </span>
-        <span className="mt-1 block text-[11.5px] leading-snug text-fg-dim">Keys stay on your phone · apps in store review</span>
+        <span className="mt-1 block text-[11.5px] leading-snug text-fg-dim">Keys stay on your phone · apps coming soon to the stores</span>
       </span>
       <span
         className={cn(

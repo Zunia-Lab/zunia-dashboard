@@ -71,6 +71,8 @@ export interface MobileSnapshot {
   accounts: ZuniaAccountInfo[];
   /** The phone's account name. */
   peerName?: string;
+  /** The relay session, from the pairing URI: the app's wake link opens what this page sent. */
+  sessionId?: string;
 }
 
 /** The transport surface used here; `NativeWsTransport` implements it, tests fake it. */
@@ -101,6 +103,29 @@ export const SESSION_TTL_MS = 86_400_000;
 export const MAX_MOBILE_CHAINS = 32;
 
 const PAIRED_AT_KEY = "zunia.dashboard.mobile.pairedAt";
+const SESSION_ID_KEY = "zunia.dashboard.mobile.sid";
+const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/;
+
+/** The `sid` a pairing URI (`zunia://connect?v=2&sid=…`) names, when it is well formed. */
+export function sessionIdOf(uri: string | undefined): string | undefined {
+  if (!uri) return undefined;
+  try {
+    const sid = new URL(uri).searchParams.get("sid") ?? "";
+    return SESSION_ID.test(sid) ? sid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The link that brings Zunia to the front on this phone. With the session it
+ * is the app's wake link, which opens what this page sent (a connection to
+ * approve, a transaction to sign); without it the app simply opens, and shows
+ * the request once its link to the relay is back.
+ */
+export function openAppLink(sessionId?: string): string {
+  return sessionId ? `zunia://connect/wake?sid=${encodeURIComponent(sessionId)}` : "zunia://";
+}
 
 let nativeWs: Promise<() => MobileTransport> | null = null;
 
@@ -206,6 +231,24 @@ function writePairedAt(value: number | null): void {
   }
 }
 
+function readSessionId(): string | undefined {
+  try {
+    const value = window.localStorage.getItem(SESSION_ID_KEY) ?? "";
+    return SESSION_ID.test(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSessionId(value: string | undefined): void {
+  try {
+    if (value === undefined) window.localStorage.removeItem(SESSION_ID_KEY);
+    else window.localStorage.setItem(SESSION_ID_KEY, value);
+  } catch {
+    // Private mode: after a reload "Open Zunia" opens the app without the wake link.
+  }
+}
+
 export class MobileConnect {
   private transport: MobileTransport | null = null;
   private snapshot: MobileSnapshot = { status: "idle", chains: [], accounts: [] };
@@ -215,6 +258,8 @@ export class MobileConnect {
   private unwire: (() => void) | null = null;
   /** The pairing in flight, joined by a second `start()`. */
   private pairing: Promise<void> | null = null;
+  /** The restore in flight: a pairing waits for it, then replaces what it brought back. */
+  private restoring: Promise<boolean> | null = null;
 
   constructor(
     private readonly options: {
@@ -290,7 +335,13 @@ export class MobileConnect {
 
   private wire(transport: MobileTransport): void {
     const onPairing = (pairing: { uri: string; expiresAt?: number }) => {
-      this.update({ status: "awaiting-scan", uri: pairing.uri, expiresAt: pairing.expiresAt, verificationCode: undefined });
+      this.update({
+        status: "awaiting-scan",
+        uri: pairing.uri,
+        expiresAt: pairing.expiresAt,
+        verificationCode: undefined,
+        sessionId: sessionIdOf(pairing.uri),
+      });
     };
     const onVerification = (code: string) => {
       this.update({ status: "awaiting-approval", verificationCode: code });
@@ -312,7 +363,16 @@ export class MobileConnect {
       // asks for itself (cancel, disconnect, a new pairing) unwire first.
       const error = endReasonError(reason);
       writePairedAt(null);
-      this.update({ status: "error", error, uri: undefined, verificationCode: undefined, accounts: [], expiresAt: undefined });
+      writeSessionId(undefined);
+      this.update({
+        status: "error",
+        error,
+        uri: undefined,
+        verificationCode: undefined,
+        accounts: [],
+        expiresAt: undefined,
+        sessionId: undefined,
+      });
       this.options.onEnded?.(error);
     };
     transport.on("pairing", onPairing as never);
@@ -341,6 +401,7 @@ export class MobileConnect {
     if (fresh) {
       pairedAt = Date.now();
       writePairedAt(pairedAt);
+      writeSessionId(this.snapshot.sessionId);
     }
     this.update({
       status: "connected",
@@ -361,7 +422,8 @@ export class MobileConnect {
    * pairing is in flight joins it.
    */
   start(params: { chains: string[]; metadata: { name: string; url: string; icons?: string[] } }): Promise<void> {
-    if (this.pairing && this.pairingNow) return this.pairing;
+    // Joined while it pairs, and while it waits for a restore to settle.
+    if (this.pairing && (this.pairingNow || this.restoring)) return this.pairing;
     const run: Promise<void> = this.pair(params).finally(() => {
       if (this.pairing === run) this.pairing = null;
     });
@@ -374,11 +436,16 @@ export class MobileConnect {
       this.update({ status: "error", error: mobileErrorFor("UNKNOWN_CHAIN", "No network can be shared with the phone.") });
       throw new Error("No network can be shared with the phone.");
     }
+    // A restore still running (the page has just loaded) settles first. Cut
+    // short, it would leave its relay session open on the phone; settled, what
+    // it brought back is replaced and ended below like any connected session.
+    if (this.restoring) await this.restoring;
     const attempt = ++this.attempt;
     // Pairing again ends the session there was: the dashboard is not signed
     // in with the old phone session while the new code is on screen.
     const replacing = this.connected;
     writePairedAt(null);
+    writeSessionId(undefined);
     this.update({
       status: "creating",
       chains: params.chains.slice(0, MAX_MOBILE_CHAINS),
@@ -387,6 +454,7 @@ export class MobileConnect {
       error: undefined,
       accounts: [],
       expiresAt: undefined,
+      sessionId: undefined,
     });
     // The old session ends now, before anything is awaited: the dashboard is
     // not signed in with it while the SDK loads.
@@ -427,13 +495,33 @@ export class MobileConnect {
     this.attempt += 1;
     this.pairing = null;
     const transport = this.transport;
-    this.update({ status: "idle", uri: undefined, verificationCode: undefined, error: undefined, expiresAt: undefined });
+    this.update({
+      status: "idle",
+      uri: undefined,
+      verificationCode: undefined,
+      error: undefined,
+      expiresAt: undefined,
+      sessionId: undefined,
+    });
     if (transport) await this.retire(transport, "cancelled");
   }
 
-  /** Reattach to a session saved by an earlier visit. Never prompts the phone. */
-  async restore(): Promise<boolean> {
-    if (this.transport && this.connected) return true;
+  /**
+   * Reattach to a session saved by an earlier visit. Never prompts the phone.
+   * A pairing in flight is left alone: it is the session now.
+   */
+  restore(): Promise<boolean> {
+    if (this.transport && this.connected) return Promise.resolve(true);
+    if (this.pairingNow) return Promise.resolve(false);
+    if (this.restoring) return this.restoring;
+    const run = this.restoreNow().finally(() => {
+      if (this.restoring === run) this.restoring = null;
+    });
+    this.restoring = run;
+    return run;
+  }
+
+  private async restoreNow(): Promise<boolean> {
     const attempt = ++this.attempt;
     let transport: MobileTransport | null = null;
     let ok = false;
@@ -451,8 +539,9 @@ export class MobileConnect {
     if (attempt !== this.attempt) return false;
     if (!ok || !transport) {
       writePairedAt(null);
+      writeSessionId(undefined);
       if (transport) void this.retire(transport, "restore_failed");
-      this.update({ status: "idle", error: undefined, accounts: [], chains: [] });
+      this.update({ status: "idle", error: undefined, accounts: [], chains: [], sessionId: undefined });
       return false;
     }
     const accounts = transport.getAccounts();
@@ -462,6 +551,7 @@ export class MobileConnect {
       chains: transport.getChains(),
       accounts,
       peerName: accounts[0]?.name,
+      sessionId: readSessionId(),
       ...(pairedAt ? { expiresAt: pairedAt + SESSION_TTL_MS } : {}),
     });
     return true;
@@ -472,8 +562,17 @@ export class MobileConnect {
     this.attempt += 1;
     this.pairing = null;
     writePairedAt(null);
+    writeSessionId(undefined);
     const transport = this.transport;
-    this.update({ status: "idle", uri: undefined, verificationCode: undefined, error: undefined, accounts: [], expiresAt: undefined });
+    this.update({
+      status: "idle",
+      uri: undefined,
+      verificationCode: undefined,
+      error: undefined,
+      accounts: [],
+      expiresAt: undefined,
+      sessionId: undefined,
+    });
     if (transport) await this.retire(transport, "user");
   }
 

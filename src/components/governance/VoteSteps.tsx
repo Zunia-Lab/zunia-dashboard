@@ -8,6 +8,7 @@
  * the result or an explained failure with Retry.
  */
 
+import { PhoneSignNote } from "@/components/connect/PhoneSignNote";
 import { Icon } from "@/components/icons";
 import { txMemoItem } from "@/components/TxMemoItem";
 import {
@@ -244,6 +245,7 @@ export function Progress({
         {live}
       </p>
       <Stepper steps={steps} orientation="vertical" />
+      {stage === "awaiting-signature" ? <PhoneSignNote /> : null}
     </div>
   );
 }

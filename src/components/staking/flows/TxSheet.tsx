@@ -34,6 +34,7 @@ import {
   type KeyValueItem,
   type Step,
 } from "@/components/ui";
+import { PhoneSignNote } from "@/components/connect/PhoneSignNote";
 import { Icon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { useWallet, walletKindLabel } from "@/lib/connect/context";
@@ -451,7 +452,7 @@ function Progress({
       : submitted
         ? "The network accepted it, but it was not in a block within a minute. It may still land; Activity will show it."
         : stage === "awaiting-signature"
-          ? "Check the amounts in the wallet prompt before approving. You can close this panel; you'll get a notification either way."
+          ? `Check the amounts ${walletKind === "zunia-mobile" ? "on your phone" : "in the wallet prompt"} before approving. You can close this panel; you'll get a notification either way.`
           : "This usually takes a few seconds.";
   return (
     <div className="flex flex-col gap-5 pt-1" aria-live="polite">
@@ -481,6 +482,7 @@ function Progress({
           <p className="mt-1 text-[13px] leading-[1.5] text-fg-muted">{body}</p>
         </div>
       </div>
+      {stage === "awaiting-signature" ? <PhoneSignNote /> : null}
       <Stepper orientation="vertical" steps={stepsFor(stage, lastBusy, walletName)} />
       {failure?.detail ? (
         <Disclosure summary="Details from the network">

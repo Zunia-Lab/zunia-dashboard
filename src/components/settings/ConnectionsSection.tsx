@@ -134,8 +134,8 @@ export function ConnectionsSection() {
               description={
                 <>
                   Sign on your phone instead: scan a QR code with the Zunia app, then approve each transaction there. Connecting it replaces{" "}
-                  {walletKind ? walletKindLabel(walletKind) : "this wallet"} on this dashboard. The app is in review on the App Store and Google
-                  Play.
+                  {walletKind ? walletKindLabel(walletKind) : "this wallet"} on this dashboard. The app is coming soon to the App Store and
+                  Google Play.
                 </>
               }
               control={
