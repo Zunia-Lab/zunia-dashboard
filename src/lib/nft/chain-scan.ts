@@ -135,10 +135,24 @@ export interface ChainScan extends ChainScanReport {
 export function isNotCw721(error: unknown): boolean {
   if (!isInterchainError(error)) return false;
   if (error.code === "aborted" || error.code === "reads-disabled") return false;
+  if (isUndecodedQuery(error)) return false;
   if (error.code === "contract-error" || error.code === "malformed-response") {
     return true;
   }
   return error.httpStatus === 400;
+}
+
+/**
+ * A 400 about `query_data` is the gateway failing to decode the path the engine
+ * built, not the contract answering. The engine once sent unpadded base64url
+ * and the gateway refused two queries in three that way; read as refusals,
+ * those would have filed every CW721 code on the chain as "other" for good.
+ * The engine reclassifies the 400 as `contract-error`, so the node's sentence
+ * is read from the error and from its cause.
+ */
+function isUndecodedQuery(error: { message: string; cause?: unknown }): boolean {
+  const cause = error.cause instanceof Error ? error.cause.message : "";
+  return /query_data|illegal base64/i.test(`${error.message} ${cause}`);
 }
 
 /** The same verdict, read off an issue: the engine writes them as `"<code>: <message>"`. */

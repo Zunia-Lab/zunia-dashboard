@@ -191,6 +191,20 @@ function smallChain(): FakeChain {
  * Verdicts
  * -------------------------------------------------------------------------- */
 
+test("a query the gateway could not decode is not a verdict", () => {
+  const gateway = new InterchainError(
+    "lcd-unreachable",
+    "https://lcd HTTP 400: type mismatch, parameter: query_data, error: illegal base64 data at input byte 136",
+    { httpStatus: 400 },
+  );
+  assert.equal(isNotCw721(gateway), false);
+  // As smartQuery hands it over: reclassified, with the node's sentence in the cause.
+  assert.equal(
+    isNotCw721(new InterchainError("contract-error", 'rejected "tokens" (HTTP 400)', { httpStatus: 400, cause: gateway })),
+    false,
+  );
+});
+
 test("a refusal is a verdict; an outage, a 429 and a cancelled read are not", () => {
   assert.equal(isNotCw721(new InterchainError("contract-error", "rejected")), true);
   assert.equal(isNotCw721(new InterchainError("malformed-response", "no tokens array")), true);
