@@ -57,22 +57,33 @@ export function NftMedia({ tokenId, imageUrl, loadMedia, onRequestMedia, alt, cl
           : "loading";
   const caption =
     state === "loading" ? "Loading…" : state === "error" ? "Artwork unavailable" : state === "absent" ? "No artwork on this token" : null;
+  // The placeholder stands in for artwork; once the artwork is there it goes,
+  // or it shows through every transparent pixel (a badge's rounded corners
+  // read as an orange frame the collection never drew).
+  const loaded = state === "loaded";
 
   return (
     <div
       className={cn("relative aspect-square w-full overflow-hidden rounded-[var(--d-radius-inner)]", className)}
-      style={{ background: `linear-gradient(150deg, ${placeholder.from}, ${placeholder.to})`, containerType: "inline-size" } as CSSProperties}
+      style={
+        {
+          background: loaded ? "transparent" : `linear-gradient(150deg, ${placeholder.from}, ${placeholder.to})`,
+          containerType: "inline-size",
+        } as CSSProperties
+      }
     >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-0 flex items-center justify-center font-mono font-bold mix-blend-luminosity",
-          size === "detail" ? "text-[clamp(28px,16cqw,96px)]" : "text-[clamp(18px,20cqw,46px)]",
-        )}
-        style={{ color: placeholder.accent }}
-      >
-        {placeholder.monogram}
-      </span>
+      {loaded ? null : (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-0 flex items-center justify-center font-mono font-bold mix-blend-luminosity",
+            size === "detail" ? "text-[clamp(28px,16cqw,96px)]" : "text-[clamp(18px,20cqw,46px)]",
+          )}
+          style={{ color: placeholder.accent }}
+        >
+          {placeholder.monogram}
+        </span>
+      )}
       {loadMedia && imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- third-party artwork, loaded only on request, never proxied or optimised
         <img
@@ -83,7 +94,8 @@ export function NftMedia({ tokenId, imageUrl, loadMedia, onRequestMedia, alt, cl
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedUrl(imageUrl)}
           onError={() => setFailedUrl(imageUrl)}
-          className={cn("absolute inset-0 size-full object-cover transition-opacity duration-300", state === "loaded" ? "opacity-100" : "opacity-0")}
+          // contain, not cover: the artwork keeps its own shape and is never cropped.
+          className={cn("absolute inset-0 size-full object-contain transition-opacity duration-300", loaded ? "opacity-100" : "opacity-0")}
         />
       ) : null}
       {caption ? (
