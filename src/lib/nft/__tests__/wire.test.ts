@@ -129,6 +129,48 @@ test("holdings keep their discovery source and their truncation flag", () => {
   assert.deepEqual(result.collections.sources, ["user", "known"]);
 });
 
+test("the chain scan is read as it ran, and a missing or unknown one as not run", () => {
+  const base = { ok: true, chainId: "safrochain-1", owner: "addr_safro1owner", holdings: [] };
+  const ran = readNftCollectionsResponse({
+    ...base,
+    sources: ["scan"],
+    holdings: [{ contractAddress: "addr_safro1drep", source: "scan", tokenIds: ["dr-1"] }],
+    plan: {
+      scan: { status: "ran", codesChecked: 16, codesUnread: 1, newestFirst: true, contractCount: 13, checkedAt: 1_760_000_000_000 },
+    },
+  });
+  assert.equal(ran.ok, true);
+  if (!ran.ok) return;
+  assert.deepEqual(ran.collections.plan.scan, {
+    status: "ran",
+    codesChecked: 16,
+    codesUnread: 1,
+    newestFirst: true,
+    contractCount: 13,
+    checkedAt: 1_760_000_000_000,
+  });
+  // "Found on chain" is its own source, not folded into the deployment's list.
+  assert.equal(ran.collections.holdings[0]!.source, "scan");
+  assert.deepEqual(ran.collections.sources, ["scan"]);
+
+  // A scan this build cannot read must not be drawn as "ran and found nothing".
+  for (const scan of [undefined, null, { status: "partial", codesChecked: 3 }]) {
+    const read = readNftCollectionsResponse({ ...base, plan: { scan } });
+    assert.equal(read.ok, true);
+    if (!read.ok) return;
+    assert.equal(read.collections.plan.scan, null);
+  }
+});
+
+test("a config that does not say the chain is scanned reads as not scanned", () => {
+  const config = (discovery: unknown) =>
+    readNftConfigResponse({ ok: true, config: { chainId: "juno-1", status: "supported", basis: "registry-declared", discovery } });
+  const off = config({ knownContractCount: 0 });
+  const on = config({ chainScan: true });
+  assert.equal(off.ok && off.config.discovery.chainScan, false);
+  assert.equal(on.ok && on.config.discovery.chainScan, true);
+});
+
 test("a token read keeps a per-token error instead of losing the token", () => {
   const result = readNftTokensResponse({
     ok: true,

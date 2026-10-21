@@ -12,7 +12,8 @@
  */
 
 import "server-only";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { dashboardDataDir } from "@/lib/server/data-dir";
 import { JsonFile } from "@/lib/server/push/file-store";
 import {
   parseStoreFile,
@@ -35,20 +36,11 @@ interface StoreGlobal {
 }
 
 /**
- * Where the push records live: `ZUNIA_DASHBOARD_DATA_DIR`, else `.data/` in
- * the working directory.
- *
- * Written so the bundler can see the path is data, not code: a bare
- * `resolve(variable)` made Turbopack's file tracer give up and trace the whole
- * project into the push routes' and instrumentation's server bundles (760
- * files where /api/markets has 127). The default is a fixed subfolder of the
- * working directory, which the tracer scopes; the operator's directory is
- * runtime configuration and is marked to be ignored.
+ * Where the push records live: the dashboard's data directory
+ * (`ZUNIA_DASHBOARD_DATA_DIR`, else `.data/` in the working directory).
  */
 export function pushDataDir(): string {
-  const configured = process.env.ZUNIA_DASHBOARD_DATA_DIR?.trim();
-  if (configured) return resolve(/* turbopackIgnore: true */ configured);
-  return join(process.cwd(), ".data");
+  return dashboardDataDir();
 }
 
 function globalStore(): StoreGlobal {

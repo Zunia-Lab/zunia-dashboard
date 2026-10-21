@@ -3,10 +3,12 @@
  *
  * CosmWasm has no chain-wide "tokens by owner" index. `tokens` is a per-
  * contract query, so a wallet can only ask about contracts it already knows
- * the address of. All three ways of getting such an address are wired up and
- * all three are reported:
+ * the address of. All four ways of getting such an address are wired up and
+ * all four are reported:
  *
  * - `known`   — a list this deployment ships (`ZUNIA_NFT_CONTRACTS`)
+ * - `scan`    — the CW721 contracts among the chain's newest wasm codes, when
+ *               no index is configured (lib/nft/chain-scan)
  * - `indexer` — a real index, where one exists (`ZUNIA_NFT_INDEXER_URL`)
  * - `user`    — an address the person pasted in
  *
@@ -18,6 +20,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { checkAddress, type ChainInfoLike } from "@zunialab/interchain";
 import { rateLimit } from "@/lib/server/rate-limit";
 import { findServerChain as findChain } from "@/lib/server/chains";
 import { nftConfig } from "@/lib/server/nft-config";
@@ -97,6 +100,21 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Checked here because the scan makes a bad owner invisible: every scanned
+  // contract would refuse `tokens` for it, and a refusal from a scanned
+  // contract is read as "not a collection" and dropped. An empty grid over a
+  // mistyped address would then look like an answer.
+  if (!checkAddress(address, chain as ChainInfoLike).ok) {
+    return Response.json(
+      {
+        ok: false,
+        code: "bad-request",
+        message: `That is not an address on ${support.chainName}.`,
+      },
+      { status: 400 },
+    );
+  }
+
   let outcome;
   try {
     outcome = await runNftDiscovery({
@@ -138,11 +156,14 @@ export async function GET(req: NextRequest) {
   );
   const byAddress = new Map(collections.map((row) => [row.contractAddress, row]));
 
-  // What was actually asked: the deduplicated union of every path's addresses,
-  // capped the same way the engine caps it. This is the number that separates
+  // What was actually asked: the deduplicated union of every path's addresses.
+  // No cap to mirror: `runNftDiscovery` raises the engine's to cover every
+  // candidate, scanned ones included, and a scanned contract that turned out
+  // not to be a collection was still asked. This is the number that separates
   // "found nothing" from "looked at nothing".
   const queried = new Set<string>([
     ...plan.knownContracts,
+    ...plan.scannedContracts,
     ...plan.userContracts,
   ]);
   for (const holding of result.holdings) queried.add(holding.contractAddress);
@@ -171,6 +192,7 @@ export async function GET(req: NextRequest) {
       userContracts: plan.userContracts,
       indexerName: plan.indexerName,
       indexerConfigKey: plan.indexerConfigKey,
+      scan: plan.scan,
     },
     queriedContractCount: queried.size,
   });

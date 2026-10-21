@@ -89,6 +89,8 @@ export async function GET(req: NextRequest) {
         knownContractCount: knownContracts.length,
         indexerConfigured: config.indexerUrl !== null,
         indexerName: config.indexerUrl !== null ? config.indexerName : null,
+        // The same rule `runNftDiscovery` follows: no index, so the chain is scanned.
+        chainScan: config.indexerUrl === null,
       },
       media: {
         ipfsGatewayCount: config.ipfsGateways.length,

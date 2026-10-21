@@ -13,7 +13,9 @@
  * 2. A list of NFTs cannot be promised complete without an index. `tokens` is
  *    asked of one contract at a time; the panel beside the grid says which
  *    ways of finding contracts ran, and an empty grid over zero queried
- *    contracts says "nothing was checked", never "you own none".
+ *    contracts says "nothing was checked", never "you own none". Where the
+ *    chain was scanned and none of its newest codes is a collection, it says
+ *    that instead: the chain was asked, the owner was not.
  * 3. Artwork is a third-party request: the image host sees this device and,
  *    since only held tokens are drawn, what it holds. It stays off until
  *    turned on, next to the sentence saying so, and privacy mode keeps it off.
@@ -43,6 +45,7 @@ import {
 } from "@/components/ui";
 import { CHAINS, findChain, sortChains, type ChainEntry } from "@/lib/chains";
 import { shortenAddress } from "@/lib/format";
+import { scanWindow } from "@/lib/nft/chain-scan";
 import { useNftCollections, useNftConfig, useNftTokens } from "@/lib/nft/hooks";
 import type { NftCollectionWire, NftConfigWire, NftHoldingWire } from "@/lib/nft/wire";
 import { useChainScope } from "@/lib/useChainScope";
@@ -219,7 +222,7 @@ function NftsBody() {
             label="Coverage"
             icon={data.complete ? "check" : "info"}
             value={data.complete ? "Complete" : "Partial"}
-            sub={data.complete ? "An index answered" : "Known contracts only"}
+            sub={data.complete ? "An index answered" : data.plan.scan?.status === "ran" ? "Chain scan, not an index" : "Known contracts only"}
             tone={data.complete ? "positive" : "default"}
           />
         </section>
@@ -378,7 +381,7 @@ function Holdings({
   if (collections.loading) {
     return (
       <Card aria-busy="true">
-        <CardHeader title="Looking for collections" subtitle={`Asking the known contracts on ${chain.chainName}`} refreshing />
+        <CardHeader title="Looking for collections" subtitle={`Asking the collections Zunia can find on ${chain.chainName}`} refreshing />
         <span className="sr-only">Looking for NFTs</span>
         <NftGridSkeleton count={4} />
       </Card>
@@ -396,9 +399,41 @@ function Holdings({
   const data = collections.data;
   if (!data) return null;
   if (data.holdings.length === 0) {
+    const scan = data.plan.scan;
+    const addCollection = (
+      <Button
+        size="sm"
+        variant="secondary"
+        iconLeft="plus"
+        onClick={() => {
+          const field = document.getElementById(ADD_COLLECTION_INPUT);
+          field?.scrollIntoView({ block: "center", behavior: "smooth" });
+          field?.focus({ preventScroll: true });
+        }}
+      >
+        Add a collection
+      </Button>
+    );
+    const ownerText = <span className="whitespace-nowrap font-mono text-[12px]">{shortenAddress(owner, 10, 4)}</span>;
     return (
       <Card>
-        {data.queriedContractCount === 0 ? (
+        {data.queriedContractCount === 0 && scan?.status === "ran" && scan.codesChecked > 0 ? (
+          // The chain was asked and answered: none of its newest codes is a
+          // collection. Still not "you own none": no contract was asked about
+          // this address.
+          <EmptyState
+            inline={compact}
+            icon="search"
+            title="No collection found to check"
+            body={
+              <>
+                Zunia checked {scanWindow(scan)} on {chain.chainName} and none of them is an NFT collection, so no contract was asked about{" "}
+                {ownerText}. This is not a claim that it holds no NFTs: add a collection by its contract address to check it.
+              </>
+            }
+            action={addCollection}
+          />
+        ) : data.queriedContractCount === 0 ? (
           // The defect this page exists to avoid: an empty grid over zero
           // queries, drawn as though it were an answer.
           <EmptyState
@@ -407,25 +442,13 @@ function Holdings({
             title="Nothing was checked"
             body={
               <>
-                No collection is known for {chain.chainName}, so no contract was asked. This is not a claim that{" "}
-                <span className="whitespace-nowrap font-mono text-[12px]">{shortenAddress(owner, 10, 4)}</span> holds no NFTs: add a collection by
-                its contract address to check it.
+                {scan?.status === "failed"
+                  ? `${chain.chainName}'s list of contract codes did not answer and no collection is known for it, so no contract was asked.`
+                  : `No collection is known for ${chain.chainName}, so no contract was asked.`}{" "}
+                This is not a claim that {ownerText} holds no NFTs: add a collection by its contract address to check it.
               </>
             }
-            action={
-              <Button
-                size="sm"
-                variant="secondary"
-                iconLeft="plus"
-                onClick={() => {
-                  const field = document.getElementById(ADD_COLLECTION_INPUT);
-                  field?.scrollIntoView({ block: "center", behavior: "smooth" });
-                  field?.focus({ preventScroll: true });
-                }}
-              >
-                Add a collection
-              </Button>
-            }
+            action={addCollection}
           />
         ) : (
           <EmptyState
@@ -435,8 +458,7 @@ function Holdings({
             body={
               <>
                 {data.queriedContractCount} {data.queriedContractCount === 1 ? "collection was" : "collections were"} asked on {chain.chainName}, and{" "}
-                <span className="whitespace-nowrap font-mono text-[12px]">{shortenAddress(owner, 10, 4)}</span> holds nothing in{" "}
-                {data.queriedContractCount === 1 ? "it" : "them"}. {data.limitation ?? ""}
+                {ownerText} holds nothing in {data.queriedContractCount === 1 ? "it" : "them"}. {data.limitation ?? ""}
               </>
             }
           />
@@ -457,6 +479,7 @@ const SOURCE_LABEL: Record<NftHoldingWire["source"], string> = {
   user: "You added it",
   indexer: "From the index",
   known: "Listed by this deployment",
+  scan: "Found on chain",
 };
 
 /**
