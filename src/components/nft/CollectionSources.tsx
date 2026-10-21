@@ -6,11 +6,13 @@
  * CosmWasm has no chain-level "tokens by owner" index: `tokens` is a query on
  * one contract, so a wallet can only ask about contracts whose address it
  * already has, and a list can never be promised complete unless a real index
- * answered. The three ways in (a list shipped with this deployment, an NFT
- * index, addresses you add) are shown with their real state, including the
- * ones that are off: "no index is configured" is what an empty grid has to be
- * read against, and hiding it is how "you own no NFTs" gets drawn over a
- * query that never ran.
+ * answered. The four ways in (a list shipped with this deployment, the
+ * collections found among the chain's newest contract codes, an NFT index,
+ * addresses you add) are shown with their real state, including the ones that
+ * are off: "no index is configured" is what an empty grid has to be read
+ * against, and hiding it is how "you own no NFTs" gets drawn over a query that
+ * never ran. The scan row names its window ("the newest 16 contract codes")
+ * for the same reason: a scan is a look at part of the chain, not all of it.
  */
 
 import { useState } from "react";
@@ -19,6 +21,7 @@ import { Badge, Button, Callout, Card, CardBody, CardHeader, Chip, Input } from 
 import type { ChainEntry } from "@/lib/chains";
 import { shortenAddress } from "@/lib/format";
 import type { NftCollectionsBody, NftConfigWire, NftDiscoverySourceWire } from "@/lib/nft/wire";
+import { chainScanRow } from "./scan-row";
 
 /** The address field's id: the page's empty state focuses it. */
 export const ADD_COLLECTION_INPUT = "nft-add-collection";
@@ -62,6 +65,11 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
         config.discovery.knownContractCount > 0
           ? null
           : `This deployment lists no collections for ${chain.chainName}, so none are asked this way.`,
+    },
+    {
+      key: "scan",
+      label: "Collections found on chain",
+      ...chainScanRow(chain.chainName, config.discovery.chainScan, result),
     },
     {
       key: "indexer",

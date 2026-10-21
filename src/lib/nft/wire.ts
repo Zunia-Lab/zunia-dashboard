@@ -70,6 +70,8 @@ export interface NftConfigWire {
     readonly knownContractCount: number;
     readonly indexerConfigured: boolean;
     readonly indexerName: string | null;
+    /** Collections are looked for on the chain itself: on whenever no index is configured. */
+    readonly chainScan: boolean;
   };
   readonly media: {
     readonly ipfsGatewayCount: number;
@@ -117,7 +119,8 @@ export type NftConfigResponse = NftResult<{ readonly config: NftConfigWire }>;
  * Discovery
  * -------------------------------------------------------------------------- */
 
-export type NftDiscoverySourceWire = "known" | "indexer" | "user";
+/** `scan`: found by looking through the chain's newest contract codes (lib/nft/chain-scan). */
+export type NftDiscoverySourceWire = "known" | "scan" | "indexer" | "user";
 
 export interface NftCollectionWire {
   readonly contractAddress: string;
@@ -138,6 +141,27 @@ export interface NftHoldingWire {
   readonly collection: NftCollectionWire | null;
 }
 
+/**
+ * The chain scan as it ran for this answer.
+ *
+ * `failed` means the chain's code list did not answer and there was no earlier
+ * scan to fall back on, so no collection was found this way: the page says so
+ * rather than drawing it as "none found".
+ */
+export interface NftChainScanWire {
+  readonly status: "ran" | "failed";
+  /** Codes looked at: the "newest N" the page names. */
+  readonly codesChecked: number;
+  /** Codes that did not answer this time; they are asked again within minutes. */
+  readonly codesUnread: number;
+  /** False when the node would not sort codes newest first: the page then drops "newest". */
+  readonly newestFirst: boolean;
+  /** CW721 contracts the scan found. Every one of them was asked. */
+  readonly contractCount: number;
+  /** When the chain's code list was read, epoch ms. */
+  readonly checkedAt: number | null;
+}
+
 export interface NftCollectionsBody {
   readonly chainId: string;
   readonly chainName: string;
@@ -156,6 +180,8 @@ export interface NftCollectionsBody {
     readonly userContracts: readonly string[];
     readonly indexerName: string | null;
     readonly indexerConfigKey: string;
+    /** Null when the scan did not run (an index answers instead) or the field is missing. */
+    readonly scan: NftChainScanWire | null;
   };
   /**
    * How many contracts were actually asked.
@@ -235,6 +261,7 @@ const BASES: ReadonlySet<string> = new Set<NftSupportBasisWire>([
 
 const SOURCES: ReadonlySet<string> = new Set<NftDiscoverySourceWire>([
   "known",
+  "scan",
   "indexer",
   "user",
 ]);
@@ -343,6 +370,7 @@ export function readNftConfig(value: unknown): NftConfigWire | null {
       knownContractCount: count(discovery?.knownContractCount),
       indexerConfigured: bool(discovery?.indexerConfigured),
       indexerName: optionalStr(discovery?.indexerName),
+      chainScan: bool(discovery?.chainScan),
     },
     media: {
       ipfsGatewayCount: count(media?.ipfsGatewayCount),
@@ -418,6 +446,23 @@ function readHolding(value: unknown): NftHoldingWire | null {
   };
 }
 
+/**
+ * Null unless the status is one this build knows: a scan the page cannot read
+ * is drawn as "not run", never as "ran and found nothing".
+ */
+function readChainScan(value: unknown): NftChainScanWire | null {
+  const row = record(value);
+  if (!row || (row.status !== "ran" && row.status !== "failed")) return null;
+  return {
+    status: row.status,
+    codesChecked: count(row.codesChecked),
+    codesUnread: count(row.codesUnread),
+    newestFirst: bool(row.newestFirst),
+    contractCount: count(row.contractCount),
+    checkedAt: optionalCount(row.checkedAt),
+  };
+}
+
 export function readNftCollectionsResponse(value: unknown): NftCollectionsResponse {
   const failure = readFailure(value);
   if (failure) return failure;
@@ -451,6 +496,7 @@ export function readNftCollectionsResponse(value: unknown): NftCollectionsRespon
         userContracts: stringList(plan?.userContracts),
         indexerName: optionalStr(plan?.indexerName),
         indexerConfigKey: str(plan?.indexerConfigKey, "ZUNIA_NFT_INDEXER_URL"),
+        scan: readChainScan(plan?.scan),
       },
       // Defaults to 0, which the UI reads as "nothing was queried" — the safe
       // direction if the field ever goes missing on the wire.

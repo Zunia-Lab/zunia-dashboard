@@ -26,6 +26,7 @@
 
 import "server-only";
 import { lookup } from "node:dns/promises";
+import { join } from "node:path";
 import {
   applyNftMetadata,
   discoverNfts,
@@ -37,12 +38,21 @@ import {
   resolveTokenUri,
   type ChainInfoLike,
   type NftChainContext,
-  type NftDiscoveryResult,
   type NftIndexer,
   type NftMetadataFetcher,
   type NftToken,
 } from "@zunialab/interchain";
+import {
+  attributeScan,
+  createChainScanCache,
+  scanLimitation,
+  type AttributedDiscovery,
+  type ChainScanCache,
+  type ChainScanReport,
+} from "@/lib/nft/chain-scan";
 import { findServerChain as findChain, type ServerChainEntry as ChainEntry } from "@/lib/server/chains";
+import { dashboardDataDir } from "@/lib/server/data-dir";
+import { JsonFile } from "@/lib/server/push/file-store";
 import {
   fetchRemoteText,
   readCapped,
@@ -311,27 +321,96 @@ function nftIndexer(config: NftDeploymentConfig): NftIndexer | null {
   };
 }
 
+/* -------------------------------------------------------------------------- *
+ * Chain scan
+ * -------------------------------------------------------------------------- */
+
+const SCAN_GLOBAL_KEY = "__zuniaNftChainScan";
+const SCAN_FILE_NAME = "nft-chain-scan.json";
+
+/**
+ * Whole budget for one walk of a chain's codes. A first walk of a busy chain
+ * is forty code listings and up to eighty probes; past this it stops, keeps
+ * every verdict it reached, and the next walk (minutes later, not hours, see
+ * `SCAN_PARTIAL_TTL_MS`) carries on from there.
+ */
+const SCAN_DEADLINE_MS = 20_000;
+
+/**
+ * The process's one scan cache, shared by every visitor and every chain.
+ *
+ * On `globalThis` for the same reason as the push store: Next builds route
+ * handlers as separate module graphs and dev HMR re-evaluates modules, and
+ * either would otherwise give a chain a second cache that walks it again.
+ * Verdicts and lists go to `$ZUNIA_DASHBOARD_DATA_DIR`, because every push to
+ * main restarts the process and wasm verdicts are worth more than one deploy.
+ */
+function chainScanCache(): ChainScanCache {
+  const g = globalThis as unknown as Record<string, ChainScanCache | undefined>;
+  let cache = g[SCAN_GLOBAL_KEY];
+  if (!cache) {
+    const file = new JsonFile(join(dashboardDataDir(), SCAN_FILE_NAME), {
+      debounceMs: 2_000,
+      // The message only: the path is the operator's business, not the log reader's.
+      onError: (error) =>
+        console.warn(`[nft] chain scan cache write failed: ${error instanceof Error ? error.message : "unknown error"}`),
+    });
+    // Async work never completes during `exit`; the sync save is the only one
+    // that lands. Losing it costs a re-walk, so failing here is not reported.
+    process.once("exit", () => {
+      try {
+        file.flushSync();
+      } catch {
+        /* nothing left to report to */
+      }
+    });
+    cache = createChainScanCache({
+      file,
+      concurrency: LCD_CONCURRENCY,
+      deadlineMs: SCAN_DEADLINE_MS,
+    });
+    g[SCAN_GLOBAL_KEY] = cache;
+  }
+  return cache;
+}
+
+/**
+ * `discoverNfts`' own cap (`DEFAULT_MAX_DISCOVERY_CONTRACTS`, not exported).
+ * Raised to cover every candidate once the scan adds some: a scanned contract
+ * the engine silently skipped would still be counted as asked.
+ */
+const ENGINE_MAX_CONTRACTS = 25;
+
 /** What `discoverNfts` was given, so the UI can name each path it used. */
 export interface NftDiscoveryPlan {
   readonly knownContracts: readonly string[];
+  /** What the chain scan added: its contracts, less any this deployment lists. */
+  readonly scannedContracts: readonly string[];
   readonly userContracts: readonly string[];
   readonly indexerName: string | null;
   readonly indexerConfigKey: string;
+  /** The scan as it ran, with its full contract count. Null when an index answers instead. */
+  readonly scan: (ChainScanReport & { readonly contractCount: number }) | null;
 }
 
 export interface NftDiscoveryOutcome {
   readonly plan: NftDiscoveryPlan;
-  readonly result: NftDiscoveryResult;
+  readonly result: AttributedDiscovery;
 }
 
 /**
- * Run discovery over all three paths.
+ * Run discovery over all four paths.
  *
  * The engine does the work; this only assembles the inputs and keeps the plan
  * alongside the result. The plan is what lets the grid say "no known list ships
  * for this chain and no index is configured, so only the address you typed was
  * checked" — which is the difference between an honest empty state and the
  * "you own no NFTs" the mobile app used to show after querying nothing at all.
+ *
+ * The chain scan (lib/nft/chain-scan) is skipped when an index is configured:
+ * an index can answer for the whole chain, and a scan would only add requests.
+ * Its contracts go to the engine as `knownContracts`, never as an indexer, so
+ * the answer stays incomplete; `attributeScan` then labels them `scan`.
  */
 export async function runNftDiscovery(params: {
   readonly ctx: NftChainContext;
@@ -344,22 +423,51 @@ export async function runNftDiscovery(params: {
   const known = params.config.knownContracts[params.ctx.chain.chainId] ?? [];
   const indexer = nftIndexer(params.config);
 
+  // The walk is shared and runs on its own deadline; a visitor who leaves
+  // stops waiting for it, but does not stop it.
+  const shared = indexer
+    ? null
+    : chainScanCache().scan(params.ctx, gateOptions(params.support));
+  const scan = shared && params.signal ? await untilAborted(shared, params.signal) : await shared;
+  const listed = new Set(known);
+  const scanned = scan ? scan.contracts.filter((address) => !listed.has(address)) : [];
+  const candidates = [...known, ...scanned];
+
   const result = await discoverNfts(params.ctx, params.owner, {
-    knownContracts: known,
+    knownContracts: candidates,
     userContracts: params.userContracts,
     ...(indexer ? { indexer } : {}),
+    maxContracts: Math.max(ENGINE_MAX_CONTRACTS, candidates.length),
     ...gateOptions(params.support),
     ...(params.signal ? { signal: params.signal } : {}),
   });
 
+  const attributed = attributeScan(result, scanned, params.userContracts);
+  // Only a scan that looked at something gets to describe the list's reach.
+  const limitation =
+    scan && scan.status === "ran" && scan.codesChecked > 0 && !attributed.complete
+      ? scanLimitation(params.ctx.chain.chainName, scan)
+      : attributed.limitation;
+
   return {
     plan: {
       knownContracts: known,
+      scannedContracts: scanned,
       userContracts: params.userContracts,
       indexerName: indexer?.name ?? null,
       indexerConfigKey: NFT_INDEXER_KEY,
+      scan: scan
+        ? {
+            status: scan.status,
+            codesChecked: scan.codesChecked,
+            codesUnread: scan.codesUnread,
+            newestFirst: scan.newestFirst,
+            checkedAt: scan.checkedAt,
+            contractCount: scan.contracts.length,
+          }
+        : null,
     },
-    result,
+    result: { ...attributed, limitation },
   };
 }
 
@@ -460,7 +568,10 @@ const METADATA_TIMEOUT_MS = 8_000;
 /** Gateways and CDNs redirect once or twice; a longer chain is a loop or a probe. */
 const METADATA_MAX_REDIRECTS = 3;
 
-/** `dns.lookup` takes no signal; this makes it give up when the request does. */
+/**
+ * Stop waiting for work that takes no signal of its own (`dns.lookup`, the
+ * shared chain scan) when the request goes away. The work itself carries on.
+ */
 function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
