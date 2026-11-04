@@ -14,9 +14,14 @@
  * Items appear as soon as balances and staking positions are in; governance,
  * chain economics and the security review add theirs when they land, so a
  * slow node delays its own cards, not the list.
+ *
+ * What the reader opened or cleared is left out of `items` (see
+ * `./dismissals.ts`) and counted in `hidden`; `all` keeps the full list for
+ * figures that are facts rather than suggestions (the "Claim all" emphasis).
+ * With insights turned off in Settings, `items` is empty and `enabled` false.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useNow } from "@/components/ui/hooks";
 import { findChain } from "@/lib/chains";
 import { useChainStats } from "@/lib/data/chains";
@@ -25,15 +30,31 @@ import { usePortfolio } from "@/lib/data/portfolio";
 import { useSecurityReview, useStakingPositions } from "@/lib/data/staking";
 import type { FeeChain } from "@/lib/tx/fees";
 import type { ApiState } from "@/lib/useApi";
+import { useWallet } from "@/lib/connect/context";
 import { useChainScope } from "@/lib/useChainScope";
+import { useStoredValue } from "@/lib/useStoredValue";
 import { usePrefs } from "@/providers/PrefsProvider";
+import { dismissInsights, EMPTY_BOOK, INSIGHT_DISMISSALS_KEY, readBook, restoreInsights, splitDismissed, type DismissalBook } from "./dismissals";
 import { CHAIN_NOTICES, deriveInsights, type Insight } from "./rules";
 
 export * from "./rules";
+export { INSIGHT_REST_MS } from "./dismissals";
 
 export interface InsightsState {
-  /** Most severe first (see `deriveInsights`). Empty without a wallet. */
+  /** What to show: most severe first (see `deriveInsights`), without what the reader hid. Empty without a wallet, or with insights off. */
   items: Insight[];
+  /** Everything the rules found, hidden ones included. */
+  all: Insight[];
+  /** Found but hidden by the reader (opened or cleared), most severe first. */
+  hiddenItems: Insight[];
+  /** Insights are on (Settings). */
+  enabled: boolean;
+  /** Hide these (the reader opened or cleared them). */
+  dismiss: (insights: readonly Insight[]) => void;
+  /** Hide everything currently shown. */
+  clearAll: () => void;
+  /** Show everything this account hid again. */
+  restore: () => void;
   /** Balances or staking positions are still on their first read. */
   loading: boolean;
   /** Reads that failed, in words ("Staking positions: node timed out"). Partial lists stay usable. */
@@ -55,8 +76,10 @@ export function useInsights(): InsightsState {
   const stats = useChainStats();
   const proposals = useProposals(INSIGHT_PROPOSALS);
   const security = useSecurityReview();
-  const { hideAmounts, currency: preferred } = usePrefs();
+  const { hideAmounts, currency: preferred, insightsOn } = usePrefs();
   const { scopedChainIds } = useChainScope();
+  const { account } = useWallet();
+  const [stored, setStored] = useStoredValue<DismissalBook>(INSIGHT_DISMISSALS_KEY, EMPTY_BOOK);
   const now = useNow();
 
   // Gas prices and display names from the client catalog: the rules estimate
@@ -90,6 +113,23 @@ export function useInsights(): InsightsState {
     });
   }, [now, currency, hideAmounts, portfolio.data, staking.data, stats.data, proposals.data, security.data, catalog]);
 
+  const address = account?.address ?? "";
+  const book = useMemo(() => readBook(stored), [stored]);
+  const { visible, hidden } = useMemo(() => splitDismissed(items, book[address], now ?? 0), [items, book, address, now]);
+  // Each write reads the stored book afresh (functional update), so two tabs
+  // or two quick clicks cannot drop each other's records.
+  const dismiss = useCallback(
+    (insights: readonly Insight[]) => {
+      if (!address || insights.length === 0) return;
+      setStored((prev) => dismissInsights(readBook(prev), address, insights, Date.now()));
+    },
+    [address, setStored],
+  );
+  const clearAll = useCallback(() => dismiss(visible), [dismiss, visible]);
+  const restore = useCallback(() => {
+    if (address) setStored((prev) => restoreInsights(readBook(prev), address));
+  }, [address, setStored]);
+
   // Cheap enough to build on every render; each state object is new anyway.
   const errors = [
     failure("Balances", portfolio),
@@ -107,7 +147,13 @@ export function useInsights(): InsightsState {
 
   const sources = [portfolio, staking, stats, proposals, security];
   return {
-    items,
+    items: insightsOn ? visible : [],
+    all: items,
+    hiddenItems: insightsOn ? hidden : [],
+    enabled: insightsOn,
+    dismiss,
+    clearAll,
+    restore,
     loading: portfolio.loading || staking.loading || (now === null && (portfolio.status !== "idle" || staking.status !== "idle")),
     errors,
     refreshing: sources.some((source) => source.refreshing || source.stale),

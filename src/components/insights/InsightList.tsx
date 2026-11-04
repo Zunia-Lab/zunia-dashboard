@@ -20,7 +20,7 @@ import { useState } from "react";
 import { Icon } from "@/components/icons";
 import type { IconName } from "@/components/icons";
 import { INSIGHT_ICON, SEVERITY_ICON, SEVERITY_TONE } from "@/components/overview/InsightCard";
-import { Badge, Button, Card, CardBody, CardHeader, ChainLogo, Disclosure, EmptyState, Skeleton, TONE_SOFT } from "@/components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, ChainLogo, Disclosure, EmptyState, IconButton, Skeleton, TONE_SOFT } from "@/components/ui";
 import { findChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
 import { INSIGHT_KIND_LABEL, SEVERITY_LABEL, type Insight, type InsightGroup } from "@/lib/insights/rules";
@@ -63,10 +63,14 @@ export interface InsightGroupCardProps {
    * folds away is the context, never a warning above it.
    */
   limit?: number;
+  /** Found in this section but hidden by the reader. */
+  hidden?: number;
+  /** Hides an insight: its close button, and opening its action. */
+  onDismiss?: (insight: Insight) => void;
   className?: string;
 }
 
-export function InsightGroupCard({ group, items, loading, pending, refreshing, partial, limit, className }: InsightGroupCardProps) {
+export function InsightGroupCard({ group, items, loading, pending, refreshing, partial, limit, hidden: cleared = 0, onDismiss, className }: InsightGroupCardProps) {
   const copy = GROUP_COPY[group];
   const titleId = `insights-${GROUP_ANCHOR[group]}-title`;
   const [expanded, setExpanded] = useState(false);
@@ -99,6 +103,15 @@ export function InsightGroupCard({ group, items, loading, pending, refreshing, p
       <CardBody flush>
         {loading && items.length === 0 ? (
           <RowSkeletons count={group === "do-now" ? 3 : 2} />
+        ) : items.length === 0 && cleared > 0 ? (
+          <div className="border-t border-[var(--d-hairline)] px-[var(--d-pad)]">
+            <EmptyState
+              inline
+              icon="success"
+              title="All cleared"
+              body={`${cleared} hidden here until ${cleared === 1 ? "it becomes" : "they become"} more urgent, or for a week if ${cleared === 1 ? "it still holds" : "they still hold"}.`}
+            />
+          </div>
         ) : items.length === 0 ? (
           <div className="border-t border-[var(--d-hairline)] px-[var(--d-pad)]">
             <EmptyState
@@ -112,7 +125,7 @@ export function InsightGroupCard({ group, items, loading, pending, refreshing, p
           <>
             <ul className="@container divide-y divide-[var(--d-hairline)] border-t border-[var(--d-hairline)]">
               {items.slice(0, cut).map((insight) => (
-                <InsightRow key={insight.id} insight={insight} />
+                <InsightRow key={insight.id} insight={insight} onDismiss={onDismiss ? () => onDismiss(insight) : undefined} />
               ))}
             </ul>
             {hidden > 0 || expanded ? (
@@ -136,7 +149,7 @@ export function InsightGroupCard({ group, items, loading, pending, refreshing, p
   );
 }
 
-function InsightRow({ insight }: { insight: Insight }) {
+function InsightRow({ insight, onDismiss }: { insight: Insight; onDismiss?: () => void }) {
   const tone = SEVERITY_TONE[insight.severity];
   const chainName = insight.chainId ? (findChain(insight.chainId)?.chainName ?? insight.chainId) : null;
   const titleId = `insight-${insight.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -177,6 +190,7 @@ function InsightRow({ insight }: { insight: Insight }) {
                   <span className="truncate">{chainName}</span>
                 </span>
               ) : null}
+              {onDismiss ? <IconButton label="Hide this insight" icon="close" size="sm" variant="ghost" className="-my-1 ml-auto" onClick={onDismiss} /> : null}
             </p>
             <h3 id={titleId} className="mt-2 text-[15px] font-medium leading-snug tracking-[-0.012em] text-fg">
               {insight.title}
@@ -208,6 +222,7 @@ function InsightRow({ insight }: { insight: Insight }) {
                   href={insight.action.href}
                   iconRight="arrowRight"
                   className="shrink-0"
+                  onClick={onDismiss}
                 >
                   {insight.action.label}
                 </Button>

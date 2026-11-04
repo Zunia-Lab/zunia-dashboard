@@ -10,7 +10,7 @@
  */
 
 import { Icon, type IconName } from "@/components/icons";
-import { Badge, Button, ChainLogo, InfoTip, TONE_SOFT, type Tone } from "@/components/ui";
+import { Badge, Button, ChainLogo, IconButton, InfoTip, TONE_SOFT, type Tone } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { INSIGHT_KIND_LABEL, SEVERITY_LABEL, type Insight, type InsightKind, type InsightSeverity } from "@/lib/insights";
 
@@ -43,10 +43,15 @@ export const INSIGHT_ICON: Readonly<Record<InsightKind, IconName>> = {
 
 export interface InsightCardProps {
   insight: Insight;
+  /**
+   * Hides the insight: called by its close button, and when its action is
+   * opened (the reader has seen it and gone to act on it).
+   */
+  onDismiss?: () => void;
   className?: string;
 }
 
-export function InsightCard({ insight, className }: InsightCardProps) {
+export function InsightCard({ insight, onDismiss, className }: InsightCardProps) {
   const tone = SEVERITY_TONE[insight.severity];
   const titleId = `insight-${insight.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return (
@@ -84,6 +89,7 @@ export function InsightCard({ insight, className }: InsightCardProps) {
               content={<p className="max-w-[300px] text-[12.5px] leading-snug text-fg-muted">{insight.why}</p>}
             />
           ) : null}
+          {onDismiss ? <IconButton label="Hide this insight" icon="close" size="sm" variant="ghost" className="-mr-1.5" onClick={onDismiss} /> : null}
         </span>
       </div>
       <h3 id={titleId} className="line-clamp-2 text-[14.5px] font-medium leading-snug tracking-[-0.01em] text-fg">
@@ -102,7 +108,7 @@ export function InsightCard({ insight, className }: InsightCardProps) {
           <span />
         )}
         {insight.action ? (
-          <Button size="sm" variant="secondary" href={insight.action.href} iconRight="arrowRight" className="shrink-0">
+          <Button size="sm" variant="secondary" href={insight.action.href} iconRight="arrowRight" className="shrink-0" onClick={onDismiss}>
             {insight.action.label}
           </Button>
         ) : null}

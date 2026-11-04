@@ -61,9 +61,32 @@ export interface InsightsSummaryProps {
   updatedAt: number | null;
   /** Nothing was read: no count is shown, since a zero would claim a measurement. */
   failed?: boolean;
+  /** Found but hidden by the reader. */
+  hidden?: number;
+  /** Hide every insight shown. */
+  onClearAll?: () => void;
+  /** Show the hidden ones again. */
+  onRestore?: () => void;
+  /** A shortcut was opened: its insight is hidden like a row's action. */
+  onOpenStep?: (step: Insight) => void;
 }
 
-export function InsightsSummary({ items, steps, counts, text, scopeLabel, loading, refreshing, errors, updatedAt, failed = false }: InsightsSummaryProps) {
+export function InsightsSummary({
+  items,
+  steps,
+  counts,
+  text,
+  scopeLabel,
+  loading,
+  refreshing,
+  errors,
+  updatedAt,
+  failed = false,
+  hidden = 0,
+  onClearAll,
+  onRestore,
+  onOpenStep,
+}: InsightsSummaryProps) {
   const headingId = useId();
   const total = items.length;
   const first = loading && total === 0;
@@ -80,6 +103,18 @@ export function InsightsSummary({ items, steps, counts, text, scopeLabel, loadin
               <span className="sr-only">Refreshing</span>
             </>
           ) : null}
+          <span className="ml-auto flex items-center gap-1">
+            {hidden > 0 && onRestore ? (
+              <Button size="sm" variant="ghost" iconLeft="eye" onClick={onRestore} title="Show the insights you opened or cleared">
+                {hidden} hidden
+              </Button>
+            ) : null}
+            {total > 0 && onClearAll ? (
+              <Button size="sm" variant="ghost" iconLeft="check" onClick={onClearAll}>
+                Clear all
+              </Button>
+            ) : null}
+          </span>
         </div>
         {first ? (
           <div aria-hidden className="mt-3 flex flex-col gap-3">
@@ -123,6 +158,7 @@ export function InsightsSummary({ items, steps, counts, text, scopeLabel, loadin
                         iconLeft={INSIGHT_ICON[step.kind]}
                         title={label}
                         className="max-w-full"
+                        onClick={onOpenStep ? () => onOpenStep(step) : undefined}
                       >
                         <span className="truncate">{label}</span>
                       </Button>
