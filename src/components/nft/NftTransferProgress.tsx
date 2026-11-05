@@ -74,7 +74,6 @@ export function NftTransferProgress({
             </ExternalLink>
           ) : null}
         </div>
-        {!explorerUrl ? <p className="text-[12px] text-fg-dim">No explorer is configured for {chainName}, so the hash is shown as text.</p> : null}
 
         {trace.loading && !trace.data ? (
           <div aria-busy="true">
@@ -85,7 +84,7 @@ export function NftTransferProgress({
         {trace.status === "error" ? (
           <InlineError
             title="Status unavailable"
-            message={`${trace.error?.message ?? "The read failed"}. The transaction was broadcast; this is the read that failed.`}
+            message={`${trace.error?.message ?? "The read failed"}. The transaction itself was sent.`}
             onRetry={trace.reload}
           />
         ) : null}
@@ -96,7 +95,7 @@ export function NftTransferProgress({
           </p>
         ))}
         <Button size="sm" variant="secondary" iconLeft="refresh" className="self-start" onClick={onReread}>
-          Re-read this token from the chain
+          Refresh token
         </Button>
       </CardBody>
     </Card>
@@ -120,14 +119,14 @@ function Outcome({ trace, destination, recipient }: { trace: NftTrackWire; desti
   if (trace.tx.state === "failed") {
     return (
       <Callout tone="danger" title="Rejected by the chain">
-        {trace.tx.rawLog || `Result code ${trace.tx.code ?? "unknown"}.`} Nothing moved: the token is still yours, in the same collection.
+        {trace.tx.rawLog || `Result code ${trace.tx.code ?? "unknown"}.`} The token is still yours.
       </Callout>
     );
   }
   if (trace.tx.state !== "success") {
     return (
       <Callout tone="neutral" title="Waiting for a block">
-        Broadcast accepted. The node has not indexed it yet, which is normal for the first few seconds.
+        Sent. This takes a few seconds.
       </Callout>
     );
   }
@@ -141,33 +140,30 @@ function Outcome({ trace, destination, recipient }: { trace: NftTrackWire; desti
   }
   if (packet.fundsRefunded || packet.status === "timeout") {
     return (
-      <Callout tone="warning" title="The packet did not arrive; the token came back">
-        Packet {packet.sequence} on {packet.sourceChannelId} timed out, so the bridge released the escrow. The token is yours again on this chain
-        and no voucher was minted on {destination}.
+      <Callout tone="warning" title="Transfer returned">
+        The packet timed out. The token is back with you and no voucher was minted on {destination}.
       </Callout>
     );
   }
   if (packet.status === "failed" || packet.failure === "ack-error") {
     return (
-      <Callout tone="danger" title="The destination rejected the packet">
-        {packet.error ?? "The receiving chain returned an error acknowledgement."}{" "}
-        {packet.fundsRefunded ? "The bridge has released the escrow." : "Check that the bridge released the escrow before signing anything else."}
+      <Callout tone="danger" title="Rejected by the destination">
+        {packet.error ?? "The receiving chain returned an error."}{" "}
+        {packet.fundsRefunded ? "The token was released." : "Check that the token was released before signing anything else."}
       </Callout>
     );
   }
   if (packet.status === "acknowledged" || packet.status === "received") {
     return (
       <Callout tone="success" title={`A voucher was minted on ${destination}`}>
-        Packet {packet.sequence} was delivered{packet.receiveTxHash ? ` in ${packet.receiveTxHash.slice(0, 10)}…` : ""}. {who} holds a voucher NFT backed by
-        your token, which stays escrowed in the bridge contract here until the voucher is sent back.
+        Delivered{packet.receiveTxHash ? ` in ${packet.receiveTxHash.slice(0, 10)}…` : ""}. {who} holds the voucher; your token stays escrowed here until it is sent back.
       </Callout>
     );
   }
   return (
     <Callout tone="neutral" title="In flight">
-      Your token is escrowed in the bridge contract on this chain. Packet {packet.sequence} left on {packet.sourceChannelId} ({packet.sourcePort}),
-      and{" "}
-      {trace.destinationQueried ? `${destination} has not acknowledged it yet.` : `${destination} could not be asked, so only this chain's side is known.`}
+      Escrowed here; packet {packet.sequence} left on {packet.sourceChannelId}.{" "}
+      {trace.destinationQueried ? `${destination} hasn\u2019t acknowledged it yet.` : `${destination} couldn\u2019t be reached.`}
     </Callout>
   );
 }

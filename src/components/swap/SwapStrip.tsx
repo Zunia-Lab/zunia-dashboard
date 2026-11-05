@@ -10,7 +10,7 @@
  *   contract, or moves to Osmosis first (which one depends on the pair, so
  *   the tile does not guess).
  * - Not listed: balances outside Zunia's list of Osmosis tokens, named,
- *   because "why can't I swap SAF?" is the question this answers. Tokens
+ *   because "why can't I swap POKT?" is the question this answers. Tokens
  *   with nothing on Osmosis cannot be swapped here; unlisted ones can still
  *   get a quote, so the two are counted apart and neither is called
  *   "swappable". The list keeps the Osmosis tokens Osmosis verifies and does

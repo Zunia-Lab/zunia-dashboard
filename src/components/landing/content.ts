@@ -26,6 +26,11 @@ export const LINKS = {
   zunialab: "https://zunialab.com",
   docs: "https://docs.zunialab.com",
   updates: "https://updates.zunialab.com",
+  /** The help center, and where a problem is reported. */
+  support: "https://zunialab.com/support",
+  report: "https://updates.zunialab.com/requests/new",
+  supportEmail: "dev@zunialab.com",
+  supportMail: "mailto:dev@zunialab.com",
   mapZone: "https://ibcmap.zunialab.com",
   x: "https://x.com/ZuniaLab",
   github: "https://github.com/Zunia-Lab",

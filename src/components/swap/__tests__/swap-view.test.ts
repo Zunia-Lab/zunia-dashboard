@@ -13,7 +13,7 @@ import type { ActivityAmount } from "@/lib/activity/types";
 import type { AssetOption } from "@/lib/swap/assets";
 import { swapFeeFor } from "@/lib/swap/fee";
 import type { SwapQuotePrice } from "@/lib/swap/wire";
-import type { XcsRouteTable } from "@/lib/swap/xcs";
+import { executable, type XcsRouteTable } from "@/lib/swap/xcs";
 
 import {
   allInCost,
@@ -113,7 +113,11 @@ const ATOM_ON_OSMO = option("osmosis-1", ATOM_OSMO, "ATOM", ATOM_OSMO, {
   held: false,
   amount: "0",
 });
-const SAF = option("safrochain-1", "usaf", "SAF", null);
+const SAF_OSMO = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
+/** Named on Osmosis (pool 3600), but the contract's table has no route for it. */
+const SAF = option("safrochain-1", "usaf", "SAF", SAF_OSMO);
+/** A catalog mainnet coin with no voucher on Osmosis. */
+const POKT = option("pocket", "upokt", "POKT", null);
 
 describe("deep links", () => {
   test("reads well-formed keys and amounts, drops the rest", () => {
@@ -160,7 +164,9 @@ describe("default rows", () => {
 
   test("standing of held rows", () => {
     assert.equal(sellStanding(OSMO, listed), "tradable");
-    assert.equal(sellStanding(SAF, listed), "not-traded");
+    assert.equal(sellStanding(POKT, listed), "not-traded");
+    // SAF has a name on Osmosis, so it stands as tradable once the listing carries it.
+    assert.equal(sellStanding(SAF, listedVenueDenoms([{ osmosisDenom: SAF_OSMO, tradable: true }])), "tradable");
     assert.equal(sellStanding(option("osmosis-1", "ibc/OFF", "OFF", "ibc/OFF"), listed), "unlisted");
     assert.equal(sellStanding(option("osmosis-1", "ibc/OFF", "OFF", "ibc/OFF"), null), "tradable");
   });
@@ -170,10 +176,10 @@ describe("default rows", () => {
       [ATOM_HUB.key, 500],
       [USDC.key, 14],
       [OSMO.key, 0.3],
-      [SAF.key, 900],
+      [POKT.key, 900],
     ]);
     const valueOf = (o: AssetOption) => value.get(o.key) ?? null;
-    assert.equal(defaultFromKey([SAF, ATOM_HUB, USDC, OSMO], listed, valueOf), USDC.key);
+    assert.equal(defaultFromKey([POKT, ATOM_HUB, USDC, OSMO], listed, valueOf), USDC.key);
     assert.equal(defaultFromKey([SAF, ATOM_HUB, OSMO], listed, valueOf), ATOM_HUB.key);
     assert.equal(defaultFromKey([SAF], listed, valueOf), SAF.key);
     assert.equal(defaultFromKey([], listed, valueOf), null);
@@ -223,6 +229,23 @@ describe("default rows", () => {
     // No table yet, or no name for ATOM on Osmosis: the contract is presumed.
     assert.equal(opensInOneSignature(tia, null, ATOM_OSMO), true);
     assert.equal(opensInOneSignature(osmoOnHub, table, null), true);
+  });
+
+  test("To: with every row two-step (SAF on Safrochain), a USDC row delivered on Osmosis", () => {
+    const withFamily = (o: AssetOption): AssetOption => ({ ...o, identity: { ...o.identity, family: "USDC" } });
+    const usdc = withFamily(option("osmosis-1", USDC_N, "USDC.n", USDC_N, { identityKey: "noble-1:uusdc" }));
+    const usdcHome = withFamily(option("noble-1", "uusdc", "USDC.n", USDC_N, { held: false, amount: "0" }));
+    const table: XcsRouteTable = { xcsContract: "osmo1xcs", swapContract: "osmo1router", routes: [{ input: ATOM_OSMO, output: "uosmo", poolIds: ["1"] }], readAt: 0 };
+    const gated = (o: AssetOption): AssetOption => ({ ...o, executable: executable(table, SAF_OSMO, o.osmosisDenom ?? "") });
+    const buy = [usdcHome, OSMO, ATOM_ON_OSMO, usdc].map(gated);
+    // Nothing is reachable by the contract; OSMO is on Osmosis but USDC is preferred.
+    assert.ok(buy.every((o) => o.executable === "no"));
+    assert.equal(defaultToKey(SAF, buy), usdc.key);
+    // Without a USDC row, the first row delivered on Osmosis.
+    assert.equal(defaultToKey(SAF, [usdcHome, OSMO, ATOM_ON_OSMO].map(gated)), OSMO.key);
+    // A route the contract has keeps the one-transaction row first.
+    const reachable = { ...ATOM_HUB, executable: "yes" as const };
+    assert.equal(defaultToKey(SAF, [usdc, reachable].map((o) => (o === usdc ? gated(o) : o))), reachable.key);
   });
 
   test("To: OSMO on Osmosis, ATOM when selling OSMO, never disabled or the From", () => {
@@ -336,8 +359,8 @@ describe("the form's button", () => {
       action: null,
       busy: false,
     });
-    assert.equal(formCta({ ...base, from: SAF }).label, "Not traded on Osmosis");
-    assert.equal(formCta({ ...base, from: SAF, to: undefined }).label, "Not traded on Osmosis");
+    assert.equal(formCta({ ...base, from: POKT }).label, "Not traded on Osmosis");
+    assert.equal(formCta({ ...base, from: POKT, to: undefined }).label, "Not traded on Osmosis");
     assert.equal(formCta({ ...base, amountText: " " }).label, "Enter an amount");
     assert.equal(formCta({ ...base, amountUnits: null }).label, "Enter a valid amount");
     assert.equal(formCta({ ...base, amountUnits: BigInt(200_000_000) }).label, "Insufficient OSMO balance");
@@ -483,14 +506,14 @@ describe("reading a quote", () => {
       [USDC.key, 14.5],
       [OSMO.key, 0.3],
       [ATOM_HUB.key, 17],
-      [SAF.key, 0.01],
+      [POKT.key, 0.01],
     ]);
-    const summary = swappableSummary([USDC, OSMO, ATOM_HUB, SAF, unlisted], listed, (o) => value.get(o.key) ?? null);
+    const summary = swappableSummary([USDC, OSMO, ATOM_HUB, POKT, unlisted], listed, (o) => value.get(o.key) ?? null);
     assert.deepEqual(summary.tradable, { count: 3, value: 31.8, unpriced: 0 });
     assert.deepEqual(summary.onVenue, { count: 2, value: 14.8, unpriced: 0 });
     assert.deepEqual(summary.elsewhere, { count: 1, value: 17, unpriced: 0, chains: 1 });
     // Outside the list: not on Osmosis at all, or unlisted (still quotable), counted apart; the most valuable named first.
-    assert.deepEqual(summary.notListed, { count: 2, value: 0.01, unpriced: 1, tickers: ["SAF", "OFF"], notTraded: 1, unlisted: 1 });
+    assert.deepEqual(summary.notListed, { count: 2, value: 0.01, unpriced: 1, tickers: ["POKT", "OFF"], notTraded: 1, unlisted: 1 });
     const none = swappableSummary([], listed, () => null);
     assert.equal(none.tradable.value, null);
     assert.equal(none.notListed.count, 0);

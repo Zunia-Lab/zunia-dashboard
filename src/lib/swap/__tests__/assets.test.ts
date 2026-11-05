@@ -33,6 +33,8 @@ const USDC_INJ = "ibc/794C7D7F3B857713878A3A1927251FA6AC1EEE520424C1F6FAFE9BA26D
 const USDC_INJ_ERC20 = "erc20:0xa00C59fF5a080D2b954d0c75e46E22a0c371235a";
 const USDC_AXL = "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858";
 const ATOM = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2";
+/** SAF's voucher on Osmosis: sha256 of `transfer/channel-110497/usaf` (pool 3600 pairs it with allUSDC). */
+const SAF_VENUE = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
 const UNLISTED = "ibc/0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
 
 function chain(chainId: string, chainName: string, coinDenom: string, coinMinimalDenom: string, network: "mainnet" | "testnet" = "mainnet"): ChainEntry {
@@ -60,6 +62,7 @@ const CHAINS: ChainEntry[] = [
   chain("noble-1", "Noble", "USDC", "uusdc"),
   chain("axelar-dojo-1", "Axelar", "AXL", "uaxl"),
   chain("safro-testnet-1", "Safrochain Testnet", "SAF", "usaf", "testnet"),
+  chain("pocket", "Pocket Network", "POKT", "upokt"),
 ];
 
 function identity(chainId: string, denom: string, fields: Partial<TokenIdentity> & { ticker: string }): TokenIdentity {
@@ -80,13 +83,14 @@ const id = {
   osmo: identity("osmosis-1", "uosmo", { ticker: "OSMO", provenance: "native", originChainId: "osmosis-1", originDenom: "uosmo", osmosisDenom: "uosmo", logoUrl: "https://logo/osmo.png" }),
   atomHub: identity("cosmoshub-4", "uatom", { ticker: "ATOM", provenance: "native", originChainId: "cosmoshub-4", originDenom: "uatom", osmosisDenom: ATOM }),
   atomOsmo: identity("osmosis-1", ATOM, { ticker: "ATOM", originChainId: "cosmoshub-4", originDenom: "uatom", osmosisDenom: ATOM }),
-  nOsmo: identity("osmosis-1", USDC_N, { ticker: "USDC.n", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N, logoUrl: "https://logo/usdc.png" }),
-  nHome: identity("noble-1", "uusdc", { ticker: "USDC.n", provenance: "native", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N }),
-  injOsmo: identity("osmosis-1", USDC_INJ, { ticker: "USDC.inj", originChainId: "injective-1", originDenom: USDC_INJ_ERC20, osmosisDenom: USDC_INJ }),
-  injHome: identity("injective-1", USDC_INJ_ERC20, { ticker: "USDC.inj", provenance: "catalog", originChainId: "injective-1", originDenom: USDC_INJ_ERC20, osmosisDenom: USDC_INJ }),
-  axlOsmo: identity("osmosis-1", USDC_AXL, { ticker: "USDC.axl", originChainId: "axelar-dojo-1", originDenom: "uusdc", osmosisDenom: USDC_AXL }),
-  axlHome: identity("axelar-dojo-1", "uusdc", { ticker: "USDC.axl", provenance: "catalog", originChainId: "axelar-dojo-1", originDenom: "uusdc", osmosisDenom: USDC_AXL }),
-  saf: identity("safrochain-1", "usaf", { ticker: "SAF", provenance: "native", originChainId: "safrochain-1", originDenom: "usaf" }),
+  nOsmo: identity("osmosis-1", USDC_N, { ticker: "USDC.n", family: "USDC", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N, logoUrl: "https://logo/usdc.png" }),
+  nHome: identity("noble-1", "uusdc", { ticker: "USDC.n", family: "USDC", provenance: "native", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N }),
+  injOsmo: identity("osmosis-1", USDC_INJ, { ticker: "USDC.inj", family: "USDC", originChainId: "injective-1", originDenom: USDC_INJ_ERC20, osmosisDenom: USDC_INJ }),
+  injHome: identity("injective-1", USDC_INJ_ERC20, { ticker: "USDC.inj", family: "USDC", provenance: "catalog", originChainId: "injective-1", originDenom: USDC_INJ_ERC20, osmosisDenom: USDC_INJ }),
+  axlOsmo: identity("osmosis-1", USDC_AXL, { ticker: "USDC.axl", family: "USDC", originChainId: "axelar-dojo-1", originDenom: "uusdc", osmosisDenom: USDC_AXL }),
+  axlHome: identity("axelar-dojo-1", "uusdc", { ticker: "USDC.axl", family: "USDC", provenance: "catalog", originChainId: "axelar-dojo-1", originDenom: "uusdc", osmosisDenom: USDC_AXL }),
+  saf: identity("safrochain-1", "usaf", { ticker: "SAF", provenance: "native", originChainId: "safrochain-1", originDenom: "usaf", osmosisDenom: SAF_VENUE, unverifiedOnOsmosis: true }),
+  safOsmo: identity("osmosis-1", SAF_VENUE, { ticker: "SAF", originChainId: "safrochain-1", originDenom: "usaf", osmosisDenom: SAF_VENUE, unverifiedOnOsmosis: true }),
   safTest: identity("safro-testnet-1", "usaf", { ticker: "SAF", provenance: "native", originChainId: "safro-testnet-1", originDenom: "usaf", testnet: true }),
   unlisted: identity("osmosis-1", UNLISTED, { ticker: "IBC·0123", name: "Unknown token", provenance: "unknown", proven: false, decimals: null }),
 };
@@ -127,6 +131,8 @@ const SWAP_ASSETS: SwapAsset[] = [
   asset("home", id.injHome, USDC_INJ),
   asset("venue", id.axlOsmo, USDC_AXL),
   asset("home", id.axlHome, USDC_AXL),
+  asset("venue", id.safOsmo, SAF_VENUE),
+  asset("home", id.saf, SAF_VENUE),
 ];
 
 const live = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures/xcs-route-table.json"), "utf8")) as {
@@ -267,8 +273,22 @@ describe("buyOptions", () => {
       assert.equal(row(rows, key).disabledReason, null, key);
     }
     assert.equal(row(rows, "osmosis-1:uosmo").disabledReason, SELF_REASON);
-    assert.equal(row(rows, "safrochain-1:usaf").disabledReason, notTradedReason("SAF"));
-    assert.equal(row(rows, "safrochain-1:usaf").searchOnly, true);
+    // Pocket's POKT has no voucher on Osmosis: named in the list, never swappable.
+    assert.equal(row(rows, "pocket:upokt").disabledReason, notTradedReason("POKT"));
+    assert.equal(row(rows, "pocket:upokt").searchOnly, true);
+  });
+
+  test("SAF is named on Osmosis since Zunia lists it, so it can be picked", () => {
+    const rows = buy("osmosis-1:uosmo");
+    assert.equal(row(rows, "safrochain-1:usaf").osmosisDenom, SAF_VENUE);
+    assert.equal(row(rows, "safrochain-1:usaf").disabledReason, null);
+    assert.equal(row(rows, "safrochain-1:usaf").searchOnly, false);
+    assert.equal(row(rows, `osmosis-1:${SAF_VENUE}`).disabledReason, null);
+    // Osmosis has not verified it: still pickable, still proven, the flag kept for the page.
+    for (const key of ["safrochain-1:usaf", `osmosis-1:${SAF_VENUE}`]) {
+      assert.equal(row(rows, key).identity.unverifiedOnOsmosis, true, key);
+      assert.equal(row(rows, key).verified, true, key);
+    }
   });
 
   test("refuses the same asset elsewhere, and orders held, reachable, the rest, then the disabled", () => {
@@ -298,9 +318,24 @@ describe("buyOptions", () => {
 
   test("picks the user's To while it exists, else the first usable row", () => {
     const rows = buy("osmosis-1:uosmo");
-    assert.equal(pickTo(rows, "safrochain-1:usaf")?.key, "safrochain-1:usaf");
+    assert.equal(pickTo(rows, "pocket:upokt")?.key, "pocket:upokt");
     assert.equal(pickTo(rows, null)?.disabledReason, null);
     assert.equal(pickTo(rows, "nope:x")?.disabledReason, null);
+  });
+
+  test("with no pick, a USDC row delivered on Osmosis when every row is two-step (SAF on Safrochain)", () => {
+    const rows = buy("safrochain-1:usaf");
+    // The contract's table has no SAF route: every usable row moves to Osmosis first.
+    const usable = rows.filter((option) => option.disabledReason === null);
+    assert.ok(usable.length > 0);
+    assert.ok(usable.every((option) => option.executable === "no"));
+    const from = held("safrochain-1:usaf");
+    assert.equal(pickTo(rows, null, from)?.chainId, "osmosis-1");
+    assert.equal(pickTo(rows, null, from)?.identity.family, "USDC");
+    // The user's own pick stays, even a voucher held elsewhere.
+    assert.equal(pickTo(rows, "noble-1:uusdc", from)?.key, "noble-1:uusdc");
+    // From Osmosis nothing needs moving, so the first usable row stands.
+    assert.equal(pickTo(buy("osmosis-1:uosmo"), null, held("osmosis-1:uosmo"))?.disabledReason, null);
   });
 });
 
@@ -326,7 +361,10 @@ describe("helpers", () => {
     assert.deepEqual(expectedVenueDenoms(held("osmosis-1:uosmo"), { chainId: "injective-1", denom: USDC_INJ_ERC20, identity: id.injHome }), {
       toVenueDenom: USDC_INJ,
     });
-    assert.deepEqual(expectedVenueDenoms(held("safrochain-1:usaf"), held("osmosis-1:uosmo")), {});
+    assert.deepEqual(expectedVenueDenoms(held("safrochain-1:usaf"), held("osmosis-1:uosmo")), { fromVenueDenom: SAF_VENUE });
+    // A token Osmosis has no name for hints nothing.
+    const pokt = { chainId: "pocket", denom: "upokt", identity: identity("pocket", "upokt", { ticker: "POKT", provenance: "native" }) };
+    assert.deepEqual(expectedVenueDenoms(pokt, held("osmosis-1:uosmo")), {});
   });
 });
 

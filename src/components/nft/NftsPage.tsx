@@ -23,7 +23,6 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { NFT_MEDIA_PRIVACY_NOTE } from "@zunialab/ui";
 import { Page } from "@/components/shell/Page";
 import {
   AddressText,
@@ -45,7 +44,6 @@ import {
 } from "@/components/ui";
 import { CHAINS, findChain, sortChains, type ChainEntry } from "@/lib/chains";
 import { shortenAddress } from "@/lib/format";
-import { scanWindow } from "@/lib/nft/chain-scan";
 import { useNftCollections, useNftConfig, useNftTokens } from "@/lib/nft/hooks";
 import type { NftCollectionWire, NftConfigWire, NftHoldingWire } from "@/lib/nft/wire";
 import { useChainScope } from "@/lib/useChainScope";
@@ -93,7 +91,7 @@ export function NftsPage() {
       title="NFTs"
       access="wallet"
       connectTitle="Your NFT collections, chain by chain"
-      connectDescription="Connect a wallet to see the CW721 tokens your address holds on networks that run CosmWasm, and move them. Artwork stays off until you turn it on."
+      connectDescription="Connect a wallet to see and send the NFTs you hold on CosmWasm networks."
     >
       <NftsBody />
     </Page>
@@ -197,32 +195,20 @@ function NftsBody() {
       <Availability config={config.data} loading={config.loading} error={config.status === "error" ? (config.error?.message ?? null) : null} onRetry={config.reload} />
 
       {supported && !owner ? (
-        <Callout tone="warning" title={`Your wallet has no address on ${chain?.chainName ?? chainId}`}>
-          It did not share one, and the connected account uses another key type there, so it would be a different account. Nothing was asked.
+        <Callout tone="warning" title={`No ${chain?.chainName ?? chainId} address`}>
+          Your wallet didn&apos;t share one for this network.
         </Callout>
       ) : null}
 
       {supported && owner && data && data.queriedContractCount > 0 ? (
         <section aria-label="NFT summary" className="grid grid-cols-2 gap-[var(--d-gap)] @min-[760px]:grid-cols-4">
-          <StatTile label="Collections" icon="layers" value={data.holdings.length} sub={`on ${data.chainName}`} />
-          <StatTile
-            label="Tokens held"
-            icon="nfts"
-            value={`${tokenCount}${anyTruncated ? "+" : ""}`}
-            sub={anyTruncated ? "A list was cut short: a floor" : "In the collections checked"}
-          />
-          <StatTile
-            label="Contracts checked"
-            icon="search"
-            value={data.queriedContractCount}
-            sub={data.queriedContractCount === 0 ? "Nothing was asked" : `${data.sources.length} ${data.sources.length === 1 ? "source" : "sources"} found tokens`}
-            tone={data.queriedContractCount === 0 ? "warning" : "default"}
-          />
+          <StatTile label="Collections" icon="layers" value={data.holdings.length} />
+          <StatTile label="Tokens" icon="nfts" value={`${tokenCount}${anyTruncated ? "+" : ""}`} />
+          <StatTile label="Contracts checked" icon="search" value={data.queriedContractCount} />
           <StatTile
             label="Coverage"
             icon={data.complete ? "check" : "info"}
             value={data.complete ? "Complete" : "Partial"}
-            sub={data.complete ? "An index answered" : data.plan.scan?.status === "ran" ? "Chain scan, not an index" : "Known contracts only"}
             tone={data.complete ? "positive" : "default"}
           />
         </section>
@@ -231,7 +217,7 @@ function NftsBody() {
       {supported && owner && chain && config.data ? (
         <div className="grid grid-cols-1 items-start gap-[var(--d-gap)] @min-[900px]:grid-cols-12">
           <div className="flex min-w-0 flex-col gap-[var(--d-gap)] @min-[900px]:col-span-7 @min-[1080px]:col-span-8">
-            <Holdings chain={chain} chainId={chainId} collections={collections} media={nftMediaAllowed} owner={owner} onRequestMedia={requestMedia} />
+            <Holdings chain={chain} chainId={chainId} collections={collections} media={nftMediaAllowed} onRequestMedia={requestMedia} />
           </div>
           <div className="flex min-w-0 flex-col gap-[var(--d-gap)] @min-[900px]:col-span-5 @min-[1080px]:col-span-4">
             <CollectionSources
@@ -243,7 +229,7 @@ function NftsBody() {
               onRemoveContract={remove}
             />
             {config.data.problems.length > 0 ? (
-              <Callout tone="warning" title="Some configuration could not be read">
+              <Callout tone="warning" title="Configuration problems">
                 <ul className="flex flex-col gap-1">
                   {config.data.problems.map((problem) => (
                     <li key={`${problem.key}-${problem.entry}`}>
@@ -255,7 +241,7 @@ function NftsBody() {
               </Callout>
             ) : null}
             <p className="px-1 text-[12.5px] leading-[1.5] text-fg-dim">
-              Moving a token is a contract call, not a transfer of coins: open one to see the call before you sign it. Fungible tokens move on{" "}
+              Coins move on{" "}
               <Link href="/send" className="font-medium text-fg-muted underline-offset-2 hover:text-fg hover:underline">
                 Send
               </Link>
@@ -297,17 +283,12 @@ function MediaToggle({
           blockedReason ? (
             <span className="text-[var(--z-warning)]">{blockedReason}</span>
           ) : (
-            <span className="block max-w-[96ch]">
-              {NFT_MEDIA_PRIVACY_NOTE} Metadata is read by Zunia&apos;s server; only the image is loaded by this browser.
-            </span>
+            "Images load from each token’s host."
           )
         }
       />
       {on && ipfsGatewayCount === 0 ? (
-        <p className="text-[12px] leading-snug text-[var(--z-warning)]">
-          This deployment has no IPFS gateway, so artwork on IPFS still cannot show. Zunia will not pick a public gateway for you: that would
-          hand one operator the list of everything you hold.
-        </p>
+        <p className="text-[12px] leading-snug text-[var(--z-warning)]">No IPFS gateway is set up, so IPFS artwork can&apos;t show.</p>
       ) : null}
     </div>
   );
@@ -338,20 +319,20 @@ function Availability({ config, loading, error, onRetry }: { config: NftConfigWi
   if (config.status === "unsupported") {
     return (
       <Card>
-        <EmptyState inline icon="nfts" title={`${config.chainName} cannot hold NFTs`} body={config.reason} />
+        <EmptyState inline icon="nfts" title={`${config.chainName} doesn’t support NFTs`} body={config.reason} />
       </Card>
     );
   }
   if (config.status === "unverified") {
     return (
-      <Callout tone="warning" title="Zunia cannot tell whether this network runs CosmWasm">
-        {config.reason} Nothing was asked, so nothing below is a claim about what this account holds.
+      <Callout tone="warning" title={`Can’t tell if ${config.chainName} supports NFTs`}>
+        {config.reason}
       </Callout>
     );
   }
   if (config.note) {
     return (
-      <Callout tone="info" title="Support confirmed by asking the network">
+      <Callout tone="info" title="NFT support confirmed">
         {config.note}
       </Callout>
     );
@@ -359,20 +340,18 @@ function Availability({ config, loading, error, onRetry }: { config: NftConfigWi
   return null;
 }
 
-/** The collections, one card each, or the honest empty state. */
+/** The collections, one card each, or a short empty state. */
 function Holdings({
   chain,
   chainId,
   collections,
   media,
-  owner,
   onRequestMedia,
 }: {
   chain: ChainEntry;
   chainId: string;
   collections: ReturnType<typeof useNftCollections>;
   media: boolean;
-  owner: string;
   onRequestMedia: (() => void) | null;
 }) {
   // A row (icon, words, button) where there is width; stacked and centred on
@@ -381,7 +360,7 @@ function Holdings({
   if (collections.loading) {
     return (
       <Card aria-busy="true">
-        <CardHeader title="Looking for collections" subtitle={`Asking the collections Zunia can find on ${chain.chainName}`} refreshing />
+        <CardHeader title="Looking for collections" refreshing />
         <span className="sr-only">Looking for NFTs</span>
         <NftGridSkeleton count={4} />
       </Card>
@@ -390,8 +369,8 @@ function Holdings({
   if (collections.status === "error") {
     return (
       <InlineError
-        title="Couldn't look for NFTs"
-        message={`${collections.error?.message ?? "The network did not answer"}. Nothing was checked.`}
+        title={`Couldn’t reach ${chain.chainName}`}
+        message={collections.error?.message ?? "The network didn’t answer."}
         onRetry={collections.reload}
       />
     );
@@ -414,54 +393,35 @@ function Holdings({
         Add a collection
       </Button>
     );
-    const ownerText = <span className="whitespace-nowrap font-mono text-[12px]">{shortenAddress(owner, 10, 4)}</span>;
     return (
       <Card>
         {data.queriedContractCount === 0 && scan?.status === "ran" && scan.codesChecked > 0 ? (
-          // The chain was asked and answered: none of its newest codes is a
-          // collection. Still not "you own none": no contract was asked about
-          // this address.
+          <EmptyState
+            inline={compact}
+            icon="nfts"
+            title="No collections found"
+            body="Add one by its contract address."
+            action={addCollection}
+          />
+        ) : data.queriedContractCount === 0 && scan?.status === "failed" ? (
+          // The chain did not answer, which is not the same as "nothing there".
           <EmptyState
             inline={compact}
             icon="search"
-            title="No collection found to check"
-            body={
-              <>
-                Zunia checked {scanWindow(scan)} on {chain.chainName} and none of them is an NFT collection, so no contract was asked about{" "}
-                {ownerText}. This is not a claim that it holds no NFTs: add a collection by its contract address to check it.
-              </>
+            title={`Couldn’t reach ${chain.chainName}`}
+            body="Its contract list didn’t answer."
+            action={
+              <Button size="sm" variant="secondary" iconLeft="refresh" onClick={collections.reload}>
+                Retry
+              </Button>
             }
-            action={addCollection}
           />
         ) : data.queriedContractCount === 0 ? (
           // The defect this page exists to avoid: an empty grid over zero
           // queries, drawn as though it were an answer.
-          <EmptyState
-            inline={compact}
-            icon="search"
-            title="Nothing was checked"
-            body={
-              <>
-                {scan?.status === "failed"
-                  ? `${chain.chainName}'s list of contract codes did not answer and no collection is known for it, so no contract was asked.`
-                  : `No collection is known for ${chain.chainName}, so no contract was asked.`}{" "}
-                This is not a claim that {ownerText} holds no NFTs: add a collection by its contract address to check it.
-              </>
-            }
-            action={addCollection}
-          />
+          <EmptyState inline={compact} icon="search" title="No collections to check" body="Add one by its contract address." action={addCollection} />
         ) : (
-          <EmptyState
-            inline={compact}
-            icon="nfts"
-            title="No tokens in the collections checked"
-            body={
-              <>
-                {data.queriedContractCount} {data.queriedContractCount === 1 ? "collection was" : "collections were"} asked on {chain.chainName}, and{" "}
-                {ownerText} holds nothing in {data.queriedContractCount === 1 ? "it" : "them"}. {data.limitation ?? ""}
-              </>
-            }
-          />
+          <EmptyState inline={compact} icon="nfts" title="No NFTs yet" body={`Collectibles you own on ${chain.chainName} show up here.`} />
         )}
       </Card>
     );
@@ -476,10 +436,10 @@ function Holdings({
 }
 
 const SOURCE_LABEL: Record<NftHoldingWire["source"], string> = {
-  user: "You added it",
-  indexer: "From the index",
-  known: "Listed by this deployment",
-  scan: "Found on chain",
+  user: "Added",
+  indexer: "Index",
+  known: "Listed",
+  scan: "On chain",
 };
 
 /**
@@ -540,12 +500,10 @@ function CollectionCard({
         }
       />
       {holding.collection?.error ? (
-        <p className="text-[12.5px] text-[var(--z-warning)]">{holding.collection.error} The collection is shown by its address.</p>
+        <p className="text-[12.5px] text-[var(--z-warning)]">Name unavailable; shown by address.</p>
       ) : null}
       {holding.truncated ? (
-        <Callout tone="warning" title="This list was cut short">
-          The contract returned more tokens than Zunia reads in one pass, so {total} is a floor, not a total.
-        </Callout>
+        <p className="text-[12.5px] text-[var(--z-warning)]">Showing the first {total} tokens.</p>
       ) : null}
       <NftGrid>
         {items.map((item) => (
@@ -554,13 +512,12 @@ function CollectionCard({
       </NftGrid>
       {tokens.status === "error" ? (
         <p className="text-[12.5px] text-[var(--z-warning)]">
-          {tokens.error?.message ?? "Names and artwork for this page could not be read."} The token ids above still came from the contract.
+          {tokens.error?.message ?? "Names and artwork couldn’t be read."}
         </p>
       ) : null}
       {readErrors > 0 ? (
         <p className="text-[12.5px] text-[var(--z-warning)]">
-          {readErrors} {readErrors === 1 ? "token on this page" : "tokens on this page"} could not be read and {readErrors === 1 ? "is" : "are"}{" "}
-          shown by id only.
+          {readErrors} {readErrors === 1 ? "token" : "tokens"} shown by id only.
         </p>
       ) : null}
       {mediaReason ? <p className="text-[12.5px] text-[var(--z-warning)]">{mediaReason}</p> : null}

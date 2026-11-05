@@ -508,6 +508,7 @@ function readIdentity(raw: unknown): TokenIdentity | null {
   for (const key of ["originChainId", "originDenom", "osmosisDenom", "logoUrl", "coinGeckoId"] as const) {
     if (raw[key] !== undefined && !str(raw[key])) return null;
   }
+  if (raw.unverifiedOnOsmosis !== undefined && typeof raw.unverifiedOnOsmosis !== "boolean") return null;
   return raw as unknown as TokenIdentity;
 }
 

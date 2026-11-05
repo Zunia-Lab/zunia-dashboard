@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { NftsPage } from "@/components/nft/NftsPage";
 
 const DESCRIPTION =
-  "The CW721 NFTs your wallet holds on Cosmos networks that run CosmWasm, collection by collection, with where the list comes from and how complete it is. Artwork stays off until you turn it on.";
+  "The NFTs your wallet holds on Cosmos networks that run CosmWasm, collection by collection. Artwork is off until you turn it on.";
 
 export const metadata: Metadata = {
   title: "NFTs",

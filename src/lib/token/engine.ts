@@ -146,6 +146,15 @@ export interface HeldTokenIdentity {
    */
   readonly proven: boolean;
   /**
+   * Osmosis lists the asset but has not verified it: its row on osmosis-1
+   * came in as `listedByZunia` (Safrochain's SAF while
+   * osmosis-labs/assetlists#3876 is open). Named, priced, listed and swapped
+   * like any proven token; only the verified badge and the word "verified"
+   * stay off, since that word is Osmosis's to give. Regenerating the table
+   * once Osmosis verifies the asset turns this off.
+   */
+  readonly unverifiedOnOsmosis: boolean;
+  /**
    * Something names the token: a chain's own coin, a currency its catalog row
    * lists, a table row, or a known bridge contract. False for a voucher
    * nothing traces, and for a denom nobody lists wherever it sits, which
@@ -194,6 +203,13 @@ export interface TokenTableRow {
   readonly alloyed: boolean;
   /** Osmosis lists the row as verified (every hub-chain row counts as verified). */
   readonly verified: boolean;
+  /**
+   * Osmosis lists the row without having verified it yet, and the row is the
+   * staking coin of a mainnet in Zunia's own registry (Safrochain's SAF while
+   * its review was pending). Hash-proven like every row; the swap lists offer
+   * it as they offer a verified one.
+   */
+  readonly listedByZunia: boolean;
   /** Not flagged unstable or disabled by Osmosis. */
   readonly stable: boolean;
   readonly decimals: number;
@@ -623,6 +639,7 @@ function decodeRow(tuple: TokenRowTuple): TokenTableRow {
     sourceNetwork: isNetwork(tuple[10]) ? tuple[10] : null,
     alloyed,
     verified: (flags & 2) !== 0,
+    listedByZunia: (flags & 8) !== 0,
     stable: (flags & 4) !== 0,
     decimals: tuple[12],
     logoUrl: tuple[13] >= 0 ? expandLogo(TOKEN_LOGOS[tuple[13]]) : null,
@@ -1478,6 +1495,12 @@ function finalize(draft: Draft): HeldTokenIdentity {
     // The family is already a keyword; an alias must add a name users saw.
     if (alias && alias !== ticker && alias !== draft.family) aliasSet.add(alias);
   }
+  const osmosisDenom =
+    draft.heldOnChainId === OSMOSIS
+      ? draft.denom
+      : draft.originChainId && draft.originDenom
+        ? osmosisDenomOf(draft.originChainId, draft.originDenom)
+        : null;
   return {
     key: `${draft.heldOnChainId}:${draft.denom}`,
     heldOnChainId: draft.heldOnChainId,
@@ -1500,12 +1523,7 @@ function finalize(draft: Draft): HeldTokenIdentity {
     coinGeckoId: draft.coinGeckoId,
     variantGroup: draft.variantGroup,
     alloyed: draft.alloyed,
-    osmosisDenom:
-      draft.heldOnChainId === OSMOSIS
-        ? draft.denom
-        : draft.originChainId && draft.originDenom
-          ? osmosisDenomOf(draft.originChainId, draft.originDenom)
-          : null,
+    osmosisDenom,
     aliases: [...aliasSet],
     provenance: draft.provenance,
     proven:
@@ -1513,6 +1531,9 @@ function finalize(draft: Draft): HeldTokenIdentity {
       draft.named &&
       !crossesNetworks &&
       (draft.provenance !== "channel-walk" || draft.walkCanonical === true),
+    // Every unverified Osmosis row in the table is one Zunia lists, so the
+    // asset's row there not being verified is exactly that case.
+    unverifiedOnOsmosis: osmosisDenom !== null && tableRow(OSMOSIS, osmosisDenom)?.verified === false,
     listed: draft.named,
     testnet,
   };
@@ -1571,6 +1592,7 @@ export function identityOf(chainId: string, denom: string): HeldTokenIdentity {
       aliases: [],
       provenance: "unknown",
       proven: false,
+      unverifiedOnOsmosis: false,
       listed: false,
       testnet: false,
     };

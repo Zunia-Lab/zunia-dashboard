@@ -35,6 +35,7 @@ export function toTokenIdentity(held: HeldTokenIdentity): TokenIdentity {
     alloyed: held.alloyed,
     listed: held.listed,
   };
+  if (held.unverifiedOnOsmosis) identity.unverifiedOnOsmosis = true;
   if (held.logoUrl) identity.logoUrl = held.logoUrl;
   if (held.originChainId) identity.originChainId = held.originChainId;
   if (held.originChainName) identity.originChainName = held.originChainName;

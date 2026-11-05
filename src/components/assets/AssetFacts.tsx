@@ -33,18 +33,10 @@ import { formatNumber, formatPercent } from "@/lib/format";
 import { shortDenom, tokenKindLabel } from "@/lib/token/text";
 import type { TokenIdentity } from "@/lib/token/types";
 import { Figure, chainIcon, chainName } from "./AssetCells";
-import { isUnlisted } from "./holdings";
+import { identifiedByText, provenanceVerdict } from "./holdings";
 import { useReadAt } from "./read-at";
 
 /* ------------------------------------------------------------------ provenance */
-
-const PROVENANCE_TEXT: Record<TokenIdentity["provenance"], string> = {
-  native: "Issued on the chain itself",
-  catalog: "Listed in the chain's registry",
-  table: "Zunia token table (hash-verified)",
-  "channel-walk": "Traced over its IBC channels",
-  unknown: "Nothing identifies it",
-};
 
 function ChainName({ chainId, name }: { chainId: string; name?: string }) {
   return (
@@ -76,11 +68,7 @@ export interface ProvenanceCardProps {
 export function ProvenanceCard({ identity, holdersChains, className }: ProvenanceCardProps) {
   const unknown = identity.provenance === "unknown";
   const home = !unknown && identity.originChainId === identity.chainId;
-  const verdict = isUnlisted(identity)
-    ? { tone: "neutral" as const, text: "Unlisted" }
-    : identity.proven
-      ? { tone: "success" as const, text: home ? "Native" : "Canonical route" }
-      : { tone: "warning" as const, text: "Route not proven" };
+  const verdict = provenanceVerdict(identity);
   const known = [identity.chainId, ...(holdersChains ?? []).filter((id) => id !== identity.chainId)];
 
   const facts: { key: string; label: string; value: ReactNode; sub?: ReactNode; info?: ReactNode; wide?: boolean }[] = [
@@ -92,7 +80,7 @@ export function ProvenanceCard({ identity, holdersChains, className }: Provenanc
           {verdict.text}
         </Badge>
       ),
-      info: "Proven means the denom's trace was checked against its hash and the route is the asset's canonical channel; an unproven voucher is never priced as the asset it names.",
+      info: verdict.info,
     },
     {
       key: "kind",
@@ -120,7 +108,7 @@ export function ProvenanceCard({ identity, holdersChains, className }: Provenanc
             sub: identity.path ? <span className="font-mono">{identity.path}</span> : undefined,
           },
         ]),
-    { key: "how", label: "Identified by", value: PROVENANCE_TEXT[identity.provenance] },
+    { key: "how", label: "Identified by", value: identifiedByText(identity) },
     { key: "denom", label: "Denom", value: <Mono text={identity.denom} copyLabel="denom" /> },
     {
       key: "decimals",

@@ -120,6 +120,47 @@ describe("the audit's vouchers", () => {
   });
 });
 
+describe("SAF", () => {
+  it("is named on Osmosis as a row Zunia lists while Osmosis has not verified it", () => {
+    const voucher = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
+    assert.equal(ibcDenomFor("transfer/channel-110497", "usaf"), voucher);
+    assert.equal(osmosisDenomOf("safrochain-1", "usaf"), voucher);
+    const row = tokenTableRows("osmosis-1").find((candidate) => candidate.denom === voucher);
+    assert.ok(row);
+    assert.equal(row.originChainId, "safrochain-1");
+    assert.equal(row.originDenom, "usaf");
+    assert.equal(row.channelId, "channel-110497");
+    assert.equal(row.verified, false);
+    assert.equal(row.listedByZunia, true);
+    assert.equal(row.stable, true);
+    // A coin with no voucher on Osmosis stays unnamed.
+    assert.equal(osmosisDenomOf("pocket", "upokt"), null);
+  });
+
+  it("is proven but never verified while Osmosis has not verified it, on Osmosis and at home", () => {
+    const voucher = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
+    for (const saf of [identityOf("osmosis-1", voucher), identityOf("safrochain-1", "usaf")]) {
+      assert.equal(saf.ticker, "SAF", saf.key);
+      assert.equal(saf.proven, true, saf.key);
+      assert.equal(saf.osmosisDenom, voucher, saf.key);
+      assert.equal(saf.unverifiedOnOsmosis, true, saf.key);
+    }
+    // Assets Osmosis verified keep their mark, and an unknown voucher has nothing Osmosis said.
+    assert.equal(identityOf("cosmoshub-4", "uatom").unverifiedOnOsmosis, false);
+    assert.equal(identityOf("osmosis-1", ATOM_ON_OSMOSIS).unverifiedOnOsmosis, false);
+    assert.equal(identityOf("osmosis-1", USDC_N_ON_OSMOSIS).unverifiedOnOsmosis, false);
+    assert.equal(identityOf("osmosis-1", UNLISTED).unverifiedOnOsmosis, false);
+  });
+
+  it("follows Osmosis's own flag on every row it lists", () => {
+    for (const row of tokenTableRows("osmosis-1")) {
+      const held = identityOf("osmosis-1", row.denom);
+      assert.equal(held.unverifiedOnOsmosis, !row.verified, row.denom);
+      if (!row.verified) assert.equal(row.listedByZunia, true, row.denom);
+    }
+  });
+});
+
 describe("USDC.inj", () => {
   it("keeps the mixed-case erc20 origin that hashes to the voucher Osmosis trades", () => {
     const onOsmosis = identityOf("osmosis-1", USDC_INJ_ON_OSMOSIS);

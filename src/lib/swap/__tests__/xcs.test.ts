@@ -97,7 +97,14 @@ const injHome = side("injective-1", USDC_INJ_ERC20, { ticker: "USDC.inj", proven
 const injOnOsmosis = side("osmosis-1", USDC_INJ, { ticker: "USDC.inj", provenance: "table", originChainId: "injective-1", originDenom: USDC_INJ_ERC20, osmosisDenom: USDC_INJ });
 const nobleHome = side("noble-1", "uusdc", { ticker: "USDC.n", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N });
 const nOnOsmosis = side("osmosis-1", USDC_N, { ticker: "USDC.n", provenance: "table", originChainId: "noble-1", originDenom: "uusdc", osmosisDenom: USDC_N });
-const saf = side("safrochain-1", "usaf", { ticker: "SAF", originChainId: "safrochain-1", originDenom: "usaf" });
+const saf = side("safrochain-1", "usaf", {
+  ticker: "SAF",
+  originChainId: "safrochain-1",
+  originDenom: "usaf",
+  osmosisDenom: "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE",
+});
+/** A catalog mainnet coin with no voucher on Osmosis. */
+const pokt = side("pocket", "upokt", { ticker: "POKT", originChainId: "pocket", originDenom: "upokt" });
 const unlistedInj = side("injective-1", UNLISTED, { ticker: "IBC·0123", provenance: "unknown" });
 const unlistedOsmo = side("osmosis-1", UNLISTED, { ticker: "IBC·0123", provenance: "unknown" });
 
@@ -265,8 +272,8 @@ describe("executable", () => {
   test("from identities: a coin Osmosis does not list provably has no route; an unnamed one is unknown", () => {
     assert.equal(executableBetween(table, atomHub, axlHome), "no");
     assert.equal(executableBetween(table, osmo, axlHome), "yes");
-    assert.equal(executableBetween(table, osmo, saf), "no");
-    assert.equal(executableBetween(table, saf, osmo), "no");
+    assert.equal(executableBetween(table, osmo, pokt), "no");
+    assert.equal(executableBetween(table, pokt, osmo), "no");
     assert.equal(executableBetween(table, osmo, unlistedInj), "unknown");
     // A held Osmosis denom is its own name, identified or not.
     assert.equal(executableBetween(table, osmo, unlistedOsmo), "no");
@@ -276,16 +283,17 @@ describe("executable", () => {
       routes: [...table.routes, { input: "uosmo", output: UNLISTED, poolIds: ["1"] }],
       origins: { ...table.origins, [UNLISTED]: null },
     };
-    assert.equal(executableBetween(unnamed, osmo, saf), "unknown");
+    assert.equal(executableBetween(unnamed, osmo, pokt), "unknown");
     // Without origins at all (the server could not name them), the same.
-    assert.equal(executableBetween({ ...table, origins: undefined }, osmo, saf), "unknown");
+    assert.equal(executableBetween({ ...table, origins: undefined }, osmo, pokt), "unknown");
     assert.equal(executableBetween(null, osmo, axlHome), "unknown");
   });
 
   test("names a side on Osmosis by its held denom there, else by its canonical voucher", () => {
     assert.equal(osmosisDenomFor(nOnOsmosis), USDC_N);
     assert.equal(osmosisDenomFor(injHome), USDC_INJ);
-    assert.equal(osmosisDenomFor(saf), null);
+    assert.equal(osmosisDenomFor(saf), "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE");
+    assert.equal(osmosisDenomFor(pokt), null);
   });
 });
 
@@ -299,8 +307,11 @@ describe("gateOption", () => {
   });
 
   test("refuses a side Osmosis does not trade, in either direction", () => {
-    assert.deepEqual(gateOption(osmo, saf, table), { executable: "no", disabledReason: notTradedReason("SAF") });
-    assert.deepEqual(gateOption(saf, osmo, table), { executable: "no", disabledReason: notTradedReason("SAF") });
+    assert.deepEqual(gateOption(osmo, pokt, table), { executable: "no", disabledReason: notTradedReason("POKT") });
+    assert.deepEqual(gateOption(pokt, osmo, table), { executable: "no", disabledReason: notTradedReason("POKT") });
+    // SAF is named on Osmosis (pool 3600): not refused, though the contract has no route for it.
+    assert.deepEqual(gateOption(saf, osmo, table), { executable: "no", disabledReason: null });
+    assert.deepEqual(gateOption(osmo, saf, table), { executable: "no", disabledReason: null });
     // Funds elsewhere that Osmosis does trade move there first: not refused.
     assert.deepEqual(gateOption(atomHub, injHome, table), { executable: "no", disabledReason: null });
   });

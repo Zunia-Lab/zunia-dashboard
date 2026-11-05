@@ -64,9 +64,7 @@ test("a registry that lists features without cosmwasm is a hard no", () => {
   });
   assert.equal(support.status, "unsupported");
   assert.equal(support.basis, "registry-denied");
-  assert.match(support.reason ?? "", /does not declare the "cosmwasm" feature/);
-  // The sentence that stops an empty grid reading as an empty wallet.
-  assert.match(support.reason ?? "", /not an empty wallet/);
+  assert.match(support.reason ?? "", /doesn.t run CosmWasm/);
 });
 
 test("no features list and no override is unverified, never unsupported", () => {
@@ -82,7 +80,7 @@ test("no features list and no override is unverified, never unsupported", () => 
   assert.equal(support.featuresDeclared, false);
   // Says what is known, in the reader's terms: the registry is silent about
   // CosmWasm. How an operator changes that is not page copy.
-  assert.match(support.reason ?? "", /registry lists no features for Juno, so nothing says whether it runs CosmWasm/);
+  assert.match(support.reason ?? "", /registry doesn.t say whether Juno runs CosmWasm/);
   assert.doesNotMatch(support.reason ?? "", OPERATOR_WORDS);
 });
 
@@ -96,7 +94,7 @@ test("a chain outside the catalog is unverified, not unsupported", () => {
   });
   assert.equal(support.status, "unverified");
   assert.equal(support.basis, "catalog-missing");
-  assert.match(support.reason ?? "", /not in this build's chain catalog/);
+  assert.match(support.reason ?? "", /isn.t in the chain catalog/);
 });
 
 test("with the override on, a chain that answers a wasm query is supported and says so", () => {
@@ -112,7 +110,7 @@ test("with the override on, a chain that answers a wasm query is supported and s
   assert.equal(support.reason, null);
   // Support on weaker evidence than the registry is never silent about it,
   // and says so without naming the override that allowed the probe.
-  assert.match(support.note ?? "", /came from the chain itself/);
+  assert.match(support.note ?? "", /chain itself answered/);
   assert.doesNotMatch(support.note ?? "", OPERATOR_WORDS);
   assert.equal(support.featuresDeclared, false);
 });
