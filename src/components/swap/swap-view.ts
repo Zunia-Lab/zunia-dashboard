@@ -21,8 +21,7 @@ import type { AssetOption } from "@/lib/swap/assets";
 import { swapFeeFor, type SwapFee } from "@/lib/swap/fee";
 import { priceImpactLevel, signBlock, type PriceImpactLevel } from "@/lib/swap/form";
 import type { SignedSwapPath } from "@/lib/swap/review";
-import { swapPathFor, type SwapPath } from "@/lib/swap/path";
-import { executable, type XcsRouteTable } from "@/lib/swap/xcs";
+import type { SwapPath } from "@/lib/swap/path";
 import type {
   SwapBlockedCode,
   SwapDeliveryWire,
@@ -107,14 +106,14 @@ function largest<T>(rows: readonly T[], worth: (row: T) => number): T | undefine
  * 1. the most valuable tradable holding already on Osmosis worth at least one
  *    unit of currency (it swaps in one transaction there);
  * 2. the most valuable priced tradable holding whose opening pair is signed
- *    once (`oneSignature`: on Osmosis, or through Zunia's contract from its
- *    own chain), so a small wallet does not open on a two-step swap when a
+ *    once (`oneSignature`: on Osmosis, or from its own chain through Skip's
+ *    entry point), so a small wallet does not open on a two-step swap when a
  *    one-step one is there;
  * 3. the most valuable tradable holding anywhere (a two-step one included);
  * 4. the first row (whose reason the form then explains).
  *
  * Without `oneSignature` every holding counts as signed once, as the path
- * itself presumes the contract until its route table says otherwise.
+ * itself does (src/lib/swap/path.ts).
  */
 export function defaultFromKey(
   sell: readonly AssetOption[],
@@ -131,38 +130,26 @@ export function defaultFromKey(
 }
 
 /**
- * Whether the pair a page opens on for `option` (sold for OSMO, or for ATOM
- * when it is OSMO: {@link defaultToKey}) is signed once: from Osmosis, or
- * through Zunia's contract from the token's own chain. `false` when the
- * token has nothing on Osmosis, or when the contract's route table has no
- * route for that pair (the tokens would move to Osmosis first). Without a
- * table, or a name for ATOM on Osmosis, the contract is presumed, as the path
- * itself does (src/lib/swap/path.ts).
+ * Whether the pair a page opens on for `option` is signed once: from Osmosis
+ * in its pools, or from the token's own chain through Skip's entry point,
+ * which swaps any pair the pools connect. `false` only when the token has
+ * nothing on Osmosis.
  */
-export function opensInOneSignature(
-  option: Pick<AssetOption, "chainId" | "osmosisDenom">,
-  table: XcsRouteTable | null,
-  atomOnVenue: string | null,
-): boolean {
-  if (option.chainId === VENUE) return true;
-  if (!option.osmosisDenom) return false;
-  const vout = option.osmosisDenom === "uosmo" ? atomOnVenue : "uosmo";
-  return vout === null || executable(table, option.osmosisDenom, vout) !== "no";
+export function opensInOneSignature(option: Pick<AssetOption, "chainId" | "osmosisDenom">): boolean {
+  return option.chainId === VENUE || Boolean(option.osmosisDenom);
 }
 
 /**
- * The To a page opens on, when nothing asked for one: OSMO on Osmosis (the
- * venue's own coin pairs with almost everything), or ATOM on Osmosis when
- * OSMO is what is sold; else the first row that can be used. Never a
- * disabled row, never the From itself.
+ * The To a page opens on, when nothing asked for one. Never a disabled row,
+ * never the From itself.
  *
- * Only a row reachable in one transaction is taken first (the path is not
- * `move-first`). When every usable row needs the tokens moved to Osmosis
- * first (SAF on Safrochain: the contract's route table has no SAF route), the
- * second step is a swap in Osmosis's pools, so a row delivered on Osmosis
- * needs nothing after it, and USDC is what a sale is most often for (pool
- * 3600 pairs SAF with it). A voucher held elsewhere would need the output
- * sent on through a third chain, so it is the last resort.
+ * - Funds on Osmosis: OSMO (the venue's own coin pairs with almost
+ *   everything), or ATOM when OSMO is what is sold, else the first row.
+ * - Funds on another chain sign once whatever the To, and open on USDC
+ *   delivered on Osmosis: what a sale is most often for (pool 3600 pairs SAF
+ *   with it), the same default as the extension and the app. Then OSMO or
+ *   ATOM, then any row on Osmosis: a voucher held on a third chain could
+ *   need a route the quote cannot prove, so it comes last.
  */
 export function defaultToKey(from: AssetOption | undefined, buy: readonly AssetOption[]): string | null {
   if (!from) return null;
@@ -174,11 +161,9 @@ export function defaultToKey(from: AssetOption | undefined, buy: readonly AssetO
           option.chainId === VENUE && option.identity.originChainId === "cosmoshub-4" && option.identity.originDenom === "uatom",
       )
     : usable.find((option) => option.chainId === VENUE && option.denom === "uosmo");
-  const ordered = preferred ? [preferred, ...usable] : usable;
-  const oneStep = ordered.find((option) => swapPathFor(from, option, option.executable) !== "move-first");
-  if (oneStep) return oneStep.key;
+  if (from.chainId === VENUE) return (preferred ?? usable[0])?.key ?? null;
   const onVenue = usable.filter((option) => option.chainId === VENUE);
-  return (onVenue.find((option) => option.identity.family === "USDC") ?? onVenue[0] ?? usable[0])?.key ?? null;
+  return (onVenue.find((option) => option.identity.family === "USDC") ?? preferred ?? onVenue[0] ?? usable[0])?.key ?? null;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -614,19 +599,14 @@ export function pathCopy(args: {
         body: `One transaction: the swap, then an IBC transfer of ${args.minimumText ? `exactly the guaranteed ${args.minimumText}` : "the guaranteed minimum"} to your ${to.chainName} address${args.delivery ? ` over ${args.delivery.channelId}` : ""}. Anything the swap pays above it stays in your Osmosis balance.`,
       };
     case "contract":
-      return from.chainId === VENUE
-        ? {
-            title: `Swap on Osmosis, delivered to ${to.chainName}`,
-            body: `Zunia's verified swap contract swaps your ${from.ticker} and sends the whole output to your ${to.chainName} address. If delivery fails, your Osmosis address can recover it.`,
-          }
-        : {
-            title: `One signature on ${from.chainName}`,
-            body: `Your ${from.ticker} travels to Osmosis${args.inbound ? ` over ${args.inbound.channelId}` : ""}, Zunia's verified swap contract swaps it and delivers ${to.ticker} to your ${to.chainName} address. Gas is paid once, on ${from.chainName}.`,
-          };
+      return {
+        title: `One signature on ${from.chainName}`,
+        body: `Your ${from.ticker} goes to Osmosis${args.inbound ? ` over ${args.inbound.channelId}` : ""}, is swapped in its pools on arrival, and ${to.ticker} is paid to your ${to.chainName} address. Gas is paid once, on ${from.chainName}; no OSMO needed. If the price moves past your minimum, the swap does not run and your ${from.ticker} comes back.`,
+      };
     case "move-first":
       return {
         title: "Two steps: move, then swap",
-        body: `Osmosis's swap contract cannot take ${from.ticker} from ${from.chainName} for this pair, so the tokens move to Osmosis first. The price shown is an estimate for when they arrive.`,
+        body: `${from.ticker} cannot reach Osmosis in one hop from ${from.chainName}, so the tokens move there first. The price shown is an estimate for when they arrive.`,
       };
   }
 }
@@ -731,10 +711,8 @@ export function signSteps(stage: SignStage, chainName: string, failed: FailedAt 
  * What `/api/interchain/track` follows after a swap that moves a packet, or
  * `null` for a swap that settles in its own transaction (`pool`):
  * - `pool-deliver`: the transfer of the floor, Osmosis → the To's chain;
- * - `contract` from another chain: the transfer into Osmosis, the contract's
- *   swap there, and its delivery onward when the To is elsewhere;
- * - `contract` from Osmosis: the swap inside the signed transaction, then the
- *   delivery.
+ * - `contract`: the transfer into Osmosis, the swap Skip's entry point runs on
+ *   arrival, and its delivery onward when the To is elsewhere.
  */
 export function trackingPlan(review: {
   readonly path: SignedSwapPath;

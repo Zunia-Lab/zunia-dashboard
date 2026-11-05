@@ -3,8 +3,8 @@
 /**
  * Which way this swap reaches Osmosis, in plain words, right above the
  * button: one transaction in Osmosis's pools, a swap then a delivery, one
- * signature through Zunia's verified contract, or two steps (move, then
- * swap). The words come from swap-view `pathCopy`; this only lays them out.
+ * signature from the token's own chain (moved, swapped and delivered in one
+ * go), or, for a token that cannot reach Osmosis in one hop, two steps. The words come from swap-view `pathCopy`; this only lays them out.
  */
 
 import { Icon, type IconName } from "@/components/icons";
@@ -23,7 +23,7 @@ const PATH_ICON: Record<SwapPath, IconName> = {
 const PATH_TAG: Record<SwapPath, string> = {
   pool: "Pool swap",
   "pool-deliver": "Swap + delivery",
-  contract: "Cross-chain contract",
+  contract: "1 signature",
   "move-first": "2 steps",
 };
 

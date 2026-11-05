@@ -106,10 +106,13 @@ export function sqsQuote(input: {
   readonly tokenInDenom: string;
   readonly amount: string;
   readonly tokenOutDenom: string;
+  /** One route, never a split: Skip's entry point swaps along a single list of pools. */
+  readonly singleRoute?: boolean;
 }): Promise<PricedQuote> {
   const query = new URLSearchParams({
     tokenIn: `${input.amount}${input.tokenInDenom}`,
     tokenOutDenom: input.tokenOutDenom,
+    ...(input.singleRoute ? { singleRoute: "true" } : {}),
   });
   const key = `swap:sqs:quote:${query.toString()}`;
   return cached(key, { ttlMs: QUOTE_CACHE_MS, staleMs: 0, errorTtlMs: 2_000 }, async () =>

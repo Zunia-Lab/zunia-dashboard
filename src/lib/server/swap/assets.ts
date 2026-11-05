@@ -29,8 +29,7 @@ import "server-only";
 import { SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { findServerChain } from "@/lib/server/chains";
 import { sqsListings, sqsPoolMetadata, type PoolMetadata } from "@/lib/server/swap/sqs";
-import { swapVenue } from "@/lib/server/swap/venue";
-import { loadXcsTable } from "@/lib/server/swap/xcs-table";
+import { skipVenue } from "@/lib/server/swap/skip-venue";
 import { sameDenom } from "@/lib/swap/denoms";
 import type { OsmosisListing } from "@/lib/swap/sqs";
 import type { SwapAsset, SwapAssetsResponse } from "@/lib/swap/wire";
@@ -92,7 +91,8 @@ function homeRow(row: TokenTableRow, listing: OsmosisListing, meta: PoolMetadata
  */
 export async function swapAssets(network: "mainnet" | "testnet"): Promise<SwapAssetsResponse> {
   const errors: { scope: string; message: string }[] = [];
-  const venuePromise = swapVenue();
+  // The contract a swap from another chain calls: Skip's entry point, verified on chain.
+  const venuePromise = skipVenue();
   let listings: OsmosisListing[];
   try {
     listings = await sqsListings();
@@ -106,10 +106,9 @@ export async function swapAssets(network: "mainnet" | "testnet"): Promise<SwapAs
     errors.push({ scope: "prices", message: "Osmosis prices and liquidity could not be read; they show as unknown." });
   }
   const venue = await venuePromise;
-  const routeTable = venue.address ? await loadXcsTable(venue.address) : null;
-  if (venue.address && !routeTable) {
-    errors.push({ scope: "route-table", message: "The swap contract's route table could not be read; no pair is gated by it." });
-  }
+  // The crosschain-swaps route table no longer picks a path: every pair the
+  // pools connect swaps in one signature (src/lib/swap/path.ts).
+  const routeTable = null;
 
   const assets: SwapAsset[] = [];
   const seen = new Set<string>();

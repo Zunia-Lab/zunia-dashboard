@@ -67,7 +67,7 @@ export function RouteDiagram({ quote, splits, from, to, venueToken }: RouteDiagr
       icon: "send",
       chainId: from.chainId,
       title: `Leave ${from.chainName} over ${quote.inbound.channelId}`,
-      detail: `Arrives on ${venueName} over ${quote.inbound.venueChannelId}; the contract runs on arrival.`,
+      detail: `Arrives on ${venueName} over ${quote.inbound.venueChannelId}; the swap runs on arrival. One signature, no OSMO needed.`,
       badge: clientBadge(quote.inbound.clientStatus),
     });
   }
@@ -78,13 +78,13 @@ export function RouteDiagram({ quote, splits, from, to, venueToken }: RouteDiagr
     chainId: VENUE,
     title:
       quote.path === "contract"
-        ? `Swap by Zunia's contract on ${venueName}`
+        ? `Swap in ${venueName} pools, on arrival`
         : quote.path === "move-first"
           ? `Step 2 · Swap in ${venueName} pools`
           : `Swap in ${venueName} pools`,
     detail:
       quote.path === "contract" && contract
-        ? `${contract.label ?? "Crosschain-swaps contract"}${contract.codeId ? ` · code ${contract.codeId}` : ""}`
+        ? `${contract.label ?? "Skip Swap Entry Point"}${contract.codeId ? ` · code ${contract.codeId}` : ""} · if the price moves past your minimum, the tokens go back to ${from.chainName}`
         : splits.length > 1
           ? `Split across ${splits.length} routes by the Osmosis router`
           : "Best route from the Osmosis router",
@@ -103,7 +103,7 @@ export function RouteDiagram({ quote, splits, from, to, venueToken }: RouteDiagr
       detail:
         quote.path === "pool-deliver"
           ? `Exactly the guaranteed minimum, in the same transaction. Arrives as ${to.ticker}.`
-          : `The whole output, sent by the contract. Arrives as ${to.ticker}.`,
+          : `The whole output, sent on in the same packet flow. Arrives as ${to.ticker}; if this hop fails, it waits on your ${venueName} address.`,
       badge: clientBadge(quote.delivery.clientStatus),
     });
   } else {

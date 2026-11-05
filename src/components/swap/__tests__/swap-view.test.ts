@@ -13,7 +13,6 @@ import type { ActivityAmount } from "@/lib/activity/types";
 import type { AssetOption } from "@/lib/swap/assets";
 import { swapFeeFor } from "@/lib/swap/fee";
 import type { SwapQuotePrice } from "@/lib/swap/wire";
-import { executable, type XcsRouteTable } from "@/lib/swap/xcs";
 
 import {
   allInCost,
@@ -208,44 +207,26 @@ describe("default rows", () => {
     assert.equal(defaultFromKey([TIA, ATOM_HUB, OSMO], tiaListed, (o) => (o.key === OSMO.key ? 2 : (value.get(o.key) ?? null)), once), OSMO.key);
   });
 
-  test("the opening pair is signed once unless the route table says otherwise", () => {
-    const table: XcsRouteTable = {
-      xcsContract: "osmo1xcs",
-      swapContract: "osmo1router",
-      routes: [
-        { input: ATOM_OSMO, output: "uosmo", poolIds: ["1"] },
-        { input: "uosmo", output: ATOM_OSMO, poolIds: ["1"] },
-      ],
-      readAt: 0,
-    };
+  test("the opening pair is signed once whenever the token has a name on Osmosis", () => {
     const tia = option("celestia", "utia", "TIA", "ibc/TIA");
-    const osmoOnHub = option("cosmoshub-4", "ibc/OSMOHUB", "OSMO", "uosmo");
-    assert.equal(opensInOneSignature(OSMO, table, ATOM_OSMO), true);
-    assert.equal(opensInOneSignature(ATOM_HUB, table, ATOM_OSMO), true);
-    assert.equal(opensInOneSignature(tia, table, ATOM_OSMO), false);
-    assert.equal(opensInOneSignature(osmoOnHub, table, ATOM_OSMO), true);
-    assert.equal(opensInOneSignature(osmoOnHub, { ...table, routes: table.routes.slice(0, 1) }, ATOM_OSMO), false);
-    assert.equal(opensInOneSignature(SAF, table, ATOM_OSMO), false);
-    // No table yet, or no name for ATOM on Osmosis: the contract is presumed.
-    assert.equal(opensInOneSignature(tia, null, ATOM_OSMO), true);
-    assert.equal(opensInOneSignature(osmoOnHub, table, null), true);
+    const unnamed = { ...option("celestia", "utia", "TIA", "ibc/TIA"), osmosisDenom: null };
+    assert.equal(opensInOneSignature(OSMO), true);
+    assert.equal(opensInOneSignature(ATOM_HUB), true);
+    assert.equal(opensInOneSignature(tia), true);
+    // SAF: the crosschain-swaps table never had it, Skip's entry point swaps it in one signature.
+    assert.equal(opensInOneSignature(SAF), true);
+    assert.equal(opensInOneSignature(unnamed), false);
   });
 
-  test("To: with every row two-step (SAF on Safrochain), a USDC row delivered on Osmosis", () => {
+  test("To: funds on another chain (SAF on Safrochain) open on USDC delivered on Osmosis, else OSMO", () => {
     const withFamily = (o: AssetOption): AssetOption => ({ ...o, identity: { ...o.identity, family: "USDC" } });
     const usdc = withFamily(option("osmosis-1", USDC_N, "USDC.n", USDC_N, { identityKey: "noble-1:uusdc" }));
     const usdcHome = withFamily(option("noble-1", "uusdc", "USDC.n", USDC_N, { held: false, amount: "0" }));
-    const table: XcsRouteTable = { xcsContract: "osmo1xcs", swapContract: "osmo1router", routes: [{ input: ATOM_OSMO, output: "uosmo", poolIds: ["1"] }], readAt: 0 };
-    const gated = (o: AssetOption): AssetOption => ({ ...o, executable: executable(table, SAF_OSMO, o.osmosisDenom ?? "") });
-    const buy = [usdcHome, OSMO, ATOM_ON_OSMO, usdc].map(gated);
-    // Nothing is reachable by the contract; OSMO is on Osmosis but USDC is preferred.
-    assert.ok(buy.every((o) => o.executable === "no"));
-    assert.equal(defaultToKey(SAF, buy), usdc.key);
-    // Without a USDC row, the first row delivered on Osmosis.
-    assert.equal(defaultToKey(SAF, [usdcHome, OSMO, ATOM_ON_OSMO].map(gated)), OSMO.key);
-    // A route the contract has keeps the one-transaction row first.
-    const reachable = { ...ATOM_HUB, executable: "yes" as const };
-    assert.equal(defaultToKey(SAF, [usdc, reachable].map((o) => (o === usdc ? gated(o) : o))), reachable.key);
+    assert.equal(defaultToKey(SAF, [usdcHome, OSMO, ATOM_ON_OSMO, usdc]), usdc.key);
+    // Without a USDC row on Osmosis, OSMO there.
+    assert.equal(defaultToKey(SAF, [usdcHome, ATOM_ON_OSMO, OSMO]), OSMO.key);
+    // Never a USDC delivered elsewhere first: a third chain could need a route the quote cannot prove.
+    assert.equal(defaultToKey(SAF, [usdcHome, ATOM_ON_OSMO]), ATOM_ON_OSMO.key);
   });
 
   test("To: OSMO on Osmosis, ATOM when selling OSMO, never disabled or the From", () => {
