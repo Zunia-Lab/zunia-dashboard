@@ -40,6 +40,7 @@ import { msgProtoBytes } from "./amino-tx";
 import { bytesEqual } from "./bytes";
 import { encodePoolSwap, POOL_SPLIT_SWAP_TYPE_URL, POOL_SWAP_TYPE_URL, POOLMANAGER_AMINO_TYPES } from "./osmosis";
 import type { SignRequest, TxMemoContext, TxMessage } from "./types";
+import { skipBoughtDenom } from "@/lib/swap/skip";
 
 /** The brand every default memo ends with. */
 export const ZUNIA_DASHBOARD_TAG = "by Zunia-dashboard";
@@ -184,9 +185,10 @@ function swapPhrase(sold: string | null, bought: string | null): string {
 
 /**
  * An ICS20 transfer: `IBC transfer of ATOM to Osmosis`. A packet memo that
- * runs the crosschain-swaps contract (`{"wasm":{…"osmosis_swap"…}}`) makes it
- * the contract path of a swap from another chain: the token it carries is
- * sold, the call's `output_denom` (an Osmosis denom) is bought.
+ * runs a swap on Osmosis (`{"wasm":{…"swap_and_action"…}}` for Skip's entry
+ * point, `"osmosis_swap"` for the crosschain-swaps contract) makes it a swap
+ * from another chain: the token it carries is sold, the Osmosis denom the
+ * call buys is bought.
  */
 function transferPhrase(value: Record<string, unknown>, names: Names): string {
   const token = isCoin(value.token) ? value.token : null;
@@ -203,11 +205,17 @@ function transferPhrase(value: Record<string, unknown>, names: Names): string {
   return "IBC transfer";
 }
 
-/** The `output_denom` of an ibc-hooks call to `osmosis_swap`, or null for any other hook. */
+/**
+ * The Osmosis denom an ibc-hooks swap buys: the crosschain-swaps contract's
+ * `osmosis_swap` `output_denom`, or the denom of Skip's entry point
+ * `swap_and_action` minimum (src/lib/swap/skip.ts); null for any other hook.
+ */
 function xcsOutputDenom(wasm: unknown): string | null {
   if (!isRecord(wasm) || !isRecord(wasm.msg)) return null;
   const keys = Object.keys(wasm.msg);
-  if (keys.length !== 1 || keys[0] !== "osmosis_swap") return null;
+  if (keys.length !== 1) return null;
+  if (keys[0] === "swap_and_action") return skipBoughtDenom(wasm.msg);
+  if (keys[0] !== "osmosis_swap") return null;
   const swap = wasm.msg.osmosis_swap;
   return isRecord(swap) && typeof swap.output_denom === "string" && swap.output_denom ? swap.output_denom : null;
 }

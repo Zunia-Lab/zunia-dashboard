@@ -53,6 +53,38 @@ export const XCS_CONTRACT_LABEL_PREFIX = "CrossChainSwaps";
 export const XCS_CONTRACT_CODE_IDS: readonly string[] = ["37"];
 
 /**
+ * Skip Go's entry point on Osmosis: the contract a swap from another chain
+ * calls through ibc-hooks, so one signature on the chain holding the funds
+ * moves them, swaps them in Osmosis's pools along the route Zunia quoted, and
+ * delivers the output (on Osmosis, or one IBC hop on). The crosschain-swaps
+ * contract (`XCS_CONTRACT_CANDIDATES`) swaps only the pairs of its own route
+ * table, which holds no SAF; its v2 takes a route but refuses SAF's channel,
+ * which Osmosis's crosschain registry does not know.
+ *
+ * From skip-mev/skip-go-cosmwasm-contracts, `deployed-contracts/osmosis/mainnet.toml`
+ * at e2bffe67 (deployed 2024-07-11). Every one of these contracts has no
+ * admin, so its code can never change; the venue check still reads the entry
+ * point's code id, label and admin before its address goes in a memo.
+ */
+export const SKIP_ENTRY_POINT = "osmo10a3k4hvk37cc4hnxctw4p95fhscd2z6h2rmx0aukc6rm8u9qqx9smfsh7u";
+/** The entry point's code id, as a decimal string. */
+export const SKIP_ENTRY_POINT_CODE_ID = "1241";
+/** The entry point's on-chain label. */
+export const SKIP_ENTRY_POINT_LABEL = "Skip Swap Entry Point";
+/** The swap adapter the entry point calls for `osmosis-poolmanager` (code 1240). Recorded, not called. */
+export const SKIP_POOLMANAGER_ADAPTER = "osmo1xzphwrc9aahmq7smwaggukwx5w2w8mmtqf5mk0ky0v6hh75paxsszfnlu5";
+/** The IBC transfer adapter that sends a swap's output on (code 1239); it holds output a failed delivery returns. */
+export const SKIP_IBC_ADAPTER = "osmo1m8wg4vxkefhs374qxmmqpyusgz289wmulex5qdwpfx7jnrxzer5s9cv83q";
+/** The swap venue name the entry point routes Osmosis pools through. */
+export const SKIP_SWAP_VENUE_NAME = "osmosis-poolmanager";
+/**
+ * How long after signing the entry point still swaps, in minutes. Longer than
+ * the packet's own timeout (`PACKET_TIMEOUT_MINUTES`), so a packet that lands
+ * is never refused for lateness; past it the call fails and the tokens go back.
+ */
+export const SKIP_SWAP_TIMEOUT_MINUTES = 15;
+
+/**
  * Public SQS router hosts, in priority order.
  *
  * The pool graph is not on chain in a form the LCD can search by denom pair,

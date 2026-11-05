@@ -14,7 +14,7 @@
 
 import { Icon } from "@/components/icons";
 import { Badge, Button, Callout, ChainLogo, Spinner, type Tone } from "@/components/ui";
-import { SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
+import { SKIP_ENTRY_POINT, SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { cn } from "@/lib/cn";
 import { findChain } from "@/lib/chains";
 import { formatDuration } from "@/lib/format";
@@ -59,6 +59,8 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
     ...(recoveryAddress ? { recoveryAddress } : {}),
   });
   const recover = useSignAndBroadcast();
+  // Through Skip's entry point a failed last hop needs no recovery call.
+  const autoRecovered = contractAddress === SKIP_ENTRY_POINT;
   const data = trace.data;
   const failure = data?.failure ?? null;
   const settled = data !== null && (data.status === "acknowledged" || data.status === "timeout" || data.status === "failed");
@@ -68,6 +70,10 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
   let tone: Tone = "neutral";
   if (!data) {
     headline = trace.error ? "Can't read the transfer right now" : "Looking for your transaction…";
+  } else if (failure === "swap-delivery-failed" && autoRecovered) {
+    // Skip's IBC adapter pays a failed delivery to the recovery address on its own.
+    headline = "The swap ran, but the delivery failed: the output was paid to your Osmosis address";
+    tone = "warning";
   } else if (failure === "swap-delivery-failed") {
     headline = "The swap ran, but the delivery failed";
     tone = "danger";
@@ -88,7 +94,7 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
     headline = hop ? `On its way: ${chainName(hop.chainId)} → ${chainName(hop.counterpartyChainId ?? (hop.kind === "swap" ? VENUE : null))}` : "On its way";
   }
 
-  const canRecover = failure === "swap-delivery-failed" && Boolean(contractAddress) && Boolean(recoveryAddress);
+  const canRecover = failure === "swap-delivery-failed" && !autoRecovered && Boolean(contractAddress) && Boolean(recoveryAddress);
 
   const runRecover = () => {
     if (!contractAddress || !recoveryAddress) return;

@@ -10,17 +10,19 @@
  *
  * 1. Name both sides on Osmosis (an Osmosis row is its own name; any other
  *    side is proved by src/lib/server/swap/names.ts when its path needs it).
- * 2. Ask the contract's route table about the pair (an hour old at most) and
- *    pick the path (src/lib/swap/path.ts).
+ * 2. Pick the path (src/lib/swap/path.ts): the pools for funds on Osmosis,
+ *    one signature through Skip's entry point for funds anywhere else, and
+ *    `move-first` for a token whose one hop to Osmosis cannot be proved.
  * 3. Price it:
  *    - `pool`, `pool-deliver`, `move-first`: the router's best order (split
  *      when that pays more), checked to add up to exactly the amount sold, and
  *      the floor `⌊out × (100 − s)%⌋` (refused when it rounds to nothing);
  *      `pool-deliver` then proves the one-hop transfer of that floor home;
  *      `move-first` is an estimate, said so.
- *    - `contract`: the verified contract's live `get_route` for the pair, the
- *      router's price for exactly that route, and the one-hop proofs for the
- *      funds going in and the output going out.
+ *    - `contract`: the entry point verified on chain, the router's best
+ *      single route (the entry point swaps along one list of pools), the same
+ *      floor, and the one-hop proofs for the funds going in and the output
+ *      going out.
  *
  * A pair that cannot be swapped for a known reason answers `blocked` with the
  * sentence to show, plus the price when one was read. Only an unreachable
@@ -29,14 +31,11 @@
 
 import "server-only";
 
-import { applySlippage } from "@zunialab/interchain";
-
-import { QUOTE_TTL_MS, SWAP_VENUE_CHAIN_ID, TWAP_WINDOW_SECONDS } from "@/config/interchain";
+import { QUOTE_TTL_MS, SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { findServerChain } from "@/lib/server/chains";
 import { pairRemoteSide, type Pairing, type PairingResult } from "@/lib/server/swap/names";
-import { sqsDirectQuote, SqsError, sqsListings, sqsQuote, type PricedQuote } from "@/lib/server/swap/sqs";
-import { swapVenue } from "@/lib/server/swap/venue";
-import { loadXcsTable, xcsRouteGate } from "@/lib/server/swap/xcs-table";
+import { SqsError, sqsListings, sqsQuote, type PricedQuote } from "@/lib/server/swap/sqs";
+import { skipVenue } from "@/lib/server/swap/skip-venue";
 import { sameDenom } from "@/lib/swap/denoms";
 import { rateOf } from "@/lib/swap/format";
 import { swapPathFor, signingChainFor, type SwapPath } from "@/lib/swap/path";
@@ -57,7 +56,7 @@ import type {
   SwapRoutePool,
   SwapRouteSplit,
 } from "@/lib/swap/wire";
-import { executableBetween, noRouteReason, notTradedReason, TESTNET_REASON, type GateSide } from "@/lib/swap/xcs";
+import { notTradedReason, TESTNET_REASON } from "@/lib/swap/xcs";
 import { identifyDenom, identifyDenoms } from "@/lib/token/identity";
 import type { TokenIdentity } from "@/lib/token/types";
 
@@ -133,16 +132,6 @@ function sameTokenText(ticker: string): string {
 function candidateOf(side: Side): string | null {
   if (side.chainId === VENUE) return side.denom;
   return side.hint ?? side.identity.osmosisDenom ?? null;
-}
-
-function gateSide(side: Side, venueDenom: string | null): GateSide {
-  return {
-    key: `${side.chainId}:${side.denom}`,
-    chainId: side.chainId,
-    denom: side.denom,
-    identity: { ...side.identity, ...(venueDenom ? { osmosisDenom: venueDenom } : {}) },
-    testnet: side.testnet,
-  };
 }
 
 function blocked(
@@ -233,9 +222,6 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
     return blocked("same-token", sameTokenText(to.ticker));
   }
 
-  const venue = await swapVenue();
-  const table = venue.address ? await loadXcsTable(venue.address) : null;
-
   // A voucher of an Osmosis token held elsewhere names itself through its
   // trace (case two in names.ts), so it is proved first when nothing else
   // names it: the path depends on the name.
@@ -262,8 +248,22 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
     vout = toPairing.venueDenom;
   }
 
-  const answer = executableBetween(table, gateSide(from, vin), gateSide(to, vout));
-  const path = swapPathFor(from, to, answer);
+  let path: SwapPath = swapPathFor(from, to);
+  // One signature needs the funds to land on Osmosis as the denom the pools
+  // trade, over one canonical hop. A token that cannot moves there first.
+  let inboundPairing: Pairing | null = fromPairing;
+  let inboundRefusal: string | null = null;
+  if (path === "contract" && vin && vout && !sameDenom(vin, vout)) {
+    const result = fromPairing
+      ? ({ ok: true, pairing: fromPairing } as const)
+      : await pairRemoteSide({ chainId: from.chainId, denom: from.denom, ticker: from.ticker, candidate: vin });
+    if (result.ok) {
+      inboundPairing = result.pairing;
+    } else {
+      path = "move-first";
+      inboundRefusal = pairingBlock(result, "inbound").message;
+    }
+  }
   const signingChainId = signingChainFor(path, from.chainId);
 
   if (!vin) {
@@ -303,6 +303,7 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
     const largest = largestSplit(quote.splits);
     const minOut = poolMinOut({ outputAmount: quote.outAmount }, slippage);
     const warnings: string[] = [];
+    if (inboundRefusal) warnings.push(inboundRefusal);
     if (quote.splits.length > 1) {
       warnings.push(`The router splits this order across ${quote.splits.length} routes for a better price.`);
     }
@@ -370,36 +371,20 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
   }
 
   /* ------------------------------------------------------------- contract */
+  // One signature: a transfer to Skip's entry point, whose memo swaps along
+  // one quoted route of Osmosis pools and delivers the output.
+  const venue = await skipVenue();
   if (!venue.address || !venue.contract) {
-    return blocked("venue-unavailable", venue.reason ?? "Zunia's Osmosis swap contract is not available right now.", { path });
+    return blocked("venue-unavailable", venue.reason ?? "Osmosis's swap contract is not available right now.", { path });
   }
-  const gate = await xcsRouteGate(venue.address, vin, vout);
-  if (gate.status === "missing") {
-    return blocked("no-contract-route", `${noRouteReason(from.ticker, to.ticker)} The swap stays unsigned.`, { path });
-  }
-  if (gate.status !== "ready") {
-    return blocked(
-      "route-unreadable",
-      `Zunia could not confirm that the Osmosis swap contract takes ${from.ticker} to ${to.ticker}, so the swap stays unsigned.`,
-      { path },
-    );
-  }
-  const read = await priced(() => sqsDirectQuote({ tokenInDenom: vin, amount: request.amount, route: gate.route }));
+  const read = await priced(() => sqsQuote({ tokenInDenom: vin, amount: request.amount, tokenOutDenom: vout, singleRoute: true }));
   if (read === "no-route") {
-    return blocked(
-      "route-unpriced",
-      `The pools on the Osmosis swap contract's route from ${from.ticker} to ${to.ticker} could not be priced, so the swap stays unsigned.`,
-      { path },
-    );
+    return blocked("no-pool-route", `Osmosis has no pool route from ${from.ticker} to ${to.ticker} at this amount, so there is nothing to sign.`, { path });
   }
   const { quote } = read;
-  let floor: string | null = null;
-  try {
-    floor = applySlippage(quote.outAmount, slippage);
-  } catch {
-    floor = null;
-  }
-  const routePools: SwapRoutePool[] = quote.splits.length === 1 && quote.splits[0] ? poolsOf(quote.splits[0]) : gate.route.map((hop) => ({ id: hop.poolId, tokenOutDenom: hop.tokenOutDenom }));
+  const only = quote.splits.length === 1 ? quote.splits[0] : undefined;
+  const splits = splitsOf(quote);
+  const minOut = poolMinOut({ outputAmount: quote.outAmount }, slippage);
   const warnings: string[] = [];
   const preview: SwapQuotePrice = {
     ...base,
@@ -407,39 +392,44 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
     path,
     estimate: false,
     amountOut: quote.outAmount,
-    minOut: floor && floor !== "0" ? floor : null,
-    minOutKind: "twap-estimate",
+    minOut,
+    minOutKind: "exact",
     priceImpact: priceImpactPercent(quote),
     effectiveFee: fractionToPercent(quote.effectiveFee),
     spotPrice: spot(quote),
     rate: rateOf(request.amount, fromDecimals, quote.outAmount, toDecimals),
-    route: { pools: routePools },
+    route: { pools: only ? poolsOf(only) : [], splits },
     contract: venue.contract,
-    twapWindowSeconds: TWAP_WINDOW_SECONDS,
     warnings,
   };
-
-  let inbound: SwapQuotePrice["inbound"];
-  if (from.chainId !== VENUE) {
-    const result = fromPairing
-      ? ({ ok: true, pairing: fromPairing } as const)
-      : await pairRemoteSide({ chainId: from.chainId, denom: from.denom, ticker: from.ticker, candidate: vin });
-    if (!result.ok) {
-      const block = pairingBlock(result, "inbound");
-      return blocked(block.code, block.message, { path, preview });
-    }
-    const { hop, relation } = result.pairing;
-    inbound = {
-      sourceChainId: from.chainId,
-      channelId: hop.remoteChannelId,
-      port: hop.port,
-      venueChannelId: hop.venueChannelId,
-      kind: relation === "remote-native" ? "wrap" : "unwind",
-      clientStatus: hop.clientStatus,
-    };
-    if (hop.clientStatus === "unconfirmed") {
-      warnings.push(`Zunia could not confirm the light clients of ${hop.remoteChannelId}; the channel itself is open.`);
-    }
+  if (!only || !poolRoutesOf({ splits: quote.splits, outputDenom: vout }, request.amount)) {
+    return blocked(
+      "routes-invalid",
+      "The Osmosis router's route for this swap does not add up to the amount you sell, so Zunia will not sign it.",
+      { path, preview },
+    );
+  }
+  if (!minOut) {
+    return blocked(
+      "no-floor",
+      "At this amount the swap would pay out so little that its minimum rounds to nothing, so Zunia will not sign it.",
+      { path, preview },
+    );
+  }
+  if (!inboundPairing) {
+    return blocked("inbound-unavailable", `Zunia could not prove how ${from.ticker} reaches Osmosis, so the swap stays unsigned.`, { path, preview });
+  }
+  const inboundHop = inboundPairing.hop;
+  const inbound: SwapQuotePrice["inbound"] = {
+    sourceChainId: from.chainId,
+    channelId: inboundHop.remoteChannelId,
+    port: inboundHop.port,
+    venueChannelId: inboundHop.venueChannelId,
+    kind: inboundPairing.relation === "remote-native" ? "wrap" : "unwind",
+    clientStatus: inboundHop.clientStatus,
+  };
+  if (inboundHop.clientStatus === "unconfirmed") {
+    warnings.push(`Zunia could not confirm the light clients of ${inboundHop.remoteChannelId}; the channel itself is open.`);
   }
   let delivery: SwapQuotePrice["delivery"];
   if (to.chainId !== VENUE) {
@@ -459,11 +449,14 @@ export async function quoteSwap(request: SwapQuoteRequest): Promise<SwapQuoteRes
       kind: relation === "remote-native" ? "unwind" : "wrap",
       clientStatus: hop.clientStatus,
     };
+    if (hop.clientStatus === "unconfirmed") {
+      warnings.push(`Zunia could not confirm the light clients of ${hop.venueChannelId}; the channel itself is open.`);
+    }
   }
   return {
     ...preview,
     updatedAt: Date.now(),
-    ...(inbound ? { inbound } : {}),
+    inbound,
     ...(delivery ? { delivery } : {}),
   };
 }

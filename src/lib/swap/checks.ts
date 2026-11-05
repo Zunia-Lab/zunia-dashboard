@@ -3,28 +3,29 @@
  * words the confirm card shows. Any problem refuses the signature.
  *
  * Ported from zunia-extension entrypoints/popup/screens/SwapScreen.tsx
- * (`readSwapMessage`, `swapFeeProblem`, `swapTermsProblems`,
- * `poolDeliveryProblems`, `poolSwapTermsProblems`, `PRICE_EXPIRED`) @ 1453e7a,
- * pulled out of the screen into a pure module. The checks read only what
- * ./messages.ts `viewOf` proved the bytes say; nothing is taken from the quote
- * or the plan beside the messages without being compared against them.
- * Additions over the extension, because the dashboard builds the transfer
- * itself rather than from a plan object: a contract-path transfer must leave
- * over the channel the quote proved, from the signer, with a timeout still in
- * the future; the contract-path memo must carry the reviewed tolerance; and no
- * transfer may carry a block-height timeout, which Zunia never sets (one could
- * send the packet back, and a contract path's fee is not refunded with it).
+ * (`swapFeeProblem`, `poolDeliveryProblems`, `poolSwapTermsProblems`,
+ * `PRICE_EXPIRED`) @ 1453e7a, pulled out of the screen into a pure module.
+ * The checks read only what ./messages.ts `viewOf` proved the bytes say;
+ * nothing is taken from the quote or the plan beside the messages without
+ * being compared against them.
+ *
+ * The one-signature path (`contract`) is a transfer to Skip's entry point on
+ * Osmosis whose memo swaps the tokens and delivers the output (./skip.ts).
+ * Its check reads that memo strictly (any field the dashboard does not write
+ * refuses it) and compares every part with the review: the entry point the
+ * server verified, the channel the quote proved, the quoted pools, the
+ * reviewed minimum, and the user's own addresses for the output and for a
+ * failed delivery. No transfer may carry a block-height timeout, which Zunia
+ * never sets (one could send the packet back, and the fee is not refunded
+ * with it).
  */
 
 import {
-  isWasmHookReceiverValid,
-  validateMemo,
-  type ForwardHopInfo,
-  type ForwardMemoInfo,
-  type XcsSwapInfo,
-} from "@zunialab/interchain";
-
-import { QUOTE_TTL_MS, SWAP_VENUE_CHAIN_ID, TWAP_WINDOW_SECONDS } from "@/config/interchain";
+  SKIP_ENTRY_POINT,
+  SKIP_SWAP_TIMEOUT_MINUTES,
+  QUOTE_TTL_MS,
+  SWAP_VENUE_CHAIN_ID,
+} from "@/config/interchain";
 import { sameDenom, shortAddress, shortDenom } from "@/lib/swap/denoms";
 import {
   BANK_SEND_TYPE_URL,
@@ -37,7 +38,6 @@ import {
   type SwapFeeRecipients,
 } from "@/lib/swap/fee";
 import { tickerAmount, type AmountLabel } from "@/lib/swap/format";
-import { EXECUTE_CONTRACT_TYPE_URL } from "@/lib/swap/messages";
 import {
   hasHeightTimeout,
   readDeliveryTransfer,
@@ -51,6 +51,7 @@ import {
   type TimeoutHeight,
 } from "@/lib/swap/pool";
 import type { ReviewSide, SwapReview } from "@/lib/swap/review";
+import { readSkipSwapMemo, skipOperationsOf, type SkipSwapParams } from "@/lib/swap/skip";
 import { hasExactly, hasOnly, isRecord, type MessageCoin, type MsgJson } from "@/lib/swap/types";
 import type { SwapRouteSplit } from "@/lib/swap/wire";
 
@@ -91,49 +92,31 @@ function labelForVenueDenom(denom: string, review: SwapReview): AmountLabel {
 }
 
 /* -------------------------------------------------------------------------- *
- * What the signed contract-path message says
+ * What the signed one-signature message says
  * -------------------------------------------------------------------------- */
 
 /**
- * The swap a contract-path message asks for, read from the message itself.
- * Every field is copied out of the message; nothing is looked up or taken
- * from the quote beside it.
+ * The swap a one-signature message asks for, read from the message itself:
+ * the transfer's fields, and its memo as ./skip.ts reads it. Nothing is
+ * looked up or taken from the quote beside it.
  */
 export interface SwapMessageFacts {
-  /** `contract-call`: one `MsgExecuteContract` on Osmosis. `transfer`: an ICS20 transfer whose memo calls it. */
-  readonly via: "contract-call" | "transfer";
-  /** What leaves the wallet: the call's one `funds` coin, or the transfer's `token`. */
+  /** The transfer's `token`: what leaves the wallet. */
   readonly sold: MessageCoin;
-  /** The account the message spends from: the call's `sender`, the transfer's `sender`. */
+  /** The transfer's `sender`. */
   readonly sender: string;
-  /** The crosschain-swaps contract the swap runs in. */
-  readonly contract: string;
-  /** The transfer's ICS20 receiver; `null` for a contract call. */
-  readonly transferReceiver: string | null;
-  /** The transfer's port and channel; `null` for a contract call. */
-  readonly transferChannel: { readonly port: string; readonly channelId: string } | null;
-  /** The transfer's timeout, ns since the epoch; `null` for a contract call. */
-  readonly timeoutTimestamp: string | null;
-  /** The transfer's block-height timeout; `null` for a contract call. */
-  readonly timeoutHeight: TimeoutHeight | null;
-  /** Packet-forward hops before the swap, in order; a transfer's only. */
-  readonly forwardsIn: readonly ForwardHopInfo[];
-  /** The `osmosis_swap` fields: what it buys, whom it pays, its tolerance and its failure action. */
-  readonly swap: XcsSwapInfo;
-  /** Where `next_memo` forwards the output after the swap, when it does. */
-  readonly forwardsOut: ForwardMemoInfo | null;
-  /** What the engine's memo classifier flagged. */
-  readonly warnings: readonly string[];
+  /** The transfer's ICS20 receiver. */
+  readonly transferReceiver: string;
+  /** The transfer's port and channel. */
+  readonly transferChannel: { readonly port: string; readonly channelId: string };
+  /** The transfer's timeout, ns since the epoch. */
+  readonly timeoutTimestamp: string;
+  /** The transfer's block-height timeout. */
+  readonly timeoutHeight: TimeoutHeight;
+  /** The memo: the contract it calls, the pools, the minimum, the deadline, where the output goes. */
+  readonly swap: SkipSwapParams;
 }
 
-/**
- * The `osmosis_swap` fields the card reads and shows, and the ones a TWAP
- * tolerance has. Any other (a pinned pool `route`, a field a later contract
- * adds) could change what the contract does without being shown, so a
- * message carrying one is not read at all.
- */
-const SWAP_FIELDS: ReadonlySet<string> = new Set(["output_denom", "slippage", "receiver", "on_failed_delivery", "next_memo"]);
-const TWAP_FIELDS: ReadonlySet<string> = new Set(["slippage_percentage", "window_seconds"]);
 const TRANSFER_FIELDS: ReadonlySet<string> = new Set([
   "source_port",
   "source_channel",
@@ -145,10 +128,6 @@ const TRANSFER_FIELDS: ReadonlySet<string> = new Set([
   "memo",
 ]);
 
-function onlyFields(value: unknown, fields: ReadonlySet<string>): boolean {
-  return isRecord(value) && Object.keys(value).every((key) => fields.has(key));
-}
-
 function messageCoin(value: unknown): MessageCoin | null {
   if (!isRecord(value) || !hasExactly(value, ["denom", "amount"])) return null;
   const { denom, amount } = value;
@@ -158,101 +137,34 @@ function messageCoin(value: unknown): MessageCoin | null {
 }
 
 /**
- * The swap part of a memo, through the engine's own classifier
- * (`validateMemo`): the crosschain swap, the forwards before it, and the
- * forward `next_memo` asks for after it. `null` unless every part reads whole.
- */
-function readXcs(
-  memo: string,
-  receiver?: string,
-): Pick<SwapMessageFacts, "contract" | "forwardsIn" | "swap" | "forwardsOut" | "warnings"> | null {
-  const inspection = validateMemo(memo, receiver === undefined ? {} : { receiver });
-  const { xcs: swap, wasm } = inspection;
-  if (inspection.kind !== "xcs" || !swap || !wasm) return null;
-  const body = wasm.msg.osmosis_swap;
-  if (!isRecord(body) || !onlyFields(body, SWAP_FIELDS)) return null;
-  const twap = isRecord(body.slippage) ? body.slippage.twap : undefined;
-  if (twap !== undefined && !onlyFields(twap, TWAP_FIELDS)) return null;
-  const next = body.next_memo;
-  const warnings = [...inspection.warnings];
-  let forwardsOut: ForwardMemoInfo | null = null;
-  if (next !== undefined && next !== null) {
-    if (!isRecord(next)) return null;
-    const after = validateMemo(JSON.stringify(next));
-    if (after.kind !== "forward" || !after.forward || after.forward.hasNextMemo) return null;
-    forwardsOut = after.forward;
-    warnings.push(...after.warnings);
-  }
-  return { contract: swap.contract, forwardsIn: inspection.forward?.hops ?? [], swap, forwardsOut, warnings };
-}
-
-/** What `text` parses to, only when serializing that gives back `text` exactly (no duplicate keys, no stray whitespace). */
-function canonicalJson(text: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return JSON.stringify(parsed) === text ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Read what a contract-path message will do: a contract call's `msg` (funds
- * already on Osmosis), or a transfer's packet memo. `null` for any other
- * message, and for one any part of which cannot be read whole.
+ * Read what a one-signature message will do: an ICS20 transfer whose memo is
+ * exactly a `swap_and_action` call (./skip.ts `readSkipSwapMemo`). `null` for
+ * any other message (a contract call, a crosschain-swaps memo, a forward),
+ * and for one any part of which cannot be read whole.
  */
 export function readSwapMessage(msg: MsgJson | undefined): SwapMessageFacts | null {
-  if (!msg || !isRecord(msg.value)) return null;
+  if (!msg || !isRecord(msg.value) || msg.typeUrl !== TRANSFER_TYPE_URL) return null;
   const value = msg.value;
-  if (msg.typeUrl === EXECUTE_CONTRACT_TYPE_URL) {
-    if (!hasExactly(value, ["sender", "contract", "msg", "funds"])) return null;
-    const { sender, contract, funds, msg: body } = value;
-    if (typeof sender !== "string" || sender === "" || typeof contract !== "string" || contract === "") return null;
-    // The contract takes exactly one coin: that coin is what is sold.
-    if (!Array.isArray(funds) || funds.length !== 1) return null;
-    const sold = messageCoin(funds[0]);
-    if (!sold || !isRecord(body)) return null;
-    // Read as the `{wasm:{contract,msg}}` an inbound packet would carry, so one classifier reads both paths.
-    const read = readXcs(JSON.stringify({ wasm: { contract, msg: body } }));
-    return read
-      ? {
-          via: "contract-call",
-          sold,
-          sender,
-          transferReceiver: null,
-          transferChannel: null,
-          timeoutTimestamp: null,
-          timeoutHeight: null,
-          ...read,
-        }
-      : null;
+  if (!hasOnly(value, TRANSFER_FIELDS)) return null;
+  const sold = messageCoin(value.token);
+  const { memo, receiver, sender, source_port: port, source_channel: channelId, timeout_timestamp: timeout } = value;
+  if (!sold || typeof memo !== "string" || typeof receiver !== "string" || typeof sender !== "string") return null;
+  if (typeof port !== "string" || typeof channelId !== "string" || typeof timeout !== "string" || !/^\d+$/.test(timeout)) {
+    return null;
   }
-  if (msg.typeUrl === TRANSFER_TYPE_URL) {
-    if (!hasOnly(value, TRANSFER_FIELDS)) return null;
-    const sold = messageCoin(value.token);
-    const { memo, receiver, sender, source_port: port, source_channel: channelId, timeout_timestamp: timeout } = value;
-    if (!sold || typeof memo !== "string" || typeof receiver !== "string" || typeof sender !== "string") return null;
-    if (typeof port !== "string" || typeof channelId !== "string" || typeof timeout !== "string" || !/^\d+$/.test(timeout)) {
-      return null;
-    }
-    const timeoutHeight = readTimeoutHeight(value.timeout_height);
-    if (!timeoutHeight) return null;
-    if (canonicalJson(memo) === undefined) return null;
-    const read = readXcs(memo, receiver);
-    return read
-      ? {
-          via: "transfer",
-          sold,
-          sender,
-          transferReceiver: receiver,
-          transferChannel: { port, channelId },
-          timeoutTimestamp: timeout,
-          timeoutHeight,
-          ...read,
-        }
-      : null;
-  }
-  return null;
+  const timeoutHeight = readTimeoutHeight(value.timeout_height);
+  if (!timeoutHeight) return null;
+  const swap = readSkipSwapMemo(memo);
+  if (!swap) return null;
+  return {
+    sold,
+    sender,
+    transferReceiver: receiver,
+    transferChannel: { port, channelId },
+    timeoutTimestamp: timeout,
+    timeoutHeight,
+    swap,
+  };
 }
 
 /* -------------------------------------------------------------------------- *
@@ -318,19 +230,25 @@ function feeProblems(
 }
 
 /* -------------------------------------------------------------------------- *
- * The contract path
+ * The one-signature path
  * -------------------------------------------------------------------------- */
 
+const NS_PER_MS = BigInt(1_000_000);
+
 /**
- * Everything a contract-path transaction does that the review did not say.
- * Empty when it is exactly the swap message and, when a fee is due, the one
+ * Everything a one-signature transaction does that the review did not say.
+ * Empty when it is exactly the swap transfer and, when a fee is due, the one
  * bank send that pays it:
  *
- * - the swap spends the reviewed coin from the signer, and the amount left
- *   after the fee; calls the contract the venue check verified (a transfer
- *   addressed to it, over the channel the quote proved, timing out in the
- *   future); buys the reviewed token; pays this wallet's own address; and sets
- *   this wallet's recovery address;
+ * - the transfer spends the reviewed coin from the signer, the amount left
+ *   after the fee, over the channel the quote proved, addressed to the entry
+ *   point the server verified (ibc-hooks runs the call only then), timing
+ *   out in the future and never at a block height;
+ * - the memo calls that entry point, swaps along exactly the quoted pools
+ *   from the denom the tokens land as, keeps at least the reviewed minimum
+ *   of the token picked, stops swapping within the deadline Zunia sets, and
+ *   pays the output to this wallet: on Osmosis, or over the delivery channel
+ *   the quote proved with this wallet's Osmosis address for a failed hop;
  * - the fee is the one the review shows and the one Zunia charges on the
  *   signing chain;
  * - nothing else: a third message refuses the signature.
@@ -351,7 +269,9 @@ export function swapTermsProblems(
   if (signing.msgs.length > 2) return [EXTRA_MESSAGES];
   const { from, to, quote } = review;
   const fee = feeOf(review);
+  const swap = facts.swap;
   const problems: string[] = [];
+  if (from.chainId === VENUE) problems.push("Tokens on Osmosis swap in its pools, not through a transfer.");
   if (signing.chainId !== from.chainId || facts.sold.denom !== from.denom) {
     problems.push(`The message spends ${shortDenom(facts.sold.denom)}, not the ${from.ticker} on ${from.chainName} you reviewed.`);
   } else if (!fee || facts.sold.amount !== fee.net.toString()) {
@@ -363,59 +283,71 @@ export function swapTermsProblems(
     problems.push(`The swap would spend from ${shortAddress(facts.sender)}, not from the account signing it.`);
   }
   const contract = quote.contract;
-  if (!contract || !contract.verified || facts.contract !== contract.address) {
-    problems.push(`The message calls ${shortAddress(facts.contract)}, not the swap contract Zunia verified on Osmosis.`);
+  if (!contract || !contract.verified || contract.address !== SKIP_ENTRY_POINT || swap.entryPoint !== contract.address) {
+    problems.push(`The message calls ${shortAddress(swap.entryPoint)}, not the swap contract Zunia verified on Osmosis.`);
   }
-  if (facts.via === "transfer") {
-    // ibc-hooks runs the call only when the packet reaching Osmosis is
-    // addressed to the contract; anything else just delivers the tokens there.
-    const lands = facts.forwardsIn[facts.forwardsIn.length - 1]?.receiver ?? facts.transferReceiver ?? "";
-    if (!isWasmHookReceiverValid(lands, facts.contract)) {
-      problems.push(
-        "The transfer is not addressed to the swap contract, so the swap would not run and the tokens would land somewhere else.",
-      );
+  if (facts.transferReceiver !== swap.entryPoint) {
+    problems.push(
+      "The transfer is not addressed to the swap contract, so the swap would not run and the tokens would land somewhere else.",
+    );
+  }
+  const inbound = quote.inbound;
+  const channel = facts.transferChannel;
+  if (!inbound || inbound.sourceChainId !== from.chainId || channel.port !== inbound.port || channel.channelId !== inbound.channelId) {
+    problems.push(`The transfer leaves over ${channel.channelId}, not over ${inbound?.channelId ?? "the channel"} Zunia checked.`);
+  }
+  const nowNs = BigInt(Math.floor(signing.now)) * NS_PER_MS;
+  if (BigInt(facts.timeoutTimestamp) <= nowNs) {
+    problems.push("The transfer's timeout has already passed, so it would only come back. Refresh the price.");
+  }
+  if (hasHeightTimeout(facts.timeoutHeight)) problems.push(HEIGHT_TIMEOUT);
+  const deadline = BigInt(swap.timeoutNs);
+  const latest = nowNs + BigInt(SKIP_SWAP_TIMEOUT_MINUTES + 1) * BigInt(60_000) * NS_PER_MS;
+  if (deadline <= nowNs || deadline > latest) {
+    problems.push("The swap's deadline is not the one Zunia sets, so Zunia will not ask you to sign it.");
+  }
+  const expectedOps = skipOperationsOf(quote.venueInputDenom, quote.route.pools);
+  const sameOps =
+    expectedOps.length === swap.operations.length &&
+    expectedOps.every(
+      (op, index) =>
+        op.pool === swap.operations[index]?.pool &&
+        op.denomIn === swap.operations[index]?.denomIn &&
+        op.denomOut === swap.operations[index]?.denomOut,
+    );
+  if (!sameOps || expectedOps.length === 0) {
+    problems.push("The swap would go through other pools than the route you reviewed.");
+  }
+  const expectedOut = to.osmosisDenom ?? quote.venueOutputDenom;
+  if (!sameDenom(expectedOut, swap.minOut.denom) || !sameDenom(quote.venueOutputDenom, swap.minOut.denom)) {
+    problems.push(`The swap would buy ${shortDenom(swap.minOut.denom)}, not the ${to.ticker} you picked.`);
+  } else if (!quote.minOut || swap.minOut.amount !== quote.minOut) {
+    const bought = labelForVenueDenom(swap.minOut.denom, review);
+    problems.push(
+      `The swap's minimum is ${tickerAmount(swap.minOut.amount, bought)}, not the ${tickerAmount(quote.minOut ?? "0", bought)} you reviewed.`,
+    );
+  }
+  const post = swap.postSwap;
+  if (to.chainId === VENUE) {
+    if (post.kind !== "transfer" || post.toAddress !== review.recipient) {
+      const payee = post.kind === "transfer" ? post.toAddress : post.receiver;
+      problems.push(`The swap would pay ${shortAddress(payee)}, which is not your address on ${to.chainName}.`);
     }
-    const inbound = quote.inbound;
-    const channel = facts.transferChannel;
-    if (!inbound || !channel || channel.port !== inbound.port || channel.channelId !== inbound.channelId || facts.forwardsIn.length > 0) {
-      problems.push(
-        `The transfer leaves over ${channel?.channelId ?? "another channel"}, not over ${inbound?.channelId ?? "the channel"} Zunia checked.`,
-      );
+  } else {
+    const delivery = quote.delivery;
+    if (post.kind !== "ibc-transfer") {
+      problems.push(`The swap would keep the output on Osmosis, not deliver it to ${to.chainName}.`);
+    } else {
+      if (post.receiver !== review.recipient) {
+        problems.push(`The swap would pay ${shortAddress(post.receiver)}, which is not your address on ${to.chainName}.`);
+      }
+      if (!delivery || delivery.destChainId !== to.chainId || delivery.arrivalDenom !== to.denom || post.channelId !== delivery.channelId) {
+        problems.push(`The output would leave Osmosis over ${post.channelId}, not over ${delivery?.channelId ?? "the channel"} Zunia checked.`);
+      }
+      if (!review.recoveryAddress || post.recoverAddress !== review.recoveryAddress) {
+        problems.push(`A failed delivery would pay ${shortAddress(post.recoverAddress)}, which is not your address on Osmosis.`);
+      }
     }
-    if (!facts.timeoutTimestamp || BigInt(facts.timeoutTimestamp) <= BigInt(Math.floor(signing.now)) * BigInt(1_000_000)) {
-      problems.push("The transfer's timeout has already passed, so it would only come back. Refresh the price.");
-    }
-    if (!facts.timeoutHeight || hasHeightTimeout(facts.timeoutHeight)) problems.push(HEIGHT_TIMEOUT);
-  } else if (from.chainId !== VENUE) {
-    problems.push("A contract call spends funds on Osmosis, and these are on another chain.");
-  }
-  const expected = to.osmosisDenom ?? quote.venueOutputDenom;
-  if (!sameDenom(expected, facts.swap.outputDenom) || !sameDenom(quote.venueOutputDenom, facts.swap.outputDenom)) {
-    problems.push(`The contract would buy ${shortDenom(facts.swap.outputDenom)}, not the ${to.ticker} you picked.`);
-  }
-  const payee = facts.forwardsOut?.finalReceiver ?? facts.swap.receiver;
-  if (payee !== review.recipient) {
-    problems.push(`The swap would pay ${shortAddress(payee)}, which is not your address on ${to.chainName}.`);
-  } else if (facts.forwardsOut) {
-    // The dashboard never builds a forward after the swap: the delivery is
-    // the contract's own one hop. A forward here is something nobody reviewed.
-    problems.push(`On the way, the swap would pay ${shortAddress(facts.swap.receiver)} and forward from there, which this review does not show.`);
-  }
-  // The tolerance is part of what was reviewed: the dashboard always signs the
-  // TWAP rule at the reviewed percentage over the standard window.
-  const slippage = facts.swap.slippage;
-  if (
-    slippage.kind !== "twap" ||
-    Number(slippage.slippagePercentage) !== review.slippagePercent ||
-    slippage.windowSeconds !== TWAP_WINDOW_SECONDS
-  ) {
-    problems.push(`The swap's price protection is not the ${review.slippagePercent}% tolerance you reviewed.`);
-  }
-  const failed = facts.swap.onFailedDelivery;
-  if (failed.kind !== "local_recovery_addr") {
-    problems.push("The swap sets no recovery address, so output stranded by a failed delivery could never be claimed back.");
-  } else if (!review.recoveryAddress || failed.address !== review.recoveryAddress) {
-    problems.push(`The recovery address ${shortAddress(failed.address)} is not your address on Osmosis.`);
   }
   const second = signing.msgs[1];
   if (signing.msgs.length === 2 && second === null) {

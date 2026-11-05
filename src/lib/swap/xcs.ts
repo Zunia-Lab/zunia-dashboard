@@ -491,10 +491,10 @@ export function executableBetween(
  * asset elsewhere, a side Osmosis does not trade. `executable` reports the
  * table alone.
  *
- * A pair the contract's table does not hold is not refused for that: Osmosis's
- * own pools swap it (./path.ts), at once when the funds are on Osmosis, after
- * moving them there otherwise. Only the pools' one requirement refuses a row
- * on that path: both sides need a denom on Osmosis.
+ * A pair the contract's table does not hold is not refused for that: every
+ * path swaps in Osmosis's pools (./path.ts), in one signature from wherever
+ * the funds are. Only the pools' one requirement refuses a row: both sides
+ * need a denom on Osmosis.
  */
 export function gateOption(
   from: GateSide | null | undefined,
@@ -509,7 +509,12 @@ export function gateOption(
   const vin = osmosisDenomFor(from);
   const vout = osmosisDenomFor(option);
   if (vin && vout && denomKey(vin) === denomKey(vout)) return gate(SAME_TOKEN_REASON);
-  if (swapPathFor(from, option, answer) !== "contract" && !(vin && vout)) {
+  // A From with no name on Osmosis that no trace can give one (a coin of its
+  // own chain Osmosis does not list: POKT) cannot be swapped for anything.
+  const fromNameable = vin !== null || (from.chainId !== VENUE && from.denom.startsWith("ibc/"));
+  if (!fromNameable) return gate(notTradedReason(from.identity.ticker));
+  // Funds elsewhere: the quote proves a voucher's Osmosis name from its trace, so only the pools' own path needs both names here.
+  if (swapPathFor(from, option) !== "contract" && !(vin && vout)) {
     return gate(notTradedReason((vin ? option : from).identity.ticker));
   }
   return gate(null);

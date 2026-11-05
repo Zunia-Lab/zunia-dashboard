@@ -220,7 +220,7 @@ function packetDenomWords(denom: string): string {
 /** How deep a packet-forward memo's `next` is followed: further than any route Swap signs. */
 const MAX_FORWARD_DEPTH = 4;
 
-/** Whether a packet memo, or a forward it nests, calls `osmosis_swap` through ibc-hooks. */
+/** Whether a packet memo, or a forward it nests, calls a swap through ibc-hooks: `osmosis_swap`, or Skip's `swap_and_action`. */
 export function memoCallsSwap(memo: unknown, depth = 0): boolean {
   if (depth > MAX_FORWARD_DEPTH) return false;
   let parsed: Record<string, unknown> | null;
@@ -236,7 +236,7 @@ export function memoCallsSwap(memo: unknown, depth = 0): boolean {
   }
   if (!parsed) return false;
   const call = asRecord(asRecord(parsed.wasm)?.msg);
-  if (call && Object.hasOwn(call, "osmosis_swap")) return true;
+  if (call && (Object.hasOwn(call, "osmosis_swap") || Object.hasOwn(call, "swap_and_action"))) return true;
   return memoCallsSwap(asRecord(parsed.forward)?.next, depth + 1);
 }
 

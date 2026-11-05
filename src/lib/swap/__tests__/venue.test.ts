@@ -8,8 +8,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { XCS_CONTRACT_CANDIDATES, XCS_CONTRACT_CODE_IDS } from "@/config/interchain";
-import { venueFromContractInfo, venueOff } from "../venue";
+import { SKIP_ENTRY_POINT, XCS_CONTRACT_CANDIDATES, XCS_CONTRACT_CODE_IDS } from "@/config/interchain";
+import { skipVenueFromContractInfo, venueFromContractInfo, venueOff } from "../venue";
 
 const XCS = "osmo1uwk8xc6q0s6t5qcpr6rht3sczu6du83xq8pwxjua0hfj5hzcnh3sqxwvxs";
 
@@ -74,5 +74,44 @@ describe("the swap venue check", () => {
       assert.ok(reason.length < 260, reason);
     }
     assert.deepEqual(venueOff(null, "off"), { chainId: "osmosis-1", address: null, contract: null, reason: "off" });
+  });
+});
+
+/** osmosis-rest.publicnode.com's answer for Skip's entry point on 2026-11-06: code 1241, no admin. */
+const SKIP_LIVE = {
+  address: SKIP_ENTRY_POINT,
+  contract_info: {
+    code_id: "1241",
+    creator: "osmo1zhqrfu9w3sugwykef3rq8t0vlxkz72vwd63q67",
+    admin: "",
+    label: "Skip Swap Entry Point",
+    created: { block_height: "23628927", tx_index: "0" },
+    ibc_port_id: "",
+    extension: null,
+  },
+};
+
+describe("Skip's entry point check", () => {
+  test("verifies the shipped entry point as Osmosis reports it", () => {
+    const venue = skipVenueFromContractInfo(SKIP_ENTRY_POINT, SKIP_LIVE);
+    assert.equal(venue.address, SKIP_ENTRY_POINT);
+    assert.deepEqual(venue.contract, { address: SKIP_ENTRY_POINT, verified: true, label: "Skip Swap Entry Point", codeId: "1241" });
+    assert.equal(venue.reason, null);
+  });
+
+  test("refuses an admin, other code, another label, another address, or an answer for another contract", () => {
+    const withInfo = (patch: Record<string, unknown>) => ({ ...SKIP_LIVE, contract_info: { ...SKIP_LIVE.contract_info, ...patch } });
+    const admin = skipVenueFromContractInfo(SKIP_ENTRY_POINT, withInfo({ admin: "osmo1zhqrfu9w3sugwykef3rq8t0vlxkz72vwd63q67" }));
+    assert.equal(admin.address, null);
+    assert.match(admin.reason ?? "", /admin who could change its code/);
+    const code = skipVenueFromContractInfo(SKIP_ENTRY_POINT, withInfo({ code_id: "1300" }));
+    assert.equal(code.address, null);
+    assert.match(code.reason ?? "", /runs code 1300/);
+    const label = skipVenueFromContractInfo(SKIP_ENTRY_POINT, withInfo({ label: "Skip Swap Swap Adapter osmosis-poolmanager" }));
+    assert.equal(label.address, null);
+    const other = "osmo1xzphwrc9aahmq7smwaggukwx5w2w8mmtqf5mk0ky0v6hh75paxsszfnlu5";
+    assert.equal(skipVenueFromContractInfo(other, { ...SKIP_LIVE, address: other }).address, null);
+    assert.equal(skipVenueFromContractInfo(SKIP_ENTRY_POINT, { ...SKIP_LIVE, address: other }).address, null);
+    assert.equal(skipVenueFromContractInfo(SKIP_ENTRY_POINT, { address: SKIP_ENTRY_POINT }).address, null);
   });
 });

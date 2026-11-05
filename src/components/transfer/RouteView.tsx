@@ -12,45 +12,16 @@
  */
 
 import { Icon } from "@/components/icons";
-import { Badge, Button, ChainLogo, InlineError, RelativeTime, Skeleton, type Tone } from "@/components/ui";
+import { Badge, Button, ChainLogo, InlineError, RelativeTime, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import type { AsyncStatus } from "@/lib/interchain/hooks";
 import type { ChannelLinkWire, InterchainFailure, PlanCandidateWire, PlanResponseBody, RouteHopWire } from "@/lib/interchain/wire";
+import { hopVerdict, linkWithCheck, routeBadge, type PairCheck } from "./channel-check";
 import type { HistoryChannel, RouteTiming } from "./logic";
 import { chainName as nameOfChain } from "./names";
 
-export interface ChannelVerdict {
-  label: string;
-  tone: Tone;
-  detail: string;
-}
-
-/** What the planner knows about one channel, in words. */
-export function channelVerdict(link: ChannelLinkWire | undefined): ChannelVerdict {
-  if (!link) return { label: "Not checked", tone: "neutral", detail: "No channel record came with this hop." };
-  if (link.state === "closed") return { label: "Closed", tone: "danger", detail: "This channel is closed: a packet sent on it would never arrive." };
-  if (link.source === "manual") {
-    // Not "you entered": the planner also reuses a channel typed in an earlier
-    // session. What is certain is that nobody discovered it on chain.
-    return {
-      label: "Entered by hand",
-      tone: "warning",
-      detail: "Typed in by hand, not discovered on chain, and not verified: it is used as given. Check the channel before you send.",
-    };
-  }
-  if (link.source === "verified" && link.state === "open") {
-    return { label: "Verified · open", tone: "success", detail: "Read from both chains just now: the channel is open and connects these two networks." };
-  }
-  if (link.source === "seed") {
-    return {
-      label: "Registry default",
-      tone: "warning",
-      detail: "The channel the chain registry lists for this pair. It could not be checked on chain just now.",
-    };
-  }
-  return { label: link.state === "open" ? "Open" : "Unconfirmed", tone: "neutral", detail: "The channel's state could not be confirmed." };
-}
+export { channelVerdict, type ChannelVerdict } from "./channel-check";
 
 const chainName = (chainId: string | null | undefined) => nameOfChain(chainId, "Unknown chain");
 
@@ -73,10 +44,14 @@ export interface RouteViewProps {
   idleText?: string;
   /** How long the user's own transfers on this route took (measured, from their history). */
   observed?: RouteTiming | null;
+  /** The page's own channel checks per pair of networks (./useChannelChecks.ts). */
+  checks?: ReadonlyMap<string, PairCheck>;
   className?: string;
 }
 
-export function RouteView({ status, data, candidate, error, onRetry, idleText, observed, className }: RouteViewProps) {
+const NO_CHECKS: ReadonlyMap<string, PairCheck> = new Map();
+
+export function RouteView({ status, data, candidate, error, onRetry, idleText, observed, checks = NO_CHECKS, className }: RouteViewProps) {
   if (status === "idle") {
     return (
       <div className={cn("flex items-center gap-2.5 rounded-[var(--d-radius-inner)] border border-dashed border-[var(--d-hairline-strong)] px-3.5 py-3 text-[13px] text-fg-dim", className)}>
@@ -133,13 +108,10 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
 
   const plan = candidate.plan;
   const hops = plan.hops.filter((hop) => hop.channelId.length > 0);
-  const links = linksForHops(hops, candidate.links);
-  const verdicts = links.map((link) => channelVerdict(link));
-  const worst: Tone = verdicts.some((v) => v.tone === "danger")
-    ? "danger"
-    : verdicts.some((v) => v.tone === "warning")
-      ? "warning"
-      : "success";
+  const planned = linksForHops(hops, candidate.links);
+  const links = planned.map((link) => linkWithCheck(link, checks));
+  const verdicts = planned.map((link) => hopVerdict(link, checks));
+  const badge = routeBadge(verdicts);
   const strategy = data?.denomStrategy;
   const nodes = [plan.sourceChainId, ...hops.map((hop) => hop.counterpartyChainId ?? plan.destChainId)];
 
@@ -164,8 +136,8 @@ export function RouteView({ status, data, candidate, error, onRetry, idleText, o
               <span className="ml-1 rounded-[4px] bg-[var(--d-glass-2)] px-1 font-mono text-[10.5px] text-fg-muted">est.</span>
             </span>
           )}
-          <Badge tone={worst} size="sm" dot>
-            {worst === "success" ? "Channels verified" : worst === "danger" ? "Closed channel" : "Not fully verified"}
+          <Badge tone={badge.tone} size="sm" dot>
+            {badge.label}
           </Badge>
         </span>
       </div>

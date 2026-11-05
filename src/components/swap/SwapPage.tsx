@@ -161,16 +161,10 @@ function SwapDesk({ link }: { link: SwapLink }) {
   }, [portfolio.data]);
   const valueOf = useCallback((option: AssetOption) => valueByKey.get(option.key) ?? null, [valueByKey]);
 
-  // A page opens on a pair signed once when the wallet has one (a small
-  // wallet's largest token may only swap after moving to Osmosis).
+  // A page opens on a pair signed once when the wallet has one: a token with
+  // a name on Osmosis, which every chain now sells in one signature.
   const routeTable = swapAssets.data?.routeTable ?? null;
-  const atomOnVenue = useMemo(
-    () =>
-      assetRows?.find((asset) => asset.kind === "venue" && asset.identity.originChainId === "cosmoshub-4" && asset.identity.originDenom === "uatom")
-        ?.osmosisDenom ?? null,
-    [assetRows],
-  );
-  const oneSignature = useCallback((option: AssetOption) => opensInOneSignature(option, routeTable, atomOnVenue), [routeTable, atomOnVenue]);
+  const oneSignature = useCallback((option: AssetOption) => opensInOneSignature(option), []);
 
   const linkedFrom = resolveLinkedOption(sell, fromPick);
   const from = linkedFrom ?? sell.find((option) => option.key === defaultFromKey(sell, listed, valueOf, oneSignature));
@@ -717,7 +711,7 @@ function SwapDesk({ link }: { link: SwapLink }) {
 
   const notices =
     contractReason && (live?.path === "contract" || quoteState.blocked?.code === "venue-unavailable") ? (
-      <Callout tone="warning" title="Cross-chain contract unavailable">
+      <Callout tone="warning" title="One-signature swaps unavailable">
         {contractReason} Swaps of tokens already on Osmosis still work.
       </Callout>
     ) : null;

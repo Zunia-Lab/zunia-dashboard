@@ -6,9 +6,8 @@
  *
  * - Swappable: balances whose token Osmosis trades, at market prices.
  * - Already on Osmosis: the part that swaps in one transaction.
- * - On other chains: the part that swaps from its own chain through Zunia's
- *   contract, or moves to Osmosis first (which one depends on the pair, so
- *   the tile does not guess).
+ * - On other chains: the part that swaps from its own chain in one
+ *   signature (moved, swapped on Osmosis and delivered in one go).
  * - Not listed: balances outside Zunia's list of Osmosis tokens, named,
  *   because "why can't I swap POKT?" is the question this answers. Tokens
  *   with nothing on Osmosis cannot be swapped here; unlisted ones can still
@@ -93,7 +92,7 @@ export const SwapStrip = memo(function SwapStrip({ sell, listed, valueOf, curren
         value={<Money value={elsewhere.count > 0 ? elsewhere.value : 0} currency={currency} compact reason="None of them is priced" />}
         sub={elsewhere.count > 0 ? `${plural(elsewhere.count, "token")} on ${plural(elsewhere.chains, "chain")}` : "Nothing elsewhere"}
         loading={waiting}
-        info="Swapped from their own chain in one signature through Zunia's verified contract when a route exists for the pair; otherwise they move to Osmosis first. The form says which before you sign."
+        info="Swapped from their own chain in one signature: the tokens go to Osmosis, are swapped in its pools on arrival and paid to you, with gas paid once on their own chain and no OSMO needed."
       />
       <Stat
         label="Not listed"

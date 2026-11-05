@@ -6,12 +6,11 @@
  * @ 1453e7a, built from a frozen review (./review.ts) instead of a planner
  * object. Messages, in order (the extension's, exactly):
  *
- * | path                     | signs on    | msgs[0]                                        | msgs[1]          | msgs[2]             |
- * |--------------------------|-------------|------------------------------------------------|------------------|---------------------|
- * | contract, from elsewhere | From chain  | `MsgTransfer` to the contract, ibc-hooks memo  | fee `MsgSend`    | —                   |
- * | contract, from Osmosis   | osmosis-1   | `MsgExecuteContract` `{"osmosis_swap":…}`     | fee `MsgSend`    | —                   |
- * | pool                     | osmosis-1   | poolmanager swap (single or split route)       | fee `MsgSend`    | —                   |
- * | pool-deliver             | osmosis-1   | poolmanager swap                               | fee `MsgSend`    | `MsgTransfer` of the floor home |
+ * | path                     | signs on    | msgs[0]                                              | msgs[1]          | msgs[2]             |
+ * |--------------------------|-------------|------------------------------------------------------|------------------|---------------------|
+ * | contract (funds elsewhere) | From chain | `MsgTransfer` to Skip's entry point, `swap_and_action` memo (./skip.ts) | fee `MsgSend` | — |
+ * | pool                     | osmosis-1   | poolmanager swap (single or split route)             | fee `MsgSend`    | —                   |
+ * | pool-deliver             | osmosis-1   | poolmanager swap                                     | fee `MsgSend`    | `MsgTransfer` of the floor home |
  *
  * The fee message is left out exactly when no fee is due (no treasury on the
  * signing chain, or an amount too small to carry one), so such a swap signs
@@ -24,16 +23,8 @@
  */
 
 import { bech32 } from "@scure/base";
-import {
-  buildXcsSwapMemo,
-  buildXcsSwapMemoJson,
-  slippageToTwapParams,
-  toMemoSlippage,
-  wasmHookReceiver,
-  type XcsSwapParams,
-} from "@zunialab/interchain";
 
-import { PACKET_TIMEOUT_MINUTES, SWAP_VENUE_CHAIN_ID, TWAP_WINDOW_SECONDS } from "@/config/interchain";
+import { PACKET_TIMEOUT_MINUTES, SKIP_ENTRY_POINT, SKIP_SWAP_TIMEOUT_MINUTES, SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { findChain } from "@/lib/chains";
 import type { TxMemoContext, TxMessage } from "@/lib/tx/types";
 import {
@@ -47,10 +38,11 @@ import {
 import { buildSwapFeeMsg, feeFromWire, feeRateText, type SwapFee, type SwapFeeRecipients } from "@/lib/swap/fee";
 import { tickerAmount } from "@/lib/swap/format";
 import { shortAddress } from "@/lib/swap/denoms";
-import { EXECUTE_CONTRACT_TYPE_URL, toTxMessage, viewOf } from "@/lib/swap/messages";
+import { toTxMessage, viewOf } from "@/lib/swap/messages";
 import { signingChainFor } from "@/lib/swap/path";
 import { buildPoolSwapMsg, poolRouteText, readPoolSwapMsg, TRANSFER_TYPE_URL } from "@/lib/swap/pool";
 import type { SwapReview } from "@/lib/swap/review";
+import { buildSkipSwapMemo, skipOperationsOf, type SkipPostSwap } from "@/lib/swap/skip";
 import type { MsgJson } from "@/lib/swap/types";
 
 const VENUE = SWAP_VENUE_CHAIN_ID;
@@ -134,20 +126,6 @@ function feeMessage(review: SwapReview, fee: SwapFee): TxMessage | null {
   );
 }
 
-/** The `osmosis_swap` the contract path signs: TWAP at the reviewed tolerance, paying the reviewed address, recoverable. */
-function xcsParams(review: SwapReview, contract: string): XcsSwapParams {
-  if (!review.recoveryAddress) {
-    throw new SwapBuildError("A contract swap needs your Osmosis address as its recovery address, and this review has none.");
-  }
-  return {
-    contract,
-    outputDenom: review.quote.venueOutputDenom,
-    receiver: review.recipient,
-    slippage: toMemoSlippage(slippageToTwapParams(review.slippagePercent, TWAP_WINDOW_SECONDS)),
-    onFailedDelivery: { kind: "local_recovery_addr", address: review.recoveryAddress },
-  };
-}
-
 /**
  * The transaction a reviewed swap signs. Throws {@link SwapBuildError} with a
  * user-facing sentence when the review cannot make one (a missing address, a
@@ -217,54 +195,63 @@ export function buildSwapTx(review: SwapReview, options: { readonly now?: number
     return { chainId, messages, memoContext };
   }
 
-  // The contract path.
+  // The contract path: one transfer to Skip's entry point on Osmosis, whose
+  // memo swaps along the quoted pools and delivers the output.
   const contract = quote.contract;
-  if (!contract || !contract.verified) {
-    throw new SwapBuildError("Zunia's Osmosis swap contract is not verified for this quote, so nothing is built.");
+  if (!contract || !contract.verified || contract.address !== SKIP_ENTRY_POINT) {
+    throw new SwapBuildError("Osmosis's swap contract is not verified for this quote, so nothing is built.");
+  }
+  if (from.chainId === VENUE) {
+    throw new SwapBuildError("Tokens on Osmosis swap in its pools, not through this path, so nothing is built.");
   }
   const recoveryProblem = review.recoveryAddress ? addressProblem(VENUE, review.recoveryAddress) : "missing";
-  if (recoveryProblem) {
-    throw new SwapBuildError("A contract swap needs your Osmosis address as its recovery address, and this review has none.");
+  if (recoveryProblem || !review.recoveryAddress) {
+    throw new SwapBuildError("A one-signature swap needs your Osmosis address, where a failed delivery pays out, and this review has none.");
   }
-  const params = xcsParams(review, contract.address);
-  const summary = `Swap ${tickerAmount(fee.net, from)} for ${to.ticker} through Zunia's Osmosis swap contract, delivered to ${shortAddress(review.recipient)}`;
+  const inbound = quote.inbound;
+  if (!inbound || inbound.sourceChainId !== from.chainId) {
+    throw new SwapBuildError("This quote does not say how your tokens reach Osmosis, so nothing is built.");
+  }
+  if (!quote.minOut) throw new SwapBuildError("This quote has no minimum to sign, so nothing is built.");
+  let postSwap: SkipPostSwap;
+  if (to.chainId === VENUE) {
+    postSwap = { kind: "transfer", toAddress: review.recipient };
+  } else {
+    const delivery = quote.delivery;
+    if (!delivery || delivery.destChainId !== to.chainId || delivery.arrivalDenom !== to.denom || (delivery.port || "transfer") !== "transfer") {
+      throw new SwapBuildError("This quote does not say how the output reaches your address, so nothing is built.");
+    }
+    postSwap = { kind: "ibc-transfer", channelId: delivery.channelId, receiver: review.recipient, recoverAddress: review.recoveryAddress };
+  }
+  const operations = skipOperationsOf(quote.venueInputDenom, quote.route.pools);
   let swapMsg: MsgJson;
   try {
-    if (from.chainId === VENUE) {
-      const wasm = buildXcsSwapMemoJson(params).wasm as { msg: Record<string, unknown> };
-      swapMsg = {
-        typeUrl: EXECUTE_CONTRACT_TYPE_URL,
-        value: {
-          sender: review.signer,
-          contract: contract.address,
-          msg: wasm.msg,
-          funds: [{ denom: from.denom, amount: fee.net.toString() }],
-        },
-      };
-    } else {
-      const inbound = quote.inbound;
-      if (!inbound || inbound.sourceChainId !== from.chainId) {
-        throw new SwapBuildError("This quote does not say how your tokens reach Osmosis, so nothing is built.");
-      }
-      swapMsg = {
-        typeUrl: TRANSFER_TYPE_URL,
-        value: {
-          source_port: inbound.port,
-          source_channel: inbound.channelId,
-          token: { denom: from.denom, amount: fee.net.toString() },
-          sender: review.signer,
-          // ibc-hooks runs the call only for a packet addressed to the contract.
-          receiver: wasmHookReceiver(contract.address),
-          timeout_height: {},
-          timeout_timestamp: timeoutAfter(now),
-          memo: buildXcsSwapMemo(params),
-        },
-      };
-    }
+    const memo = buildSkipSwapMemo({
+      entryPoint: contract.address,
+      operations,
+      minOut: { denom: quote.venueOutputDenom, amount: quote.minOut },
+      timeoutNs: timeoutAfter(now, SKIP_SWAP_TIMEOUT_MINUTES),
+      postSwap,
+    });
+    swapMsg = {
+      typeUrl: TRANSFER_TYPE_URL,
+      value: {
+        source_port: inbound.port,
+        source_channel: inbound.channelId,
+        token: { denom: from.denom, amount: fee.net.toString() },
+        sender: review.signer,
+        // ibc-hooks runs the call only for a packet addressed to the contract.
+        receiver: contract.address,
+        timeout_height: {},
+        timeout_timestamp: timeoutAfter(now),
+        memo,
+      },
+    };
   } catch (error) {
-    if (error instanceof SwapBuildError) throw error;
-    throw new SwapBuildError("The swap message could not be built from this review.");
+    throw new SwapBuildError(error instanceof Error && error.message ? error.message : "The swap message could not be built from this review.");
   }
+  const where = to.chainId === VENUE ? `on Osmosis to ${shortAddress(review.recipient)}` : `to ${shortAddress(review.recipient)} on ${to.chainName}`;
+  const summary = `Swap ${tickerAmount(fee.net, from)} for at least ${tickerAmount(quote.minOut, to)} on Osmosis (${poolRouteText(routesOfSplits(quote.route.splits))}), delivered ${where}`;
   const messages: TxMessage[] = [toTxMessage(swapMsg, summary)];
   if (feeMsg) messages.push(feeMsg);
   return { chainId, messages, memoContext };

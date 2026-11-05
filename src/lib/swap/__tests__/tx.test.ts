@@ -1,8 +1,8 @@
 /**
  * The transaction a reviewed swap signs (src/lib/swap/tx.ts `buildSwapTx`)
  * and the check that runs on it right before signing (`checkSwapTx`), for
- * every path that signs: `pool`, `pool-deliver`, `contract` from another chain
- * and `contract` from Osmosis.
+ * every path that signs: `pool`, `pool-deliver`, and `contract` (one
+ * transfer from another chain to Skip's entry point on Osmosis).
  *
  * Each path is built from a frozen review and must check clean; then every
  * way a message could say something the review did not (another fee address,
@@ -16,18 +16,19 @@ import "./json-modules";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { bech32 } from "@scure/base";
-import { validateMemo } from "@zunialab/interchain";
 
 import { SWAP_FEE_RECIPIENTS } from "@/config/fees";
+import { SKIP_ENTRY_POINT } from "@/config/interchain";
 import { msgProtoBytes } from "@/lib/tx/amino-tx";
 import { toHex } from "@/lib/tx/bytes";
 import { resolveTxMemo } from "@/lib/tx/memo";
 import type { TxMessage } from "@/lib/tx/types";
 import { EXTRA_MESSAGES, HEIGHT_TIMEOUT, PRICE_EXPIRED, UNREADABLE_SWAP } from "../checks";
-import { buildSwapFeeMsg, feeToWire, swapFeeFor } from "../fee";
-import { EXECUTE_CONTRACT_TYPE_URL, toTxMessage, viewOf } from "../messages";
+import { feeToWire, swapFeeFor } from "../fee";
+import { toTxMessage, viewOf } from "../messages";
 import { POOL_SPLIT_SWAP_TYPE_URL, POOL_SWAP_TYPE_URL, TRANSFER_TYPE_URL } from "../pool";
 import type { SwapReview } from "../review";
+import { readSkipSwapMemo } from "../skip";
 import { buildSwapTx, checkSwapTx, SwapBuildError, swapMemoContext, timeoutAfter } from "../tx";
 import type { MsgJson } from "../types";
 import type { SwapQuoteOk } from "../wire";
@@ -36,14 +37,17 @@ const address = (prefix: string, fill: number) => bech32.encode(prefix, bech32.t
 const OSMO_ME = address("osmo", 7);
 const HUB_ME = address("cosmos", 7);
 const INJ_ME = address("inj", 9);
-const AXL_ME = address("axelar", 7);
+const NOBLE_ME = address("noble", 7);
+const SAFRO_ME = address("addr_safro", 7);
 const SOMEONE = address("osmo", 3);
 
-const XCS = "osmo1uwk8xc6q0s6t5qcpr6rht3sczu6du83xq8pwxjua0hfj5hzcnh3sqxwvxs";
+const SKIP = SKIP_ENTRY_POINT;
+const SKIP_CONTRACT = { address: SKIP, verified: true, label: "Skip Swap Entry Point", codeId: "1241" };
+const SAF = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
+const ALL_USDC = "factory/osmo147h5x9pcj7lm0cttlaefx6sqq5vdfnmwfcqxkmjd7exqm9gc7grqhr75m0/alloyed/allUSDC";
 const USDC_N = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4";
 const USDC_INJ = "ibc/794C7D7F3B857713878A3A1927251FA6AC1EEE520424C1F6FAFE9BA26D476138";
 const USDC_INJ_ERC20 = "erc20:0xa00C59fF5a080D2b954d0c75e46E22a0c371235a";
-const USDC_AXL = "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858";
 const ATOM = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2";
 
 const NOW = 1_791_330_000_000;
@@ -133,29 +137,60 @@ const CONTRACT_FROM_HUB = review({
     amountIn: "995000",
     amountOut: "50000000",
     minOut: "49500000",
-    minOutKind: "twap-estimate",
     venueInputDenom: ATOM,
     venueOutputDenom: "uosmo",
-    route: { pools: [{ id: "1", tokenOutDenom: "uosmo" }] },
-    contract: { address: XCS, verified: true, label: "CrossChainSwaps v1.2", codeId: "37" },
+    route: {
+      pools: [{ id: "1", tokenOutDenom: "uosmo" }],
+      splits: [{ inAmount: "995000", outAmount: "50000000", pools: [{ id: "1", tokenOutDenom: "uosmo" }] }],
+    },
+    contract: SKIP_CONTRACT,
     inbound: { sourceChainId: "cosmoshub-4", channelId: "channel-141", port: "transfer", venueChannelId: "channel-0", kind: "wrap", clientStatus: "active" },
-    twapWindowSeconds: 10,
   }),
 });
 
-const CONTRACT_FROM_OSMOSIS = review({
+/** 100 SAF sold on Safrochain for allUSDC on Osmosis: the pair the crosschain-swaps contract never had. */
+const SAF_NET = swapFeeFor("safrochain-1", BigInt(100_000_000)).net.toString();
+const CONTRACT_SAF = review({
   path: "contract",
-  to: { chainId: "axelar-dojo-1", chainName: "Axelar", denom: "uusdc", ticker: "USDC.axl", proven: true, decimals: 6, osmosisDenom: USDC_AXL },
-  recipient: AXL_ME,
+  from: { chainId: "safrochain-1", chainName: "Safrochain", denom: "usaf", ticker: "SAF", proven: true, decimals: 6, osmosisDenom: SAF },
+  to: { chainId: "osmosis-1", chainName: "Osmosis", denom: ALL_USDC, ticker: "allUSDC", proven: true, decimals: 6, osmosisDenom: ALL_USDC },
+  amountUnits: "100000000",
+  signer: SAFRO_ME,
+  recipient: OSMO_ME,
+  recoveryAddress: OSMO_ME,
   quote: quoteBase({
     path: "contract",
-    minOutKind: "twap-estimate",
-    venueOutputDenom: USDC_AXL,
-    route: { pools: [{ id: "678", tokenOutDenom: USDC_AXL }] },
-    contract: { address: XCS, verified: true, label: "CrossChainSwaps v1.2", codeId: "37" },
-    delivery: { destChainId: "axelar-dojo-1", channelId: "channel-208", port: "transfer", arrivalDenom: "uusdc", kind: "unwind", clientStatus: "active" },
-    twapWindowSeconds: 10,
+    signingChainId: "safrochain-1",
+    amountIn: SAF_NET,
+    amountOut: "47000",
+    minOut: "46530",
+    venueInputDenom: SAF,
+    venueOutputDenom: ALL_USDC,
+    route: {
+      pools: [{ id: "3600", tokenOutDenom: ALL_USDC }],
+      splits: [{ inAmount: SAF_NET, outAmount: "47000", pools: [{ id: "3600", tokenOutDenom: ALL_USDC }] }],
+    },
+    contract: SKIP_CONTRACT,
+    inbound: { sourceChainId: "safrochain-1", channelId: "channel-1", port: "transfer", venueChannelId: "channel-110497", kind: "wrap", clientStatus: "active" },
   }),
+});
+
+/** ATOM on the Hub for USDC on Noble: swapped on Osmosis, then sent on over channel-750. */
+const CONTRACT_TO_NOBLE = review({
+  ...CONTRACT_FROM_HUB,
+  to: { chainId: "noble-1", chainName: "Noble", denom: "uusdc", ticker: "USDC.n", proven: true, decimals: 6, osmosisDenom: USDC_N },
+  recipient: NOBLE_ME,
+  quote: {
+    ...CONTRACT_FROM_HUB.quote,
+    amountOut: "4500000",
+    minOut: "4455000",
+    venueOutputDenom: USDC_N,
+    route: {
+      pools: [{ id: "1464", tokenOutDenom: USDC_N }],
+      splits: [{ inAmount: "995000", outAmount: "4500000", pools: [{ id: "1464", tokenOutDenom: USDC_N }] }],
+    },
+    delivery: { destChainId: "noble-1", channelId: "channel-750", port: "transfer", arrivalDenom: "uusdc", kind: "unwind", clientStatus: "active" },
+  },
 });
 
 /** A message rebuilt from an edited view: bytes and amino agree, the content differs. */
@@ -311,22 +346,24 @@ describe("pool-deliver: the swap, the fee, and the floor sent home", () => {
   });
 });
 
-describe("contract, from another chain: one transfer whose memo calls the contract", () => {
+describe("contract: one transfer whose memo swaps on Osmosis and delivers", () => {
   const tx = buildSwapTx(CONTRACT_FROM_HUB, { now: NOW });
 
-  test("signs on the Hub: the transfer to the contract over the proved channel, then the fee there", () => {
+  test("signs on the Hub: the transfer to Skip's entry point over the proved channel, then the fee there", () => {
     assert.equal(tx.chainId, "cosmoshub-4");
     assert.deepEqual(tx.messages.map((msg) => msg.typeUrl), [TRANSFER_TYPE_URL, "/cosmos.bank.v1beta1.MsgSend"]);
     const transfer = viewOf(tx.messages[0])!.value;
-    assert.equal(transfer.receiver, XCS);
+    assert.equal(transfer.receiver, SKIP);
     assert.equal(transfer.source_channel, "channel-141");
     assert.deepEqual(transfer.token, { denom: "uatom", amount: "995000" });
-    const memo = validateMemo(String(transfer.memo), { receiver: XCS });
-    assert.equal(memo.kind, "xcs");
-    assert.equal(memo.xcs?.outputDenom, "uosmo");
-    assert.equal(memo.xcs?.receiver, OSMO_ME);
-    assert.deepEqual(memo.xcs?.slippage, { kind: "twap", slippagePercentage: "1", windowSeconds: 10 });
-    assert.deepEqual(memo.xcs?.onFailedDelivery, { kind: "local_recovery_addr", address: OSMO_ME });
+    assert.equal(transfer.timeout_timestamp, timeoutAfter(NOW));
+    const memo = readSkipSwapMemo(String(transfer.memo));
+    assert.ok(memo);
+    assert.equal(memo.entryPoint, SKIP);
+    assert.deepEqual(memo.operations, [{ pool: "1", denomIn: ATOM, denomOut: "uosmo" }]);
+    assert.deepEqual(memo.minOut, { denom: "uosmo", amount: "49500000" });
+    assert.deepEqual(memo.postSwap, { kind: "transfer", toAddress: OSMO_ME });
+    assert.equal(memo.timeoutNs, timeoutAfter(NOW, 15));
     assert.deepEqual(viewOf(tx.messages[1])?.value, {
       from_address: HUB_ME,
       to_address: SWAP_FEE_RECIPIENTS["cosmoshub-4"],
@@ -335,34 +372,56 @@ describe("contract, from another chain: one transfer whose memo calls the contra
     assert.deepEqual(check(CONTRACT_FROM_HUB, tx.messages), []);
   });
 
-  test("refuses another payee, recovery address, contract, channel or tolerance in the memo", () => {
+  test("sells SAF on Safrochain for allUSDC on Osmosis in one signature, keeping the 0.5% fee as a send", () => {
+    const saf = buildSwapTx(CONTRACT_SAF, { now: NOW });
+    assert.equal(saf.chainId, "safrochain-1");
+    assert.deepEqual(saf.messages.map((msg) => msg.typeUrl), [TRANSFER_TYPE_URL, "/cosmos.bank.v1beta1.MsgSend"]);
+    const transfer = viewOf(saf.messages[0])!.value;
+    assert.equal(transfer.source_channel, "channel-1");
+    assert.equal(transfer.receiver, SKIP);
+    assert.deepEqual(transfer.token, { denom: "usaf", amount: "99500000" });
+    // The deadline is a bare number in the memo text, never a string.
+    assert.match(String(transfer.memo), /"timeout_timestamp":\d{19},/);
+    assert.deepEqual(readSkipSwapMemo(String(transfer.memo))?.operations, [{ pool: "3600", denomIn: SAF, denomOut: ALL_USDC }]);
+    assert.deepEqual(viewOf(saf.messages[1])?.value, {
+      from_address: SAFRO_ME,
+      to_address: SWAP_FEE_RECIPIENTS["safrochain-1"],
+      amount: [{ denom: "usaf", amount: "500000" }],
+    });
+    assert.deepEqual(check(CONTRACT_SAF, saf.messages), []);
+  });
+
+  test("delivers on another chain over the channel the quote proved, a failed hop paying the user's Osmosis address", () => {
+    const noble = buildSwapTx(CONTRACT_TO_NOBLE, { now: NOW });
+    const memo = readSkipSwapMemo(String(viewOf(noble.messages[0])!.value.memo));
+    assert.deepEqual(memo?.postSwap, { kind: "ibc-transfer", channelId: "channel-750", receiver: NOBLE_ME, recoverAddress: OSMO_ME });
+    assert.deepEqual(check(CONTRACT_TO_NOBLE, noble.messages), []);
+    const [transfer, fee] = noble.messages as [TxMessage, TxMessage];
+    const otherChannel = edited(transfer, (value) => ({ ...value, memo: String(value.memo).replace('"channel-750"', '"channel-1"') }));
+    assert.match(check(CONTRACT_TO_NOBLE, [otherChannel, fee]).join("\n"), /leave Osmosis over channel-1, not over channel-750/);
+    const otherRecovery = edited(transfer, (value) => ({ ...value, memo: String(value.memo).replace(`"recover_address":"${OSMO_ME}"`, `"recover_address":"${SOMEONE}"`) }));
+    assert.match(check(CONTRACT_TO_NOBLE, [otherRecovery, fee]).join("\n"), /failed delivery would pay .* not your address on Osmosis/);
+  });
+
+  test("refuses another payee, pool, minimum, contract, channel or deadline", () => {
     const [transfer, fee] = tx.messages as [TxMessage, TxMessage];
-    const withMemo = (patch: (swap: Record<string, unknown>) => void) =>
-      edited(transfer, (value) => {
-        const memo = JSON.parse(String(value.memo)) as { wasm: { contract: string; msg: { osmosis_swap: Record<string, unknown> } } };
-        patch(memo.wasm.msg.osmosis_swap);
-        return { ...value, memo: JSON.stringify(memo) };
-      });
-    const payee = withMemo((swap) => {
-      swap.receiver = SOMEONE;
-    });
+    const withMemo = (replace: (memo: string) => string) => edited(transfer, (value) => ({ ...value, memo: replace(String(value.memo)) }));
+    const payee = withMemo((memo) => memo.replace(`"to_address":"${OSMO_ME}"`, `"to_address":"${SOMEONE}"`));
     assert.match(check(CONTRACT_FROM_HUB, [payee, fee]).join("\n"), /would pay osmo1qvpsx…2u426e, which is not your address on Osmosis/);
-    const recovery = withMemo((swap) => {
-      swap.on_failed_delivery = { local_recovery_addr: SOMEONE };
-    });
-    assert.match(check(CONTRACT_FROM_HUB, [recovery, fee]).join("\n"), /recovery address .* is not your address on Osmosis/);
-    const tolerance = withMemo((swap) => {
-      swap.slippage = { twap: { slippage_percentage: "20", window_seconds: 10 } };
-    });
-    assert.match(check(CONTRACT_FROM_HUB, [tolerance, fee]).join("\n"), /price protection is not the 1% tolerance/);
-    const route = withMemo((swap) => {
-      swap.route = [{ pool_id: "1", token_out_denom: "uosmo" }];
-    });
-    assert.deepEqual(check(CONTRACT_FROM_HUB, [route, fee]), [UNREADABLE_SWAP]);
+    const pool = withMemo((memo) => memo.replace(`"pool":"1"`, `"pool":"2"`));
+    assert.match(check(CONTRACT_FROM_HUB, [pool, fee]).join("\n"), /other pools than the route you reviewed/);
+    const minimum = withMemo((memo) => memo.replace(`"amount":"49500000"`, `"amount":"1"`));
+    assert.match(check(CONTRACT_FROM_HUB, [minimum, fee]).join("\n"), /minimum is .* not the .* you reviewed/);
+    const deadline = withMemo((memo) => memo.replace(/"timeout_timestamp":\d+/, `"timeout_timestamp":${BigInt(NOW + 3 * 60 * 60_000) * BigInt(1_000_000)}`));
+    assert.match(check(CONTRACT_FROM_HUB, [deadline, fee]).join("\n"), /deadline is not the one Zunia sets/);
+    const affiliate = withMemo((memo) => memo.replace(`"affiliates":[]`, `"affiliates":[{"basis_points_fee":"100","address":"${SOMEONE}"}]`));
+    assert.deepEqual(check(CONTRACT_FROM_HUB, [affiliate, fee]), [UNREADABLE_SWAP]);
     const channel = edited(transfer, (value) => ({ ...value, source_channel: "channel-1" }));
     assert.match(check(CONTRACT_FROM_HUB, [channel, fee]).join("\n"), /leaves over channel-1, not over channel-141/);
     const notContract = edited(transfer, (value) => ({ ...value, receiver: OSMO_ME }));
     assert.match(check(CONTRACT_FROM_HUB, [notContract, fee]).join("\n"), /not addressed to the swap contract/);
+    const otherContract = withMemo((memo) => memo.replace(`"contract":"${SKIP}"`, `"contract":"${SOMEONE}"`));
+    assert.match(check(CONTRACT_FROM_HUB, [otherContract, fee]).join("\n"), /not the swap contract Zunia verified/);
   });
 
   test("refuses a block-height timeout on the transfer that carries the swap", () => {
@@ -371,46 +430,20 @@ describe("contract, from another chain: one transfer whose memo calls the contra
   });
 
   test("refuses a contract the venue check did not verify", () => {
-    const unverified = { ...CONTRACT_FROM_HUB, quote: { ...CONTRACT_FROM_HUB.quote, contract: { ...CONTRACT_FROM_HUB.quote.contract!, verified: false } } };
+    const unverified = { ...CONTRACT_FROM_HUB, quote: { ...CONTRACT_FROM_HUB.quote, contract: { ...SKIP_CONTRACT, verified: false } } };
     assert.throws(() => buildSwapTx(unverified, { now: NOW }), SwapBuildError);
     assert.match(check(unverified, tx.messages).join("\n"), /not the swap contract Zunia verified/);
+    const elsewhere = { ...CONTRACT_FROM_HUB, quote: { ...CONTRACT_FROM_HUB.quote, contract: { ...SKIP_CONTRACT, address: SOMEONE } } };
+    assert.throws(() => buildSwapTx(elsewhere, { now: NOW }), SwapBuildError);
   });
 
   test("will not build without a recovery address, or with a signer from another chain", () => {
-    assert.throws(() => buildSwapTx({ ...CONTRACT_FROM_HUB, recoveryAddress: null }, { now: NOW }), /recovery address/);
+    assert.throws(() => buildSwapTx({ ...CONTRACT_FROM_HUB, recoveryAddress: null }, { now: NOW }), /Osmosis address/);
     assert.throws(() => buildSwapTx({ ...CONTRACT_FROM_HUB, signer: OSMO_ME }, { now: NOW }), /not an address on Cosmos Hub/);
-  });
-});
-
-describe("contract, from Osmosis: one contract call", () => {
-  const tx = buildSwapTx(CONTRACT_FROM_OSMOSIS, { now: NOW });
-
-  test("calls the contract with the net amount as its one coin, then pays the fee", () => {
-    assert.deepEqual(tx.messages.map((msg) => msg.typeUrl), [EXECUTE_CONTRACT_TYPE_URL, "/cosmos.bank.v1beta1.MsgSend"]);
-    const call = viewOf(tx.messages[0])!.value;
-    assert.equal(call.contract, XCS);
-    assert.deepEqual(call.funds, [{ denom: "uosmo", amount: "9950000" }]);
-    assert.deepEqual(Object.keys(call.msg as object), ["osmosis_swap"]);
-    assert.equal(tx.messages[0]?.amino?.type, "wasm/MsgExecuteContract");
-    assert.deepEqual(check(CONTRACT_FROM_OSMOSIS, tx.messages), []);
-  });
-
-  test("refuses a second coin, another output, or a fee message that is not one", () => {
-    const [call, fee] = tx.messages as [TxMessage, TxMessage];
-    const twoCoins = edited(call, (value) => ({ ...value, funds: [{ denom: "uosmo", amount: "9950000" }, { denom: "uion", amount: "1" }] }));
-    assert.deepEqual(check(CONTRACT_FROM_OSMOSIS, [twoCoins, fee]), [UNREADABLE_SWAP]);
-    const other = edited(call, (value) => {
-      const msg = JSON.parse(JSON.stringify(value.msg)) as { osmosis_swap: Record<string, unknown> };
-      msg.osmosis_swap.output_denom = USDC_N;
-      return { ...value, msg };
-    });
-    assert.match(check(CONTRACT_FROM_OSMOSIS, [other, fee]).join("\n"), /would buy ibc\/498A…6E4, not the USDC\.axl you picked/);
-    const send = toTxMessage(buildSwapFeeMsg({ sender: OSMO_ME, recipient: SOMEONE, denom: "uosmo", amount: BigInt(50_000) }));
-    assert.match(check(CONTRACT_FROM_OSMOSIS, [call, send]).join("\n"), /not Zunia's fee address on Osmosis/);
   });
 
   test("names the default memo after both tokens", () => {
-    assert.equal(resolveTxMemo(buildSwapTx(CONTRACT_FROM_OSMOSIS, { now: NOW })), "Swap OSMO to USDC.axl - by Zunia-dashboard");
+    assert.equal(resolveTxMemo(buildSwapTx(CONTRACT_SAF, { now: NOW })), "Swap SAF to allUSDC - by Zunia-dashboard");
   });
 });
 
@@ -423,7 +456,7 @@ describe("the body memo a swap signs when the user writes none", () => {
       ["pool, split route", SPLIT, "Swap OSMO to USDC.n - by Zunia-dashboard"],
       ["pool-deliver", DELIVER, "Swap OSMO to USDC.inj - by Zunia-dashboard"],
       ["contract from the Hub", CONTRACT_FROM_HUB, "Swap ATOM to OSMO - by Zunia-dashboard"],
-      ["contract from Osmosis", CONTRACT_FROM_OSMOSIS, "Swap OSMO to USDC.axl - by Zunia-dashboard"],
+      ["contract to Noble", CONTRACT_TO_NOBLE, "Swap ATOM to USDC.n - by Zunia-dashboard"],
     ];
     for (const [name, reviewed, expected] of cases) {
       const tx = buildSwapTx(reviewed, { now: NOW });
@@ -462,6 +495,6 @@ describe("the body memo a swap signs when the user writes none", () => {
     assert.equal(resolveTxMemo(tx), "Swap ATOM to OSMO - by Zunia-dashboard");
     assert.equal(toHex(tx.messages[0]!.value), before);
     assert.equal(viewOf(tx.messages[0])!.value.memo, packet);
-    assert.equal(validateMemo(String(packet), { receiver: XCS }).kind, "xcs");
+    assert.ok(readSkipSwapMemo(String(packet)));
   });
 });

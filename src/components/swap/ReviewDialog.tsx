@@ -326,7 +326,7 @@ function ReviewContent({
           {
             key: "recovery",
             label: "Recovery address",
-            info: "If the delivery fails after the swap, the output waits in the contract and only this address can pull it out.",
+            info: "If the swap cannot run on Osmosis (the price moved past your minimum, or it arrived too late), your tokens go back to the address that sent them. If the swap runs but the last transfer fails, the output is paid here.",
             value: <AddressText address={review.recoveryAddress} head={10} tail={6} />,
             sub: "Your Osmosis address",
           },
