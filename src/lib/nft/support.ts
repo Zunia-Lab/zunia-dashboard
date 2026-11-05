@@ -87,11 +87,11 @@ export interface NftSupportInputs {
 
 /**
  * Why nothing is known, for a chain whose registry entry lists no features.
- * The pages put it under "Zunia cannot tell whether this network runs
- * CosmWasm", so it gives the cause rather than repeating that.
+ * The pages put it under "Can't tell if {chain} supports NFTs", so it gives
+ * the cause rather than repeating that.
  */
 function noFeaturesList(chainName: string): string {
-  return `The chain registry lists no features for ${chainName}, so nothing says whether it runs CosmWasm, which CW721 NFTs need.`;
+  return `The chain registry doesn\u2019t say whether ${chainName} runs CosmWasm, which NFTs need.`;
 }
 
 export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
@@ -104,7 +104,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       ...base,
       status: "unverified",
       basis: "catalog-missing",
-      reason: `${chainId} is not in this build's chain catalog, so nothing is known about it.`,
+      reason: `${chainId} isn\u2019t in the chain catalog.`,
       note: null,
       featuresDeclared: false,
     };
@@ -128,7 +128,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       ...base,
       status: "unsupported",
       basis: "registry-denied",
-      reason: `${chainName} does not declare the "cosmwasm" feature in the chain registry, so it runs no CW721 contracts and there are no NFTs to hold here. This is not an empty wallet — it is a chain without the module.`,
+      reason: "It doesn\u2019t run CosmWasm, which NFTs need.",
       note: null,
       featuresDeclared: true,
     };
@@ -140,8 +140,8 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       ...base,
       status: "unverified",
       basis: "catalog-missing",
-      // The pages follow it with "Nothing was asked, so nothing here is a
-      // claim…": the cause is all this needs to say.
+      // The page puts it under "Can't tell if … supports NFTs": the cause
+      // is all this needs to say.
       reason: noFeaturesList(chainName),
       note: null,
       featuresDeclared: false,
@@ -153,7 +153,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       ...base,
       status: "unverified",
       basis: "no-endpoint",
-      reason: `${chainName} has no REST endpoint in this build's catalog, so its CosmWasm support cannot be checked and no contract can be queried.`,
+      reason: `${chainName} has no REST endpoint, so NFT support can\u2019t be checked.`,
       note: null,
       featuresDeclared: false,
     };
@@ -167,7 +167,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
       reason: null,
       // Said out loud, because this is a weaker claim than the registry's and
       // the user should know which one they are looking at.
-      note: `${inputs.probe.detail} The chain registry lists no features for ${chainName}, so this answer came from the chain itself.`,
+      note: `The registry lists no features for ${chainName}; the chain itself answered.`,
       featuresDeclared: false,
     };
   }
@@ -177,7 +177,7 @@ export function decideNftSupport(inputs: NftSupportInputs): NftChainSupport {
     status: "unverified",
     basis: "probe-failed",
     reason: `${noFeaturesList(chainName)} ${
-      inputs.probe?.detail ?? `${chainName} was not asked, so nothing was checked.`
+      inputs.probe?.detail ?? `${chainName} wasn\u2019t asked.`
     }`,
     note: null,
     featuresDeclared: false,

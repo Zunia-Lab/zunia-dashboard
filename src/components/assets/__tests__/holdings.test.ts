@@ -27,9 +27,11 @@ import {
   idleWorthStaking,
   holdingsCsvRows,
   isSmall,
+  identifiedByText,
   isUnlisted,
   isUnverifiedRoute,
   matchesQuery,
+  provenanceVerdict,
   rowBaseTotal,
   smallFloorOf,
   stakeableAssets,
@@ -131,6 +133,33 @@ describe("unlisted and unverified", () => {
     assert.equal(isUnverifiedRoute(ODD_ATOM), true);
     assert.equal(isUnverifiedRoute(SPAM), false);
     assert.equal(isUnverifiedRoute(ATOM_OSMO), false);
+  });
+
+  it("gives the green verification only where Osmosis has not withheld it", () => {
+    const safHome = identity({ key: "safrochain-1:usaf", chainId: "safrochain-1", denom: "usaf", ticker: "SAF", originChainId: "safrochain-1", unverifiedOnOsmosis: true });
+    const safOsmo = identity({
+      key: "safrochain-1:usaf",
+      chainId: "osmosis-1",
+      denom: "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE",
+      ticker: "SAF",
+      kind: "ibc",
+      provenance: "table",
+      originChainId: "safrochain-1",
+      unverifiedOnOsmosis: true,
+    });
+    for (const saf of [safHome, safOsmo]) {
+      const verdict = provenanceVerdict(saf);
+      assert.deepEqual({ tone: verdict.tone, text: verdict.text }, { tone: "neutral", text: "Not verified by Osmosis" }, saf.chainId);
+      assert.match(verdict.info, /Osmosis lists this token but has not verified it yet/);
+      assert.doesNotMatch(identifiedByText(saf), /verified/i, saf.chainId);
+    }
+    assert.equal(identifiedByText(safOsmo), "Zunia token table (hash-checked)");
+    // Everything else keeps its verdict and its words.
+    assert.deepEqual(provenanceVerdict(ATOM_HUB), { tone: "success", text: "Native", info: provenanceVerdict(ATOM_OSMO).info });
+    assert.equal(provenanceVerdict(ATOM_OSMO).text, "Canonical route");
+    assert.equal(identifiedByText(ATOM_OSMO), "Zunia token table (hash-verified)");
+    assert.deepEqual([provenanceVerdict(SPAM).text, provenanceVerdict(ODD_ATOM).text], ["Unlisted", "Route not proven"]);
+    assert.equal(provenanceVerdict(ODD_ATOM).tone, "warning");
   });
 
   it("folds unlisted rows away by default and counts them", () => {

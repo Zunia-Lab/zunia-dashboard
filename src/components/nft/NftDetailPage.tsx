@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { NFT_MEDIA_PRIVACY_NOTE, nftTitle } from "@zunialab/ui";
+import { nftTitle } from "@zunialab/ui";
 import { useConnectModal } from "@/components/connect/ConnectModal";
 import { Icon } from "@/components/icons";
 import { Page } from "@/components/shell/Page";
@@ -82,12 +82,12 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
   /** Why this account may not move this token, in one sentence, or null. */
   const blocked = useMemo(() => {
     if (!account) return "Connect a wallet to move this token.";
-    if (!chain) return `${chainId} is not in this build's chain catalog, so no transaction can be built for it.`;
-    if (!owner) return `Your wallet has no address on ${chain.chainName}: it did not share one, and your account uses another key type there.`;
-    if (page.loading) return "Reading who owns this token…";
-    if (token?.error) return `${token.error} Zunia will not offer to move a token whose owner it could not read.`;
-    if (!token?.owner) return "The contract reports no owner for this token, so Zunia cannot confirm it is yours.";
-    if (token.owner !== owner) return `This token belongs to ${shortenAddress(token.owner, 12, 6)}, not to the connected account.`;
+    if (!chain) return `${chainId} isn’t in the chain catalog.`;
+    if (!owner) return `Your wallet has no ${chain.chainName} address.`;
+    if (page.loading) return "Checking the owner…";
+    if (token?.error) return `Couldn’t read the owner: ${token.error}`;
+    if (!token?.owner) return "The contract reports no owner.";
+    if (token.owner !== owner) return `Owned by ${shortenAddress(token.owner, 12, 6)}, not this account.`;
     return null;
   }, [account, chain, chainId, owner, page.loading, token]);
 
@@ -145,7 +145,6 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
     {
       key: "metadata",
       label: "Metadata",
-      info: "Name, description and traits come from the contract's on-chain record; with artwork on, Zunia's server also reads the token's own metadata document. What the contract stores on chain wins.",
       value: token?.metadataSource === "remote" ? "On chain + token's host" : token?.metadataSource === "inline" ? "On chain" : <span className="text-fg-dim">—</span>,
       sub: token?.tokenUri ? (
         <span className="block max-w-[320px] truncate font-mono text-[11.5px]" title={token.tokenUri}>
@@ -168,20 +167,20 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
             <Skeleton className="h-12 w-full rounded-[var(--d-radius-inner)]" />
           </Card>
         ) : config.status === "error" ? (
-          <InlineError title="Couldn't check this network" message={config.error?.message ?? "The check failed."} onRetry={config.reload} />
+          <InlineError title={`Couldn’t reach ${chain?.chainName ?? chainId}`} message={config.error?.message ?? "The check failed."} onRetry={config.reload} />
         ) : config.data?.status === "unsupported" ? (
           <Card>
-            <EmptyState inline icon="nfts" title={`${config.data.chainName} cannot hold NFTs`} body={config.data.reason} />
+            <EmptyState inline icon="nfts" title={`${config.data.chainName} doesn’t support NFTs`} body={config.data.reason} />
           </Card>
         ) : config.data?.status === "unverified" ? (
-          <Callout tone="warning" title="Zunia cannot tell whether this network runs CosmWasm">
-            {config.data.reason} Nothing was asked, so nothing here is a claim about this token.
+          <Callout tone="warning" title={`Can’t tell if ${config.data.chainName} supports NFTs`}>
+            {config.data.reason}
           </Callout>
         ) : null}
 
         {supported ? (
           page.status === "error" ? (
-            <InlineError title="Couldn't read this token" message={page.error?.message ?? "This token could not be read from the chain."} onRetry={page.reload} />
+            <InlineError title="Couldn’t read this token" message={page.error?.message ?? "The chain didn’t answer."} onRetry={page.reload} />
           ) : (
             <div className="grid grid-cols-1 items-start gap-[var(--d-gap)] @min-[880px]:grid-cols-12">
               <div className="flex min-w-0 flex-col gap-3 @min-[880px]:col-span-5">
@@ -198,7 +197,7 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
                 {nftMediaBlockedReason ? (
                   <p className="px-1 text-[12.5px] leading-snug text-[var(--z-warning)]">{nftMediaBlockedReason}</p>
                 ) : !nftMedia ? (
-                  <p className="px-1 text-[12.5px] leading-snug text-fg-dim">{NFT_MEDIA_PRIVACY_NOTE}</p>
+                  <p className="px-1 text-[12.5px] leading-snug text-fg-dim">Artwork is off.</p>
                 ) : null}
                 {nftMediaAllowed && token?.imageUrlReason ? <p className="px-1 text-[12.5px] text-[var(--z-warning)]">{token.imageUrlReason}</p> : null}
               </div>
@@ -221,15 +220,13 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
                     </p>
                   </div>
                   {token?.error ? (
-                    <Callout tone="warning" title="This token could not be read">
-                      {token.error} Only its id is known here: the owner, name and traits come from that read.
+                    <Callout tone="warning" title="Couldn’t read this token">
+                      {token.error}
                     </Callout>
                   ) : token?.description ? (
                     <p className="max-w-[70ch] whitespace-pre-line text-[14px] leading-relaxed text-fg-muted">{token.description}</p>
                   ) : !page.loading && token && !token.name ? (
-                    <p className="text-[13px] text-fg-dim">
-                      This contract stores no name or description on chain{nftMediaAllowed ? "" : "; turn artwork on to read the token's own metadata"}.
-                    </p>
+                    <p className="text-[13px] text-fg-dim">No name or description on chain.</p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     {account ? (
@@ -253,11 +250,6 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
                       {blocked}
                     </p>
                   ) : null}
-                  {!explorerUrl && config.data ? (
-                    <p className="text-[12px] leading-snug text-fg-dim">
-                      This deployment has no explorer for {chain?.chainName ?? chainId}, so there is no link rather than a guessed one.
-                    </p>
-                  ) : null}
                 </Card>
 
                 <Card>
@@ -266,13 +258,13 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
                     <KeyValueList divided items={facts} />
                   </CardBody>
                   {token?.metadataError ? (
-                    <p className="text-[12.5px] text-[var(--z-warning)]">{token.metadataError} What is shown is what the contract stores on chain.</p>
+                    <p className="text-[12.5px] text-[var(--z-warning)]">{token.metadataError}</p>
                   ) : null}
-                  {collection?.error ? <p className="text-[12.5px] text-[var(--z-warning)]">{collection.error} The collection is shown by its address.</p> : null}
+                  {collection?.error ? <p className="text-[12.5px] text-[var(--z-warning)]">{collection.error}</p> : null}
                 </Card>
 
                 <Card>
-                  <CardHeader title="Traits" icon="grid" subtitle={token && token.traits.length > 0 ? `${token.traits.length} on this token` : undefined} />
+                  <CardHeader title="Traits" icon="grid" subtitle={token && token.traits.length > 0 ? `${token.traits.length}` : undefined} />
                   {page.loading && !token ? (
                     <div aria-hidden className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {[0, 1, 2].map((i) => (
@@ -291,9 +283,7 @@ export function NftDetailPage({ chainId, contract, tokenId }: NftDetailPageProps
                       ))}
                     </dl>
                   ) : (
-                    <p className="text-[13px] text-fg-dim">
-                      No traits{nftMediaAllowed ? "" : " on chain; turn artwork on to read the token's own metadata, where most collections keep them"}.
-                    </p>
+                    <p className="text-[13px] text-fg-dim">No traits.</p>
                   )}
                 </Card>
               </div>

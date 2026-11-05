@@ -12,7 +12,7 @@
  * - receive: your assets, then Osmosis's tokens by pool liquidity, then the
  *   same tokens delivered to their home chain, then the rows the current From
  *   cannot buy, each with the engine's reason. Those are disabled, never hidden:
- *   "why can't I get SAF?" is answered in the list itself.
+ *   "why can't I get POKT?" is answered in the list itself.
  *
  * A popover on desktop, a bottom sheet on phones (the kit's Combobox).
  */

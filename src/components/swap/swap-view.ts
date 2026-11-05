@@ -21,7 +21,7 @@ import type { AssetOption } from "@/lib/swap/assets";
 import { swapFeeFor, type SwapFee } from "@/lib/swap/fee";
 import { priceImpactLevel, signBlock, type PriceImpactLevel } from "@/lib/swap/form";
 import type { SignedSwapPath } from "@/lib/swap/review";
-import type { SwapPath } from "@/lib/swap/path";
+import { swapPathFor, type SwapPath } from "@/lib/swap/path";
 import { executable, type XcsRouteTable } from "@/lib/swap/xcs";
 import type {
   SwapBlockedCode,
@@ -155,6 +155,14 @@ export function opensInOneSignature(
  * venue's own coin pairs with almost everything), or ATOM on Osmosis when
  * OSMO is what is sold; else the first row that can be used. Never a
  * disabled row, never the From itself.
+ *
+ * Only a row reachable in one transaction is taken first (the path is not
+ * `move-first`). When every usable row needs the tokens moved to Osmosis
+ * first (SAF on Safrochain: the contract's route table has no SAF route), the
+ * second step is a swap in Osmosis's pools, so a row delivered on Osmosis
+ * needs nothing after it, and USDC is what a sale is most often for (pool
+ * 3600 pairs SAF with it). A voucher held elsewhere would need the output
+ * sent on through a third chain, so it is the last resort.
  */
 export function defaultToKey(from: AssetOption | undefined, buy: readonly AssetOption[]): string | null {
   if (!from) return null;
@@ -166,7 +174,11 @@ export function defaultToKey(from: AssetOption | undefined, buy: readonly AssetO
           option.chainId === VENUE && option.identity.originChainId === "cosmoshub-4" && option.identity.originDenom === "uatom",
       )
     : usable.find((option) => option.chainId === VENUE && option.denom === "uosmo");
-  return (preferred ?? usable[0])?.key ?? null;
+  const ordered = preferred ? [preferred, ...usable] : usable;
+  const oneStep = ordered.find((option) => swapPathFor(from, option, option.executable) !== "move-first");
+  if (oneStep) return oneStep.key;
+  const onVenue = usable.filter((option) => option.chainId === VENUE);
+  return (onVenue.find((option) => option.identity.family === "USDC") ?? onVenue[0] ?? usable[0])?.key ?? null;
 }
 
 /* -------------------------------------------------------------------------- *

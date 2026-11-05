@@ -15,7 +15,7 @@
 
 import Link from "next/link";
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { NFT_MEDIA_PRIVACY_NOTE, nftPlaceholder, nftTitle } from "@zunialab/ui";
+import { nftPlaceholder, nftTitle } from "@zunialab/ui";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { shortenAddress } from "@/lib/format";
@@ -56,7 +56,7 @@ export function NftMedia({ tokenId, imageUrl, loadMedia, onRequestMedia, alt, cl
           ? "loaded"
           : "loading";
   const caption =
-    state === "loading" ? "Loading…" : state === "error" ? "Artwork unavailable" : state === "absent" ? "No artwork on this token" : null;
+    state === "loading" ? "Loading…" : state === "error" ? "Artwork unavailable" : state === "absent" ? "No artwork" : null;
   // The placeholder stands in for artwork; once the artwork is there it goes,
   // or it shows through every transparent pixel (a badge's rounded corners
   // read as an orange frame the collection never drew).
@@ -108,7 +108,7 @@ export function NftMedia({ tokenId, imageUrl, loadMedia, onRequestMedia, alt, cl
         <button
           type="button"
           onClick={onRequestMedia}
-          title={NFT_MEDIA_PRIVACY_NOTE}
+          title="Images load from each token’s host."
           className={cn(
             "absolute inset-x-0 bottom-0 z-[1] h-9 truncate px-2 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-opacity duration-[160ms] hover:opacity-90 focus-visible:opacity-100",
             size === "card" && "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100",
@@ -154,11 +154,11 @@ export function NftCard({ item, href, loadMedia, onRequestMedia }: { item: NftCa
         {item.error ? (
           // The read failed: the name is unknown, not absent.
           <span className="mt-0.5 block truncate text-[11.5px] text-[var(--z-warning)]" title={item.error}>
-            Read failed · shown by id
+            Shown by id
           </span>
         ) : (
           <span className="mt-0.5 block truncate text-[11.5px] text-fg-dim" title={item.tokenId}>
-            {named ? <span className="font-mono">#{shortId}</span> : "No name on chain"}
+            {named ? <span className="font-mono">#{shortId}</span> : "Unnamed"}
           </span>
         )}
       </span>

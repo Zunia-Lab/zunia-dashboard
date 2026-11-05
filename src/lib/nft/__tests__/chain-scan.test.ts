@@ -620,6 +620,6 @@ test("the scan's sentences name the window, and nothing an operator would", () =
     checkedAt: 1,
   });
   assert.match(sentence, /newest 16 contract codes on Safrochain/);
-  assert.match(sentence, /no chain-wide index/);
+  assert.match(sentence, /Add a collection/);
   assert.doesNotMatch(sentence, OPERATOR_WORDS);
 });

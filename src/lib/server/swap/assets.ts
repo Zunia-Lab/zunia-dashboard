@@ -115,10 +115,12 @@ export async function swapAssets(network: "mainnet" | "testnet"): Promise<SwapAs
   const seen = new Set<string>();
   let identified = 0;
   if (network === "mainnet") {
-    // The table's Osmosis rows Osmosis verifies and does not flag unstable.
+    // The table's Osmosis rows Osmosis verifies, plus the staking coins of
+    // Zunia's own mainnets it lists before its review (SAF, pool 3600), never
+    // one it flags unstable.
     const rows = new Map<string, TokenTableRow>();
     for (const row of tokenTableRows(VENUE)) {
-      if (row.verified && row.stable) rows.set(row.denom, row);
+      if ((row.verified || row.listedByZunia) && row.stable) rows.set(row.denom, row);
     }
     for (const listing of listings) {
       const row = rows.get(listing.denom);

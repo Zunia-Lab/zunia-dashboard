@@ -103,12 +103,12 @@ export interface NftTransferSheetProps {
  */
 function crossUnavailable(chainName: string, config: NftConfigWire["ics721"]): string {
   if (!config.bridgeContract) {
-    return `Cross-chain NFT transfer is off on this deployment: it has no cw-ics721 bridge on ${chainName}. Zunia will not guess one: a token sent to the wrong contract is held by nothing and cannot be recalled.`;
+    return `No cross-chain bridge is set up on ${chainName}.`;
   }
   if (config.destinations.length === 0) {
-    return `This deployment has a cw-ics721 bridge on ${chainName} but no ICS721 channel to another network. ICS721 does not run on the transfer port, so Zunia cannot discover one.`;
+    return `${chainName} has a bridge but no channel to another network.`;
   }
-  return `The networks this deployment has an ICS721 channel to are not in this build's chain catalog, so a receiver there cannot be checked.`;
+  return "The bridge\u2019s destination networks aren\u2019t in the chain catalog.";
 }
 
 const STATEMENT_TONE: Record<NftStatementTone, string> = {
@@ -198,13 +198,13 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
   if (ownerMismatch) blockers.push(ownerMismatch);
   if (mode === "cross" && !crossAvailable) blockers.push(crossUnavailable(chain.chainName, config.ics721));
   if (cross && !destChainId) blockers.push("Choose a destination network.");
-  if (cross && destChainId && !destChain) blockers.push(`${destChainId} is not in this build's chain catalog, so a receiver there cannot be checked.`);
+  if (cross && destChainId && !destChain) blockers.push(`${destChainId} isn\u2019t in the chain catalog.`);
   if (!trimmed) {
-    blockers.push(cross ? `Enter the address that receives the voucher on ${destChain?.chainName ?? "the destination"}.` : "Enter the address that should receive this token.");
+    blockers.push(cross ? `Enter the receiving address on ${destChain?.chainName ?? "the destination"}.` : "Enter the receiving address.");
   }
-  if (trimmed && !cross && trimmed === owner) blockers.push("That is this account's own address: the token is already there.");
+  if (trimmed && !cross && trimmed === owner) blockers.push("That\u2019s your own address.");
   if (buildError) blockers.push(buildError);
-  if (action?.risk === "danger") blockers.push("This call cannot be signed from here: the review below says why.");
+  if (action?.risk === "danger") blockers.push("This call can\u2019t be signed from here.");
   const fieldError = trimmed && addressCheck && !addressCheck.ok ? addressProblem(addressCheck, target?.chainName ?? "") : null;
   const canReview = blockers.length === 0 && fieldError === null && signRequest !== null;
 
@@ -313,8 +313,8 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
       title={step === "review" ? (cross ? "Approve this cross-chain transfer" : "Approve this transfer") : `Move ${tokenLabel}`}
       description={
         step === "review"
-          ? `One contract call on ${chain.chainName}. Everything below was decoded back out of the message that will be signed.`
-          : `${token.collectionName?.trim() || "This collection"} on ${chain.chainName}. Signing happens in your wallet.`
+          ? `One contract call on ${chain.chainName}.`
+          : `${token.collectionName?.trim() || "This collection"} on ${chain.chainName}`
       }
       footer={footer}
       width={460}
@@ -335,22 +335,21 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
             ]}
           />
           {mode === "cross" && !crossAvailable ? (
-            <Callout tone="warning" title="Cross-chain transfer is unavailable">
+            <Callout tone="warning" title="Cross-chain unavailable">
               {crossUnavailable(chain.chainName, config.ics721)}
             </Callout>
           ) : null}
           {cross ? (
             <>
               <Callout tone="warning" title="The destination gets a voucher">
-                {destChain?.chainName ?? "The destination"} does not receive this token. The bridge locks it on {chain.chainName} and mints a voucher NFT
-                backed by it: a different token in a different contract. Sending the voucher back burns it and releases the original.
+                The token is locked on {chain.chainName} and a voucher NFT is minted on {destChain?.chainName ?? "the destination"}. Sending the voucher back releases the original.
               </Callout>
               <Select
                 label="Destination network"
                 value={destChainId}
                 onChange={setDestChainId}
                 options={destinations.map((row) => ({ value: row.chainId, label: `${row.chainName} · ${row.channelId}` }))}
-                hint="Only networks this deployment has an ICS721 channel to: ICS721 does not run on the transfer port, so channels cannot be discovered."
+                hint="Networks with a bridge channel."
               />
             </>
           ) : null}
@@ -364,11 +363,11 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
               autoComplete="off"
               onChange={(event) => setRecipient(event.target.value)}
               error={fieldError ?? undefined}
-              hint={!fieldError && addressCheck?.ok ? "Valid address for this network." : undefined}
+              hint={!fieldError && addressCheck?.ok ? "Valid address." : undefined}
             />
             {suggestion && suggestion !== trimmed && (cross || suggestion !== owner) ? (
               <Button variant="ghost" size="sm" className="-ml-2 self-start" onClick={() => setRecipient(suggestion)}>
-                Use my own address on {target?.chainName ?? "this network"}
+                Use my {target?.chainName ?? "network"} address
               </Button>
             ) : null}
           </div>
@@ -391,13 +390,13 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
           </div>
           {action ? <Statements action={action} /> : null}
           {action ? (
-            <Disclosure summary="The contract call itself">
+            <Disclosure summary="Contract call">
               <pre className="d-scroll max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-[8px] bg-[var(--d-glass)] p-2.5 font-mono text-[11px] leading-relaxed text-fg-muted">
                 {action.rawJson || "(empty)"}
               </pre>
               {action.innerJson ? (
                 <>
-                  <p className="d-label mb-1 mt-3">Decoded from the base64 msg above</p>
+                  <p className="d-label mb-1 mt-3">Decoded msg</p>
                   <pre className="d-scroll max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-[8px] bg-[var(--d-glass)] p-2.5 font-mono text-[11px] leading-relaxed text-fg-muted">
                     {action.innerJson}
                   </pre>
@@ -407,7 +406,7 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
           ) : null}
           {accountMissing ? (
             <Callout tone="danger" title="This address cannot pay a fee yet">
-              The network has never seen it, so it holds nothing to pay the fee with.
+              The network has never seen it, so it can\u2019t pay the fee.
             </Callout>
           ) : null}
           {previewError ? (
@@ -422,7 +421,7 @@ export function NftTransferSheet({ open, onOpenChange, chain, config, token, own
           ) : null}
           <p className="flex items-start gap-1.5 text-[12px] leading-snug text-fg-dim">
             <Icon name="lock" size={13} className="mt-px shrink-0" />
-            Nothing is sent until you approve it in {walletName}. Zunia never holds your keys.
+            Nothing is sent until you approve it in {walletName}.
           </p>
         </div>
       ) : (
@@ -456,7 +455,7 @@ function Statements({ action }: { action: NftAction }) {
       ) : null}
       {action.risk === "danger" ? (
         <Callout tone="danger" title="This cannot be signed">
-          The line marked above says why. A call Zunia cannot fully account for is never signed from here.
+          See the marked line above.
         </Callout>
       ) : null}
     </div>
@@ -510,10 +509,10 @@ function Progress({
           <p className="text-[15px] font-medium leading-snug tracking-[-0.01em] text-fg">{headline}</p>
           <p className="mt-1 text-[13px] leading-[1.5] text-fg-muted">
             {failed
-              ? (failure?.message ?? "The transaction was not sent. The token is still yours.")
+              ? (failure?.message ?? "Not sent. The token is still yours.")
               : stage === "awaiting-signature"
-                ? "Check the call in the wallet prompt before approving. The token moves only if you approve."
-                : "This usually takes a few seconds."}
+                ? "Check the call in your wallet before approving."
+                : "This takes a few seconds."}
           </p>
         </div>
       </div>
@@ -539,12 +538,12 @@ function addressProblem(check: ReturnType<typeof checkAddress>, chainName: strin
     case "empty":
       return "Enter an address.";
     case "malformed":
-      return "That is not a bech32 address.";
+      return "Not a valid address.";
     case "bad-checksum":
-      return "That address fails its own checksum: a character is wrong.";
+      return "Checksum fails: a character is wrong.";
     case "wrong-prefix":
-      return `That is a “${check.prefix}” address; ${chainName || "this network"} uses “${check.expectedPrefix}”. A token sent to an address on the wrong chain cannot be recovered.`;
+      return `${chainName || "This network"} addresses start with “${check.expectedPrefix}”, not “${check.prefix}”.`;
     default:
-      return "That address cannot be used.";
+      return "This address can\u2019t be used.";
   }
 }

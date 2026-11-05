@@ -110,6 +110,52 @@ export function isUnverifiedRoute(identity: Pick<TokenIdentity, "proven" | "prov
   return !identity.proven && !isUnlisted(identity);
 }
 
+/** The Verification fact of an asset page: its badge, and the sentence its info gives. */
+export interface ProvenanceVerdict {
+  readonly tone: "neutral" | "success" | "warning";
+  readonly text: string;
+  readonly info: string;
+}
+
+const PROVEN_INFO =
+  "Proven means the denom's trace was checked against its hash and the route is the asset's canonical channel; an unproven voucher is never priced as the asset it names.";
+
+/**
+ * Green only for a proven identity Osmosis has not withheld its verification
+ * from. A token Osmosis lists without having verified it (SAF while its review
+ * is open) reads neutral: it trades and swaps, but "verified" is Osmosis's word.
+ */
+export function provenanceVerdict(
+  identity: Pick<TokenIdentity, "listed" | "provenance" | "proven" | "unverifiedOnOsmosis" | "originChainId" | "chainId">,
+): ProvenanceVerdict {
+  if (isUnlisted(identity)) return { tone: "neutral", text: "Unlisted", info: PROVEN_INFO };
+  if (identity.proven && identity.unverifiedOnOsmosis) {
+    return {
+      tone: "neutral",
+      text: "Not verified by Osmosis",
+      info: "Osmosis lists this token but has not verified it yet, so it trades and swaps here without a verified mark.",
+    };
+  }
+  if (identity.proven) {
+    return { tone: "success", text: identity.originChainId === identity.chainId ? "Native" : "Canonical route", info: PROVEN_INFO };
+  }
+  return { tone: "warning", text: "Route not proven", info: PROVEN_INFO };
+}
+
+const IDENTIFIED_BY: Record<TokenIdentity["provenance"], string> = {
+  native: "Issued on the chain itself",
+  catalog: "Listed in the chain's registry",
+  table: "Zunia token table (hash-verified)",
+  "channel-walk": "Traced over its IBC channels",
+  unknown: "Nothing identifies it",
+};
+
+/** The Identified by fact; never the word "verified" for a token Osmosis has not verified. */
+export function identifiedByText(identity: Pick<TokenIdentity, "provenance" | "unverifiedOnOsmosis">): string {
+  if (identity.provenance === "table" && identity.unverifiedOnOsmosis) return "Zunia token table (hash-checked)";
+  return IDENTIFIED_BY[identity.provenance];
+}
+
 function units(text: string): bigint {
   return /^\d+$/.test(text) ? BigInt(text) : BigInt(0);
 }

@@ -44,9 +44,8 @@ test("a scan that ran names its window and the collections it asked", () => {
   const row = chainScanRow("Safrochain", true, body(RAN));
   assert.equal(row.state, "13");
   assert.equal(row.on, true);
-  assert.match(row.detail, /checked the newest 16 contract codes on Safrochain/);
-  assert.match(row.detail, /asked the 13 collections/);
-  assert.match(row.detail, /can still be added by address/);
+  assert.match(row.detail, /Checked the newest 16 contract codes/);
+  assert.match(row.detail, /13 collections found/);
 });
 
 test("found none, could not run and did not run are three different rows", () => {
@@ -55,23 +54,23 @@ test("found none, could not run and did not run are three different rows", () =>
   const missing = chainScanRow("Safrochain", true, body(null));
 
   assert.equal(none.state, "0");
-  assert.match(none.detail, /none of them is an NFT collection/);
+  assert.match(none.detail, /none is a collection/);
   assert.equal(failed.state, "Could not run");
-  assert.match(failed.detail, /did not answer, so no collection was found this way/);
+  assert.match(failed.detail, /didn\u2019t answer/);
   assert.equal(missing.state, "Not run");
-  assert.match(missing.detail, /only collections whose address is known were asked/);
+  assert.match(missing.detail, /Not run/);
   assert.equal(new Set([none.detail, failed.detail, missing.detail]).size, 3);
 });
 
 test("codes that did not answer are said, not folded into the count", () => {
   const row = chainScanRow("Safrochain", true, body({ ...RAN, codesChecked: 14, codesUnread: 2 }));
   assert.match(row.detail, /newest 14 contract codes/);
-  assert.match(row.detail, /2 more codes did not answer and will be checked again shortly/);
+  assert.match(row.detail, /2 more codes didn\u2019t answer/);
 });
 
 test("a node that would not sort its codes does not get called newest", () => {
   const row = chainScanRow("Safrochain", true, body({ ...RAN, newestFirst: false }));
-  assert.match(row.detail, /checked 16 contract codes/);
+  assert.match(row.detail, /Checked 16 contract codes/);
   assert.doesNotMatch(row.detail, /newest/);
 });
 

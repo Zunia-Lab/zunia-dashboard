@@ -44,6 +44,12 @@ export interface TokenIdentity {
   provenance: TokenProvenance;
   /** True when the identity is proven (hash-verified / canonical channel walk). */
   proven: boolean;
+  /**
+   * Osmosis lists it but has not verified it (SAF while its review is open):
+   * it trades and swaps like any proven token, without a verified mark or the
+   * word "verified". Absent means false.
+   */
+  unverifiedOnOsmosis?: boolean;
   testnet?: boolean;
   /** Display name of the holding chain ("Osmosis"). */
   chainName?: string;

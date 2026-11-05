@@ -23,6 +23,7 @@
 import { SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { CHAINS, type ChainEntry } from "@/lib/chains";
 import { toBaseUnits } from "@/lib/interchain/amounts";
+import { swapPathFor } from "@/lib/swap/path";
 import type { SwapAsset } from "@/lib/swap/wire";
 import { gateOptions, osmosisDenomFor, type Executable, type XcsRouteTable } from "@/lib/swap/xcs";
 import type { TokenIdentity } from "@/lib/token/types";
@@ -374,13 +375,27 @@ export function buyOptions(held: readonly HeldToken[], input: BuyOptionsInput = 
  * The To on screen. A row the user picked stays picked, even once the From
  * or the route table turns it off: its reason is then shown and nothing is
  * quoted for it, rather than the destination changing under them. With no
- * pick, the first row that can be used.
+ * pick, the first row that can be used in one transaction.
+ *
+ * When every usable row needs the tokens moved to Osmosis first (SAF on
+ * Safrochain: the contract's table has no SAF route), the second step is a
+ * swap in Osmosis's pools, so a row delivered on Osmosis needs nothing after
+ * it, and USDC is what a sale is most often for (pool 3600 pairs SAF with
+ * it). A voucher held elsewhere would need a third chain, so it comes last.
  */
-export function pickTo(destinations: readonly AssetOption[], toKey: string | null): AssetOption | undefined {
-  return (
-    (toKey ? destinations.find((asset) => asset.key === toKey) : undefined) ??
-    destinations.find((asset) => asset.disabledReason === null)
-  );
+export function pickTo(
+  destinations: readonly AssetOption[],
+  toKey: string | null,
+  from?: Pick<AssetOption, "chainId"> | null,
+): AssetOption | undefined {
+  const picked = toKey ? destinations.find((asset) => asset.key === toKey) : undefined;
+  if (picked) return picked;
+  const usable = destinations.filter((asset) => asset.disabledReason === null);
+  if (!from) return usable[0];
+  const oneStep = usable.find((asset) => swapPathFor(from, asset, asset.executable) !== "move-first");
+  if (oneStep) return oneStep;
+  const onVenue = usable.filter((asset) => asset.chainId === SWAP_VENUE_CHAIN_ID);
+  return onVenue.find((asset) => asset.identity.family === "USDC") ?? onVenue[0] ?? usable[0];
 }
 
 /**

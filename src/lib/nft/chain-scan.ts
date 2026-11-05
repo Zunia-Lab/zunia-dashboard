@@ -652,11 +652,7 @@ export function attributeScan(
  * a scan, and it names the window, so a reader knows what was not looked at.
  */
 export function scanLimitation(chainName: string, scan: ChainScanReport): string {
-  return (
-    "CosmWasm has no chain-wide index of NFTs by owner. This list covers the " +
-    `collections Zunia found among ${scanWindow(scan)} on ${chainName}, plus any ` +
-    "listed or added here. Add a collection's address to check one it did not reach."
-  );
+  return `Collections found among ${scanWindow(scan)} on ${chainName}, plus any listed or added. Add a collection's address to check another.`;
 }
 
 /** "the newest 16 contract codes", or without "newest" when the node would not sort them. */

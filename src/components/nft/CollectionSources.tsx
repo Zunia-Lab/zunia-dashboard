@@ -1,23 +1,21 @@
 "use client";
 
 /**
- * Where the NFT list came from, and how to widen it.
+ * Adding a collection by address, and where the list came from.
  *
  * CosmWasm has no chain-level "tokens by owner" index: `tokens` is a query on
  * one contract, so a wallet can only ask about contracts whose address it
- * already has, and a list can never be promised complete unless a real index
- * answered. The four ways in (a list shipped with this deployment, the
- * collections found among the chain's newest contract codes, an NFT index,
- * addresses you add) are shown with their real state, including the ones that
- * are off: "no index is configured" is what an empty grid has to be read
- * against, and hiding it is how "you own no NFTs" gets drawn over a query that
- * never ran. The scan row names its window ("the newest 16 contract codes")
- * for the same reason: a scan is a look at part of the chain, not all of it.
+ * already has. Adding one is the action that widens the list, so it is the
+ * panel; the four ways contracts are found (a list shipped with this
+ * deployment, the chain's newest contract codes, an NFT index, addresses you
+ * add) sit in a closed "Sources" disclosure, one line each with their real
+ * state, off ones included, so a source that never ran is still readable
+ * against an empty grid.
  */
 
 import { useState } from "react";
 import { checkAddress, type ChainInfoLike } from "@zunialab/interchain";
-import { Badge, Button, Callout, Card, CardBody, CardHeader, Chip, Input } from "@/components/ui";
+import { Badge, Button, Callout, Card, CardBody, CardHeader, Chip, Disclosure, Input } from "@/components/ui";
 import type { ChainEntry } from "@/lib/chains";
 import { shortenAddress } from "@/lib/format";
 import type { NftCollectionsBody, NftConfigWire, NftDiscoverySourceWire } from "@/lib/nft/wire";
@@ -45,30 +43,27 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
     ? null
     : check && !check.ok
       ? check.problem === "wrong-prefix"
-        ? `That is a “${check.prefix}” address; ${chain.chainName} uses “${check.expectedPrefix}”.`
+        ? `${chain.chainName} addresses start with “${check.expectedPrefix}”, not “${check.prefix}”.`
         : check.problem === "bad-checksum"
-          ? "That address fails its own checksum: a character is wrong."
-          : "That is not a bech32 contract address."
+          ? "Checksum fails: a character is wrong."
+          : "Not a valid contract address."
       : duplicate
-        ? "That collection is already in the list."
+        ? "Already added."
         : null;
 
   const rows: ReadonlyArray<{ key: NftDiscoverySourceWire; label: string; state: string; on: boolean; detail: string | null }> = [
     {
       key: "known",
-      label: "Collections this deployment lists",
+      label: "Listed collections",
       state: config.discovery.knownContractCount > 0 ? `${config.discovery.knownContractCount}` : "None",
       on: config.discovery.knownContractCount > 0,
       // The reader's words, not the operator's: which setting fills this list
       // is deployment documentation (`nft-config.ts`), never page copy.
-      detail:
-        config.discovery.knownContractCount > 0
-          ? null
-          : `This deployment lists no collections for ${chain.chainName}, so none are asked this way.`,
+      detail: null,
     },
     {
       key: "scan",
-      label: "Collections found on chain",
+      label: "Found on chain",
       ...chainScanRow(chain.chainName, config.discovery.chainScan, result),
     },
     {
@@ -76,13 +71,11 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
       label: "NFT index",
       state: config.discovery.indexerConfigured ? (config.discovery.indexerName ?? "Configured") : "Not configured",
       on: config.discovery.indexerConfigured,
-      detail: config.discovery.indexerConfigured
-        ? "An index can say which contracts hold your tokens: the only way this list can be complete."
-        : "No NFT index on this deployment. Without one, the list covers only contracts whose address is known.",
+      detail: null,
     },
     {
       key: "user",
-      label: "Collections you added",
+      label: "Added by you",
       state: userContracts.length > 0 ? `${userContracts.length}` : "None yet",
       on: userContracts.length > 0,
       detail: null,
@@ -91,32 +84,8 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
 
   return (
     <Card>
-      <CardHeader title="Where this list comes from" subtitle={`How Zunia looks for NFTs on ${chain.chainName}`} icon="search" />
-      <CardBody className="flex flex-col gap-4">
-        <ul className="flex flex-col divide-y divide-[var(--d-hairline)]">
-          {rows.map((row) => {
-            const used = result?.sources.includes(row.key) ?? false;
-            return (
-              <li key={row.key} className="flex flex-col gap-1 py-2.5 first:pt-0">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <span className="text-[13.5px] font-medium text-fg">{row.label}</span>
-                  <span className="flex items-center gap-1.5">
-                    {used ? (
-                      <Badge tone="success" icon="check">
-                        Found tokens
-                      </Badge>
-                    ) : null}
-                    <Badge tone="neutral" variant={row.on ? "soft" : "outline"}>
-                      {row.state}
-                    </Badge>
-                  </span>
-                </div>
-                {row.detail ? <p className="text-[12.5px] leading-snug text-fg-dim">{row.detail}</p> : null}
-              </li>
-            );
-          })}
-        </ul>
-
+      <CardHeader title="Add a collection" icon="plus" />
+      <CardBody className="flex flex-col gap-3">
         {userContracts.length > 0 ? (
           <ul aria-label="Collections you added" className="flex flex-wrap gap-1.5">
             {userContracts.map((address) => (
@@ -140,42 +109,29 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
         >
           <Input
             id={ADD_COLLECTION_INPUT}
-            label="Add a collection by contract address"
+            label="Contract address"
             placeholder={`${chain.bech32Prefix}1…`}
             value={draft}
             mono
             spellCheck={false}
             autoComplete="off"
             error={problem ?? undefined}
-            hint={problem ? undefined : "Zunia asks that contract whether your address holds anything in it. Kept on this browser only."}
+            hint={problem ? undefined : "Contract address. Kept on this browser."}
             onChange={(event) => setDraft(event.target.value)}
           />
           <Button type="submit" size="sm" variant="secondary" className="self-start" disabled={!trimmed || problem !== null} iconLeft="plus">
-            Check this collection
+            Check
           </Button>
         </form>
 
         {result && userContracts.length > result.plan.userContracts.length ? (
-          <Callout tone="warning" title="Not every collection you added was checked">
-            {result.plan.userContracts.length} of your {userContracts.length} were asked in this pass. The rest are not part of the list either
-            way: remove one to make room.
+          <Callout tone="warning">
+            Only {result.plan.userContracts.length} of your {userContracts.length} collections were checked. Remove one to make room.
           </Callout>
         ) : null}
 
-        {result ? (
-          result.complete ? (
-            <Callout tone="success" title="This list is complete">
-              An index answered for this address, so every collection it holds something in is listed.
-            </Callout>
-          ) : (
-            <Callout tone="neutral" title="This list may not be complete">
-              {result.limitation ?? "Only contracts Zunia already knows about were checked."}
-            </Callout>
-          )
-        ) : null}
-
         {result && result.issues.length > 0 ? (
-          <Callout tone="warning" title={`${result.issues.length} ${result.issues.length === 1 ? "source" : "sources"} could not be read`}>
+          <Callout tone="warning" title={`${result.issues.length} ${result.issues.length === 1 ? "source" : "sources"} unreadable`}>
             <ul className="flex flex-col gap-1">
               {result.issues.map((issue) => (
                 <li key={`${issue.contractAddress ?? "source"}-${issue.message}`}>
@@ -186,6 +142,29 @@ export function CollectionSources({ chain, config, result, userContracts, onAddC
             </ul>
           </Callout>
         ) : null}
+
+        <Disclosure summary="Sources">
+          <ul className="mt-2 flex flex-col divide-y divide-[var(--d-hairline)]">
+            {rows.map((row) => {
+              const used = result?.sources.includes(row.key) ?? false;
+              return (
+                <li key={row.key} title={row.detail ?? undefined} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 first:pt-0">
+                  <span className="text-[13px] text-fg">{row.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    {used ? (
+                      <Badge tone="success" icon="check">
+                        Found tokens
+                      </Badge>
+                    ) : null}
+                    <Badge tone="neutral" variant={row.on ? "soft" : "outline"}>
+                      {row.state}
+                    </Badge>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Disclosure>
       </CardBody>
     </Card>
   );

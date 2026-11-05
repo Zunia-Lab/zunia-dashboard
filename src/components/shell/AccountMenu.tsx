@@ -20,6 +20,7 @@ import { useEffect, useRef, useState, type ComponentPropsWithRef, type ReactNode
 import { Avatar, useTheme, type ThemeMode } from "@zunialab/ui";
 import { useConnectModal } from "@/components/connect/ConnectModal";
 import { Icon, type IconName } from "@/components/icons";
+import { LINKS } from "@/components/landing/content";
 import { Button, ChainLogo, Dot, InfoTip, Popover, Segmented, Sheet, Skeleton, StatusBadge, Switch, toast, useMediaQuery, useNow } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { findChain } from "@/lib/chains";
@@ -29,17 +30,35 @@ import { usePrefs, type FiatCurrency } from "@/providers/PrefsProvider";
 import { PHONE_FRAME_QUERY } from "./ScopeControl";
 import { networksShared, phoneSessionLine } from "./session";
 
-function PanelLink({ href, icon, children, onNavigate }: { href: string; icon: IconName; children: ReactNode; onNavigate: () => void }) {
+/**
+ * A row that opens a page. `external` opens it in a new tab (the help center
+ * lives on zunialab.com), so the menu and the open dashboard stay as they are.
+ */
+function PanelLink({
+  href,
+  icon,
+  children,
+  onNavigate,
+  external,
+}: {
+  href: string;
+  icon: IconName;
+  children: ReactNode;
+  onNavigate: () => void;
+  external?: boolean;
+}) {
+  const Tag = external ? "a" : Link;
   return (
-    <Link
+    <Tag
       href={href}
       onClick={onNavigate}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       className="group flex h-9 items-center gap-2.5 rounded-[8px] px-2.5 text-[13.5px] text-fg transition-colors duration-[160ms] hover:bg-[var(--d-glass-2)] max-md:h-11"
     >
       <Icon name={icon} size={16} className="shrink-0 text-fg-dim group-hover:text-fg" />
       <span className="flex-1">{children}</span>
-      <Icon name="chevronRight" size={14} className="text-fg-faint" />
-    </Link>
+      <Icon name={external ? "arrowUpRight" : "chevronRight"} size={14} className="text-fg-faint" />
+    </Tag>
   );
 }
 
@@ -182,6 +201,9 @@ function AccountPanel({ onNavigate }: { onNavigate: () => void }) {
         </PanelLink>
         <PanelLink href="/settings" icon="settings" onNavigate={onNavigate}>
           Settings
+        </PanelLink>
+        <PanelLink href={LINKS.support} icon="help" external onNavigate={onNavigate}>
+          Help
         </PanelLink>
       </div>
 

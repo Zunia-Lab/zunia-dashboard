@@ -108,7 +108,7 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
       setNftMedia,
       nftMediaAllowed: nftMedia && !hideAmounts,
       nftMediaBlockedReason: hideAmounts
-        ? "Privacy mode is on, so artwork stays off: loading it would tell every host named in your tokens which NFTs this account holds."
+        ? "Privacy mode is on, so artwork stays off."
         : null,
       insightsOn,
       setInsightsOn,

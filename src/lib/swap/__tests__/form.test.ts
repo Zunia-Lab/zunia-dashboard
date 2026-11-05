@@ -255,6 +255,11 @@ describe("the wire", () => {
       priceSource: "osmosis-sqs",
     };
     assert.equal(readSwapAssetsResponse(body)?.assets[0]?.identity.ticker, "USDC.n");
+    assert.equal(readSwapAssetsResponse(body)?.assets[0]?.identity.unverifiedOnOsmosis, undefined);
+    // A token Osmosis has not verified keeps that flag, and only as a boolean.
+    const pending = (flag: unknown) => ({ ...body, assets: [{ ...body.assets[0], identity: { ...body.assets[0].identity, unverifiedOnOsmosis: flag } }] });
+    assert.equal(readSwapAssetsResponse(pending(true))?.assets[0]?.identity.unverifiedOnOsmosis, true);
+    assert.equal(readSwapAssetsResponse(pending("yes")), null);
     assert.equal(readSwapAssetsResponse({ ...body, assets: [{ ...body.assets[0], listedDecimals: "6" }] }), null);
     assert.equal(readSwapAssetsResponse({ ...body, venue: "osmosis-2" }), null);
   });

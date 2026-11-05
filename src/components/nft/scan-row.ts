@@ -1,5 +1,5 @@
 /**
- * The "Collections found on chain" row of the sources panel, as words.
+ * The "Found on chain" row of the sources disclosure, as words.
  *
  * Kept out of the component so the honesty rules are tested where they are
  * written: "could not run" and "found none" are different rows, a scan the
@@ -24,14 +24,14 @@ export function chainScanRow(
     return {
       state: "Not needed",
       on: false,
-      detail: "The NFT index answers on this deployment, so the chain's contracts are not looked through.",
+      detail: "An NFT index answers instead.",
     };
   }
   if (!result) {
     return {
       state: "On",
       on: true,
-      detail: `Zunia looks through the newest contract codes on ${chainName} for NFT collections, and asks each one.`,
+      detail: `Looks through ${chainName}\u2019s newest contract codes for collections.`,
     };
   }
   const scan: NftChainScanWire | null = result.plan.scan;
@@ -39,23 +39,23 @@ export function chainScanRow(
     return {
       state: "Not run",
       on: false,
-      detail: `${chainName} was not looked through this time, so only collections whose address is known were asked.`,
+      detail: "Not run this time.",
     };
   }
   if (scan.status === "failed") {
     return {
       state: "Could not run",
       on: false,
-      detail: `${chainName}'s list of contract codes did not answer, so no collection was found this way. Zunia asks again shortly.`,
+      detail: `${chainName}\u2019s contract codes didn\u2019t answer. Retries shortly.`,
     };
   }
   const found =
     scan.contractCount > 0
-      ? `Zunia checked ${scanWindow(scan)} on ${chainName} and asked the ${scan.contractCount} ${scan.contractCount === 1 ? "collection" : "collections"} among them. A collection it did not reach can still be added by address.`
-      : `Zunia checked ${scanWindow(scan)} on ${chainName}, and none of them is an NFT collection.`;
+      ? `Checked ${scanWindow(scan)}; ${scan.contractCount} ${scan.contractCount === 1 ? "collection" : "collections"} found.`
+      : `Checked ${scanWindow(scan)}; none is a collection.`;
   const unread =
     scan.codesUnread > 0
-      ? ` ${scan.codesUnread} more ${scan.codesUnread === 1 ? "code" : "codes"} did not answer and will be checked again shortly.`
+      ? ` ${scan.codesUnread} more ${scan.codesUnread === 1 ? "code" : "codes"} didn\u2019t answer.`
       : "";
   return { state: `${scan.contractCount}`, on: true, detail: `${found}${unread}` };
 }

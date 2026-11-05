@@ -443,6 +443,7 @@ export function readIdentity(value: unknown): TokenIdentity | null {
   if (typeof row.testnet === "boolean") identity.testnet = row.testnet;
   if (typeof row.alloyed === "boolean") identity.alloyed = row.alloyed;
   if (typeof row.listed === "boolean") identity.listed = row.listed;
+  if (row.unverifiedOnOsmosis === true) identity.unverifiedOnOsmosis = true;
   if (Array.isArray(row.aliases)) identity.aliases = row.aliases.filter((a): a is string => typeof a === "string");
   return identity;
 }

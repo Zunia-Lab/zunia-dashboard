@@ -13,6 +13,7 @@ import { parseTraceBody, readClientChainId, traceUnimplemented } from "../trace-
 import { assetKeyOf, toTokenIdentity } from "../trim";
 import {
   readAssetDetailResponse,
+  readIdentity,
   readMarketsResponse,
   readPortfolioResponse,
   readPricesResponse,
@@ -24,6 +25,8 @@ installTestCatalog();
 
 const ATOM_ON_OSMOSIS = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2";
 const UNLISTED = "ibc/0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+/** SAF's voucher on Osmosis, which Osmosis lists but has not verified (Zunia lists it). */
+const SAF_ON_OSMOSIS = "ibc/DBAA4846F611A7603EFCE6F9F46F4F561D48B1F492A576022F000614A17089CE";
 
 describe("the trimmed identity", () => {
   it("keys a proven voucher by its origin asset, everything else by where it is", () => {
@@ -64,6 +67,19 @@ describe("the trimmed identity", () => {
         listed: true,
       },
     );
+  });
+
+  it("carries Osmosis's missing verification to the browser, and nothing for a verified asset", () => {
+    const saf = toTokenIdentity(identityOf("osmosis-1", SAF_ON_OSMOSIS));
+    assert.equal(saf.proven, true);
+    assert.equal(saf.unverifiedOnOsmosis, true);
+    assert.equal(readIdentity(JSON.parse(JSON.stringify(saf)))?.unverifiedOnOsmosis, true);
+    assert.equal(toTokenIdentity(identityOf("safrochain-1", "usaf")).unverifiedOnOsmosis, true);
+    const atom = toTokenIdentity(identityOf("osmosis-1", ATOM_ON_OSMOSIS));
+    assert.equal("unverifiedOnOsmosis" in atom, false);
+    assert.equal(readIdentity(JSON.parse(JSON.stringify(atom)))?.unverifiedOnOsmosis, undefined);
+    // Only a real `true` is read as the flag.
+    assert.equal(readIdentity({ ...saf, unverifiedOnOsmosis: "yes" })?.unverifiedOnOsmosis, undefined);
   });
 
   it("reads the same words in the browser as on the server, for every table token", () => {

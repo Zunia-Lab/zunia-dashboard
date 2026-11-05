@@ -31,7 +31,10 @@ function XGlyph() {
 
 /** One glyph per row, none shared: two rows with one icon read as one kind of thing. */
 const ITEMS: ReadonlyArray<{ icon: IconName | ReactElement; label: string; detail: string; href: string }> = [
-  { icon: "help", label: "Docs", detail: "docs.zunialab.com", href: LINKS.docs },
+  { icon: "help", label: "Help center", detail: "zunialab.com/support", href: LINKS.support },
+  { icon: "danger", label: "Report a problem", detail: "updates.zunialab.com", href: LINKS.report },
+  { icon: "send", label: "Email support", detail: LINKS.supportEmail, href: LINKS.supportMail },
+  { icon: "list", label: "Docs", detail: "docs.zunialab.com", href: LINKS.docs },
   { icon: "sparkle", label: "Updates", detail: "updates.zunialab.com", href: LINKS.updates },
   { icon: "link", label: "Source code", detail: "Zunia-Lab/zunia-dashboard", href: LINKS.source },
   { icon: "layers", label: "License", detail: "Apache 2.0", href: LICENSE_URL },
