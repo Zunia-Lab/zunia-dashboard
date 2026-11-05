@@ -15,6 +15,7 @@ import {
   readBalancesResponse,
   readChannelCheckResponse,
   readChannelsResponse,
+  readPairChannelsResponse,
   readPlanResponse,
   readTxStatusResponse,
   readTraceResponse,
@@ -22,6 +23,7 @@ import {
   type ChannelCheckResponse,
   type ChannelsResponse,
   type InterchainFailure,
+  type PairChannelsResponse,
   type PlanResponse,
   type RoutePlanWire,
   type TrackResponse,
@@ -185,6 +187,15 @@ export async function fetchPlan(
   signal?: AbortSignal,
 ): Promise<PlanResponse> {
   return readPlanResponse(await postJson("/api/interchain/plan", input, signal));
+}
+
+/** The channels from `from` to `to`, verified on both chains; independent of any amount. */
+export async function fetchPairChannels(
+  params: { readonly from: string; readonly to: string },
+  signal?: AbortSignal,
+): Promise<PairChannelsResponse> {
+  const query = new URLSearchParams({ from: params.from, to: params.to });
+  return readPairChannelsResponse(await getJson(`/api/interchain/channels?${query.toString()}`, signal));
 }
 
 export interface TrackInput {

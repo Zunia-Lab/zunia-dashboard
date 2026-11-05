@@ -102,7 +102,8 @@ import { chainName } from "./names";
 import type { TransferPrefill } from "./prefill";
 import { RecentTransfers } from "./RecentTransfers";
 import { RouteSection } from "./RouteSection";
-import { channelVerdict } from "./RouteView";
+import { hopVerdict, pairsToCheck } from "./channel-check";
+import { useChannelChecks } from "./useChannelChecks";
 import { SIDE_STACK, Stat, StatStrip } from "./StatStrip";
 import { TransferTracker } from "./TransferTracker";
 import { ResultHeader, ReviewPanel, SignProgress } from "./TxFlow";
@@ -333,6 +334,8 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
   }, [asset, sender, toChainId, recipient, amountBase, overrides]);
   const plan = usePlan(planInput);
   const candidate = plan.data?.candidates[0] ?? null;
+  // Shared with the route view: the same checks, answered once.
+  const channelChecks = useChannelChecks(pairsToCheck(fromChainId, toChainId, candidate?.plan.hops ?? []));
   const hop = candidate?.plan.hops[0] ?? null;
   const sendAmount = isPositive(amountBase) && asset && !exceeds(amountBase, asset.liquid) ? amountBase : null;
   // Built for the fee preview now, and again at signing: the packet's
@@ -621,7 +624,7 @@ function BridgeBody({ prefill }: { prefill: TransferPrefill }) {
             key: "route",
             label: "Route",
             value: `${candidate.plan.hops.length === 1 ? "Direct, 1 hop" : `${candidate.plan.hops.length} hops`} · ${hop?.channelId ?? ""}`,
-            sub: channelVerdict(candidate.links[0]).label,
+            sub: hopVerdict(candidate.links[0], channelChecks).label,
           },
           {
             key: "fee",

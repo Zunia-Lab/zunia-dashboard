@@ -202,6 +202,8 @@ export interface DiscoveryFailure {
   readonly fromChainId: string;
   readonly toChainId: string;
   readonly message: string;
+  /** The pair is still being read (its first check can take a minute or two); asking again soon will answer. */
+  readonly pending?: boolean;
 }
 
 export interface DiscoveryResult {
@@ -400,6 +402,7 @@ export async function discoverLinks(
         failures.push({
           fromChainId,
           toChainId,
+          ...(error instanceof StillDiscovering ? { pending: true } : {}),
           message:
             error instanceof StillDiscovering
               ? `Zunia is still reading ${label(fromChainId)}'s channel list for a route to ${label(toChainId)}. The first check of a pair can take a minute or two; try again shortly and it will answer at once.`

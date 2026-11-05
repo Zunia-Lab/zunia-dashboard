@@ -940,3 +940,37 @@ export function readBalancesResponse(value: unknown): BalancesResponse {
     notes: stringList(row.notes),
   };
 }
+
+/* -------------------------------------------------------------------------- *
+ * Pair channels (`/api/interchain/channels`)
+ * -------------------------------------------------------------------------- */
+
+/** The channels from one network to another as read from both chains, before any amount. */
+export type PairChannelsResponse =
+  | {
+      readonly ok: true;
+      readonly links: readonly ChannelLinkWire[];
+      /** The pair's first check is still running: ask again shortly. */
+      readonly pending: boolean;
+      readonly failures: readonly string[];
+    }
+  | InterchainFailure;
+
+export function readPairChannelsResponse(value: unknown): PairChannelsResponse {
+  const failure = readFailure(value);
+  if (failure) return failure;
+  const row = record(value);
+  if (!row || row.ok !== true) {
+    return {
+      ok: false,
+      code: "malformed-response",
+      message: "The channel check answered with something this build cannot read.",
+    };
+  }
+  return {
+    ok: true,
+    links: readList(row.links, readLink),
+    pending: bool(row.pending),
+    failures: stringList(row.failures),
+  };
+}

@@ -27,7 +27,9 @@ import type { AsyncStatus } from "@/lib/interchain/hooks";
 import type { InterchainFailure, PlanCandidateWire, PlanResponseBody } from "@/lib/interchain/wire";
 import { cn } from "@/lib/cn";
 import { channelLegs, strangerChannels, type HistoryChannel, type RouteTiming } from "./logic";
+import { pairsToCheck } from "./channel-check";
 import { HistoryChannelHint, RouteView } from "./RouteView";
+import { useChannelChecks } from "./useChannelChecks";
 
 interface Settled {
   pair: string;
@@ -73,6 +75,10 @@ export function RouteSection({
   const shown = status === "ready" ? { data, candidate } : replanning && kept ? { data: kept.data, candidate: kept.candidate } : { data, candidate };
   const ready = (status === "ready" || replanning) && fromChainId !== null && toChainId !== null;
 
+  // The channels are checked as soon as both networks are known, whatever the
+  // amount, then on every hop of the planned route.
+  const checks = useChannelChecks(pairsToCheck(fromChainId, toChainId, shown.candidate?.plan.hops ?? []));
+
   const manual = Object.keys(overrides).length > 0;
   const strangers = shown.candidate ? strangerChannels(shown.candidate.links, overrides) : [];
   const usable = shown.candidate !== null && strangers.length === 0;
@@ -88,6 +94,7 @@ export function RouteSection({
           onRetry={onRetry}
           observed={observed}
           idleText={idleText}
+          checks={checks}
         />
       </div>
       {ready && !usable && historyChannel && !manual ? (

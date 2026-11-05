@@ -112,7 +112,8 @@ import type { TransferPrefill } from "./prefill";
 import { RecentTransfers } from "./RecentTransfers";
 import { QuickRecipients, RecipientInsight } from "./RecipientHelpers";
 import { RouteSection } from "./RouteSection";
-import { channelVerdict } from "./RouteView";
+import { hopVerdict, pairsToCheck } from "./channel-check";
+import { useChannelChecks } from "./useChannelChecks";
 import { SIDE_STACK, Stat, StatStrip } from "./StatStrip";
 import { TransferTracker } from "./TransferTracker";
 import { ResultHeader, ReviewPanel, SignProgress } from "./TxFlow";
@@ -269,6 +270,8 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
   }, [mode, asset, sender, destChainId, recipient, amountBase, overrides]);
   const plan = usePlan(planInput);
   const candidate = plan.data?.candidates[0] ?? null;
+  // Shared with the route view: the same checks, answered once.
+  const channelChecks = useChannelChecks(pairsToCheck(asset?.chainId ?? null, destChainId, candidate?.plan.hops ?? []));
   const firstHop = candidate?.plan.hops[0] ?? null;
 
   /* ------------------------------------------------------------- message + fee */
@@ -584,7 +587,7 @@ function SendBody({ prefill }: { prefill: TransferPrefill }) {
                 key: "route",
                 label: "Route",
                 value: `${chainName(asset.chainId)} → ${chainName(destChainId)}`,
-                sub: `${candidate.plan.hops.length === 1 ? "1 hop" : `${candidate.plan.hops.length} hops`} · ${candidate.plan.hops[0]?.channelId ?? ""} · ${channelVerdict(candidate.links[0]).label}`,
+                sub: `${candidate.plan.hops.length === 1 ? "1 hop" : `${candidate.plan.hops.length} hops`} · ${candidate.plan.hops[0]?.channelId ?? ""} · ${hopVerdict(candidate.links[0], channelChecks).label}`,
               }
             : { key: "network", label: "Network", value: chain.chainName, sub: "On-chain send, no bridge" },
           {
