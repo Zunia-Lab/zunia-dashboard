@@ -58,11 +58,11 @@ const EXTENSION_SCHEMES = "chrome-extension: moz-extension: safari-web-extension
  */
 const REPORT_ONLY_CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${EXTENSION_SCHEMES}`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${EXTENSION_SCHEMES} https://www.googletagmanager.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data: blob:",
   "font-src 'self'",
-  `connect-src 'self' ${connectOrigins().join(" ")}`,
+  `connect-src 'self' ${connectOrigins().join(" ")} https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "media-src 'self' blob:",

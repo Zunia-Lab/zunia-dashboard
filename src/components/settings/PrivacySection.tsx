@@ -8,7 +8,8 @@
  * The statements here are about how the dashboard is built and are kept
  * true by it: the browser talks only to this site's own /api (plus the
  * wallet and the Zunia Connect relay), push is opt-in, and no analytics
- * script is loaded.
+ * script is loaded unless Google Analytics is configured for this build and
+ * the visitor allowed it (the switch below).
  *
  * "Clear local data" is the shared-computer exit, so it reaches past this
  * tab's storage: the wallet is disconnected, push for this browser is
@@ -19,7 +20,10 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { NFT_MEDIA_PRIVACY_NOTE } from "@zunialab/ui";
 import { Icon, type IconName } from "@/components/icons";
+import { ANALYTICS_CONFIGURED } from "@/components/analytics/Analytics";
 import { Button, Dialog, Switch } from "@/components/ui";
+import { GA_MEASUREMENT_ID } from "@/config/analytics";
+import { disableAnalytics, type AnalyticsEnv } from "@/lib/analytics/consent";
 import { announceDisconnect } from "@/lib/connect/walletHint";
 import { stopPush } from "@/lib/data/push";
 import { clearApiCache } from "@/lib/useApi";
@@ -69,7 +73,7 @@ const WHERE: ReadonlyArray<{ icon: IconName; title: string; body: string }> = [
 ];
 
 export function PrivacySection() {
-  const { nftMedia, setNftMedia, nftMediaBlockedReason } = usePrefs();
+  const { nftMedia, setNftMedia, nftMediaBlockedReason, analytics, setAnalytics } = usePrefs();
   const { account, disconnect } = useWallet();
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -92,6 +96,8 @@ export function PrivacySection() {
       await stopPush().catch(() => undefined);
     };
     await Promise.race([leave(), new Promise<void>((resolve) => window.setTimeout(resolve, LEAVE_WAIT_MS))]);
+    // The choice is cleared with the rest, so Google's cookies go with it.
+    if (ANALYTICS_CONFIGURED) disableAnalytics(GA_MEASUREMENT_ID, { document, window } as unknown as AnalyticsEnv);
     try {
       clearDashboardData([window.localStorage, window.sessionStorage]);
     } catch {
@@ -121,7 +127,27 @@ export function PrivacySection() {
           </li>
         ))}
       </ul>
-      <p className="-mt-1 pb-3.5 text-[12.5px] text-fg-dim">No analytics or tracking scripts run on this dashboard.</p>
+      <p className="-mt-1 pb-3.5 text-[12.5px] text-fg-dim">
+        {ANALYTICS_CONFIGURED
+          ? "No tracking scripts run on this dashboard. Analytics loads only if you allow it below."
+          : "No analytics or tracking scripts run on this dashboard."}
+      </p>
+
+      {ANALYTICS_CONFIGURED ? (
+        <SettingRow
+          title="Anonymous analytics"
+          inline
+          controlId="setting-analytics"
+          description="Google Analytics page views, only if you allow them. Only page names are sent: never addresses, transaction hashes, amounts, balances or anything you type. Turning it off stops it and deletes its cookies."
+          control={
+            <Switch
+              id="setting-analytics"
+              checked={analytics === "granted"}
+              onCheckedChange={(next) => setAnalytics(next ? "granted" : "denied")}
+            />
+          }
+        />
+      ) : null}
 
       <SettingRow
         title="Show NFT artwork"
