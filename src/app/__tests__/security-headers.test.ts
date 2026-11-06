@@ -64,6 +64,14 @@ test("every response carries the baseline security headers", async () => {
   }
   // Zunia Connect: pairing over https and the relay socket over wss.
   assert.match(reportOnly, /connect-src 'self'[^;]* https:\/\/api\.zunialab\.com[^;]* wss:\/\/api\.zunialab\.com/);
+  // Google Analytics (loaded only after consent): the script host, and the
+  // collection endpoints. Nothing else gains script or connect access.
+  assert.match(reportOnly, /script-src[^;]* https:\/\/www\.googletagmanager\.com/);
+  const connect = /connect-src[^;]*/.exec(reportOnly)?.[0] ?? "";
+  for (const origin of ["https://*.google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"]) {
+    assert.ok(connect.includes(origin), origin);
+  }
+  assert.doesNotMatch(reportOnly, /script-src[^;]*https:(?!\/\/www)/);
   if (process.env.NODE_ENV !== "development") {
     assert.doesNotMatch(reportOnly, /unsafe-eval/, "eval is a development-only allowance");
   }

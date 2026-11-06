@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 import { syncPushPrivacy } from "@/lib/data/push";
 import { VIEW_STORAGE_KEY } from "@/components/shell/theme-boot";
+import { CONSENT_KEY, type Consent } from "@/lib/analytics/consent";
 import { useStoredValue } from "@/lib/useStoredValue";
 
 const HIDE_KEY = "zunia.dashboard.hideAmounts";
@@ -64,6 +65,9 @@ interface Prefs {
   setViewMode: (value: ViewMode) => void;
   /** Shorthand for `viewMode === "lite"`. */
   lite: boolean;
+  /** The analytics choice: null until the visitor answers. */
+  analytics: Consent | null;
+  setAnalytics: (value: Consent) => void;
 }
 
 const PrefsContext = createContext<Prefs | null>(null);
@@ -77,6 +81,8 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   const [nftMedia, setNftMedia] = useStoredValue(NFT_MEDIA_KEY, false);
   const [insightsOn, setInsightsOn] = useStoredValue(INSIGHTS_KEY, true);
   const [storedView, setViewMode] = useStoredValue<ViewMode>(VIEW_KEY, "pro");
+  const [storedAnalytics, setAnalytics] = useStoredValue<Consent | null>(CONSENT_KEY, null);
+  const analytics = storedAnalytics === "granted" || storedAnalytics === "denied" ? storedAnalytics : null;
   const viewMode: ViewMode = storedView === "lite" ? "lite" : "pro";
 
   // CSS reads the view from <html data-view> (the `lite:` variant): keep it in
@@ -115,8 +121,10 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
       viewMode,
       setViewMode,
       lite: viewMode === "lite",
+      analytics,
+      setAnalytics,
     }),
-    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia, insightsOn, setInsightsOn, viewMode, setViewMode],
+    [hideAmounts, toggleHideAmounts, currency, setCurrency, nftMedia, setNftMedia, insightsOn, setInsightsOn, viewMode, setViewMode, analytics, setAnalytics],
   );
 
   return (

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { ThemeProvider, useTheme } from "@zunialab/ui";
 import { THEME_COLORS, THEME_STORAGE_KEY, applyDocumentTheme, resolveBootTheme } from "@/components/shell/theme-boot";
+import { Analytics } from "@/components/analytics/Analytics";
 import { Toaster } from "@/components/ui";
 import { useServiceWorkerBridge } from "@/lib/data/push";
 import { PrefsProvider } from "@/providers/PrefsProvider";
@@ -27,6 +28,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <ServiceWorkerBridge />
           {children}
           <Toaster />
+          <Analytics />
         </WalletProvider>
       </PrefsProvider>
     </ThemeProvider>
