@@ -87,9 +87,9 @@ export interface LegacyMobileSession {
 export interface MobileState extends MobileSnapshot {
   /**
    * Pair a phone. Requests the home chain + followed chains by default, or
-   * `chains` (a chain picker); either way the home chain comes first,
-   * Ethereum-key chains are left out (the phone does not share them) and at
-   * most 32 are asked for. Never throws: the outcome is in the snapshot.
+   * `chains` (a chain picker); either way the home chain comes first and at
+   * most 32 are asked for, Ethereum-key chains included. Pairing again ends
+   * the current phone session. Never throws: the outcome is in the snapshot.
    */
   start: (options?: { chains?: string[] }) => Promise<void>;
   /** Stop waiting and end the relay session. */

@@ -18,7 +18,7 @@
 
 import { useCallback } from "react";
 import { Page } from "@/components/shell/Page";
-import { ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
+import { NoAddressHint, ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
 import { Button, Callout, EmptyState, useNow, useReducedMotion } from "@/components/ui";
 import { findChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
@@ -116,7 +116,7 @@ function OverviewBody() {
         action={<ShareAddressesAction chainIds={portfolio.accounts.skipped.length > 0 ? portfolio.accounts.skipped : scopedChainIds} />}
       >
         Your wallet hasn&apos;t shared an address on {skipped.length > 0 ? skipped.join(", ") : "the selected networks"}, so there is
-        nothing to read. Approve them in your wallet, or pick another scope on the rail.
+        nothing to read. <NoAddressHint />
       </Callout>
     );
   }
