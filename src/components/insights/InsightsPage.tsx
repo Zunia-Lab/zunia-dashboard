@@ -17,6 +17,7 @@
  * its previous answer on screen, dimmed, while a new scope loads.
  */
 
+import { ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Page } from "@/components/shell/Page";
 import { Button, Callout, EmptyState, InlineError, useNow, useReducedMotion, type PartialError } from "@/components/ui";
@@ -181,7 +182,11 @@ function InsightsBody() {
   if (portfolio.status === "idle" && staking.status === "idle") {
     const skipped = portfolio.accounts.skipped.map((chainId) => findChain(chainId)?.chainName ?? chainId);
     return (
-      <Callout tone="warning" title="No address for these networks">
+      <Callout
+        tone="warning"
+        title="No address for these networks"
+        action={<ShareAddressesAction chainIds={portfolio.accounts.skipped} />}
+      >
         Your wallet hasn&apos;t shared an address on {skipped.length > 0 ? skipped.join(", ") : "the selected networks"}, so there is nothing to
         read. Approve them in your wallet, or pick another scope on the rail.
       </Callout>
