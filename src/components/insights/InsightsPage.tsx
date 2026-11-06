@@ -17,7 +17,7 @@
  * its previous answer on screen, dimmed, while a new scope loads.
  */
 
-import { ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
+import { NoAddressHint, ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Page } from "@/components/shell/Page";
 import { Button, Callout, EmptyState, InlineError, useNow, useReducedMotion, type PartialError } from "@/components/ui";
@@ -188,7 +188,7 @@ function InsightsBody() {
         action={<ShareAddressesAction chainIds={portfolio.accounts.skipped} />}
       >
         Your wallet hasn&apos;t shared an address on {skipped.length > 0 ? skipped.join(", ") : "the selected networks"}, so there is nothing to
-        read. Approve them in your wallet, or pick another scope on the rail.
+        read. <NoAddressHint />
       </Callout>
     );
   }

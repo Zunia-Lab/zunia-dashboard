@@ -368,14 +368,19 @@ test("open app link: the wake link for a session, the app's scheme without one",
   assert.equal(sessionIdOf(undefined), undefined);
 });
 
-test("pairing chains: home first, followed, no Ethereum-key chains, unknown dropped, ≤ 32", () => {
+test("pairing chains: home first, followed, Ethereum-key chains too, unknown dropped, ≤ 32", () => {
   const lookup = (id: string) =>
-    id.startsWith("evm") ? { coinType: 60 } : id === "unknown" ? undefined : { coinType: 118 };
-  assert.deepEqual(pairingChains("safrochain-1", ["cosmoshub-4", "safrochain-1", "evmos", "unknown", "osmosis-1"], lookup), [
-    "safrochain-1",
-    "cosmoshub-4",
-    "osmosis-1",
-  ]);
+    id.startsWith("evm") || id.startsWith("injective")
+      ? { coinType: 60, features: ["eth-address-gen", "eth-key-sign"] }
+      : id === "unknown"
+        ? undefined
+        : { coinType: 118 };
+  // The phone derives and signs Ethereum-key chains with the kernel, so they
+  // are asked for: leaving them out left Injective with no address at all.
+  assert.deepEqual(
+    pairingChains("safrochain-1", ["cosmoshub-4", "safrochain-1", "evmos", "unknown", "injective-1", "osmosis-1"], lookup),
+    ["safrochain-1", "cosmoshub-4", "evmos", "injective-1", "osmosis-1"],
+  );
   const many = Array.from({ length: 50 }, (_, i) => `chain-${i}`);
   assert.equal(pairingChains("safrochain-1", many, lookup).length, MAX_MOBILE_CHAINS);
 });

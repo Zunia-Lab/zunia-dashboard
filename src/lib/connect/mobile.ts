@@ -188,8 +188,14 @@ export function endReasonError(reason: string): MobileError {
 
 /**
  * The chains to request at pairing: the home chain first, then the followed
- * chains, catalog-known, without Ethereum-key chains (the phone shares
- * secp256k1 Cosmos keys only and skips them), at most 32.
+ * chains, catalog-known, at most 32.
+ *
+ * Ethereum-key chains (Injective, Evmos, Dymension…) are asked for like any
+ * other. This used to leave them out because the phone could not sign for
+ * them; it has derived and signed them with the kernel (keccak, `eth_secp256k1`)
+ * since 2026-10-18, before its first release, but a dashboard paired with a
+ * phone still showed "No address for these networks" on Injective, with no
+ * way to ask for it.
  */
 export function pairingChains(
   homeChainId: string,
@@ -199,9 +205,7 @@ export function pairingChains(
   const out: string[] = [];
   for (const chainId of [homeChainId, ...followed]) {
     if (out.includes(chainId)) continue;
-    const chain = lookup(chainId);
-    if (!chain) continue;
-    if (chain.coinType === 60 || chain.features?.includes("eth-key-sign")) continue;
+    if (!lookup(chainId)) continue;
     out.push(chainId);
     if (out.length >= MAX_MOBILE_CHAINS) break;
   }
