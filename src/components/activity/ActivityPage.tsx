@@ -22,6 +22,7 @@
  * trip.
  */
 
+import { ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Page } from "@/components/shell/Page";
 import { Button, Card, EmptyState, InlineError, PartialDataBadge, SourceTag, chainById, csvFileName, downloadCsv, toast, useNow } from "@/components/ui";
@@ -295,9 +296,12 @@ function ActivityView({ initialFilters }: ActivityPageProps) {
               : "Follow a network to see its activity here."
           }
           action={
-            <Button size="sm" variant="secondary" href="/networks" iconLeft="networks">
-              Manage networks
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <ShareAddressesAction chainIds={activity.unavailableChains} />
+              <Button size="sm" variant="secondary" href="/networks" iconLeft="networks">
+                Manage networks
+              </Button>
+            </div>
           }
         />
       </Card>

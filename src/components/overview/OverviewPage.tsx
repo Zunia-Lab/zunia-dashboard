@@ -18,6 +18,7 @@
 
 import { useCallback } from "react";
 import { Page } from "@/components/shell/Page";
+import { ShareAddressesAction } from "@/components/wallet/ShareAddressesAction";
 import { Button, Callout, EmptyState, useNow, useReducedMotion } from "@/components/ui";
 import { findChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
@@ -109,7 +110,11 @@ function OverviewBody() {
 
   if (portfolio.status === "idle") {
     return (
-      <Callout tone="warning" title="No address for these networks">
+      <Callout
+        tone="warning"
+        title="No address for these networks"
+        action={<ShareAddressesAction chainIds={portfolio.accounts.skipped.length > 0 ? portfolio.accounts.skipped : scopedChainIds} />}
+      >
         Your wallet hasn&apos;t shared an address on {skipped.length > 0 ? skipped.join(", ") : "the selected networks"}, so there is
         nothing to read. Approve them in your wallet, or pick another scope on the rail.
       </Callout>
