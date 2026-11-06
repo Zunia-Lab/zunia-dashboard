@@ -8,7 +8,7 @@
  *
  * TODO(main session): fill this in once the property's ID is known.
  */
-export const GA_MEASUREMENT_ID = "";
+export const GA_MEASUREMENT_ID = "G-683TD5N13R";
 
 /** The only host analytics may run on (never previews, localhost or mirrors). */
 export const ANALYTICS_HOST = "app.zunialab.com";
