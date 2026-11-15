@@ -23,6 +23,7 @@
 import type { ActivityItem } from "@/lib/activity/types";
 import type { ProposalRow, StakingChain } from "@/lib/chain/types";
 import { formatTokenAmount } from "@/lib/format";
+import { tokenPhrase } from "@/lib/token/text";
 import type {
   ActivityDirection,
   ActivityInput,
@@ -150,7 +151,7 @@ export function activityInputs(items: readonly ActivityItem[]): ActivityInput[] 
       direction: directionOf(item),
       ...(item.ibc?.sourceChainId ? { counterpartyChainId: item.ibc.sourceChainId } : {}),
       ...(incoming
-        ? { amountText: amountText(incoming.amount, incoming.identity.decimals, incoming.identity.ticker) }
+        ? { amountText: amountText(incoming.amount, incoming.identity.decimals, tokenPhrase(incoming.identity)) }
         : {}),
     };
   });

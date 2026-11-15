@@ -175,3 +175,17 @@ function matchRank(identity: TokenIdentity, query: string, chainName: string | u
   if ([identity.denom, identity.originDenom].some((denom) => denom?.toLowerCase().includes(query))) return 7;
   return null;
 }
+
+/**
+ * The words that name a token inside a sentence about an amount somebody
+ * else moved: "USDC.inj" where it is at home (Injective), "USDC.inj
+ * (Injective USDC)" anywhere it arrived from elsewhere, so a reader sees what
+ * it is and where it came from, never the holding chain's own symbol.
+ * An unknown voucher keeps its short denom form ("IBC·498A"), no name.
+ */
+export function tokenPhrase(identity: Pick<TokenIdentity, "ticker" | "name" | "provenance" | "originChainId" | "chainId" | "listed">): string {
+  if (identity.provenance === "unknown") return identity.ticker;
+  const home = !identity.originChainId || identity.originChainId === identity.chainId;
+  if (home || identity.listed === false || !identity.name || identity.name === identity.ticker) return identity.ticker;
+  return `${identity.ticker} (${identity.name})`;
+}

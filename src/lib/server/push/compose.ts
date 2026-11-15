@@ -28,6 +28,8 @@ export interface NamedCoin {
   readonly denom: string;
   /** Registry ticker, or null when nothing trustworthy names it (never a minter-chosen name). */
   readonly ticker: string | null;
+  /** Where it is from, in words ("USDC.inj (Injective USDC)" is `ticker` + `name`); null when at home or unnamed. */
+  readonly name?: string | null;
   /** Known decimals, or null. */
   readonly decimals: number | null;
 }
@@ -66,7 +68,8 @@ export interface CoinWords {
 /** One coin in words, or null when its only possible name is attacker-chosen text. */
 export function coinWords(coin: NamedCoin): CoinWords | null {
   if (coin.ticker && coin.decimals !== null) {
-    return { text: `${formatBaseUnits(coin.amount, coin.decimals)} ${coin.ticker}`, named: true };
+    const label = coin.name && coin.name !== coin.ticker ? `${coin.ticker} (${coin.name})` : coin.ticker;
+    return { text: `${formatBaseUnits(coin.amount, coin.decimals)} ${label}`, named: true };
   }
   if (/^ibc\/[0-9A-Fa-f]{64}$/.test(coin.denom)) {
     return { text: `${coin.amount} base units of ${shortDenom(coin.denom)}`, named: false };

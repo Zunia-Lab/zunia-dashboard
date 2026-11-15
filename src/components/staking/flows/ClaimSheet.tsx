@@ -37,8 +37,8 @@ import { chainMeta } from "../hooks";
 import { positive, sumBase, toWhole, valueOf } from "../model";
 import { TxSheet } from "./TxSheet";
 
-/** Messages a chain accepts per transaction (the flow's own cap). */
-const MAX_CLAIMS = 32;
+/** Messages a chain accepts per transaction (16 claims, or 16 claim+restake pairs, stay under the gas ceiling on the heaviest chain: the Hub, ~380k gas per claim). */
+const MAX_CLAIMS = 16;
 
 export interface ClaimSheetProps {
   open: boolean;
