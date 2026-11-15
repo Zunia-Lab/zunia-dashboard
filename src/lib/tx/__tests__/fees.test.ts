@@ -20,9 +20,10 @@ test("gas limit is ceil(gas used × 1.4)", () => {
   assert.throws(() => gasLimitFromSimulation("0"));
 });
 
-test("tiny simulations are floored at a usable limit, huge ones capped", () => {
+test("tiny simulations are floored at a usable limit; one past a block is refused, not clamped", () => {
   assert.equal(gasLimitFromSimulation("10"), 50_000);
-  assert.equal(gasLimitFromSimulation("99999999999"), 10_000_000);
+  assert.equal(gasLimitFromSimulation("25000000"), 30_000_000); // 35M clamped to the ceiling, still above what it uses
+  assert.throws(() => gasLimitFromSimulation("99999999999"));
 });
 
 test("fee = ceil(gas limit × gas price) in the fee denom, with an exact display amount", () => {
@@ -79,4 +80,11 @@ test("fallback gas: the costliest message in full, the rest at a quarter", () =>
   assert.equal(fallbackGasLimit([send]), 150_000);
   assert.equal(fallbackGasLimit([claim, claim, claim]), 800_000 + 200_000 * 2);
   assert.equal(fallbackGasLimit([send, claim]), 800_000 + Math.ceil(150_000 / 4));
+});
+
+test("a big claim keeps its margin: 32 Hub claims (~12M gas used) are not clamped below what they use", () => {
+  const limit = gasLimitFromSimulation("12160000");
+  assert.equal(limit, 17_024_000);
+  assert.ok(limit >= 12_160_000);
+  assert.throws(() => gasLimitFromSimulation("40000000"), /smaller parts/);
 });

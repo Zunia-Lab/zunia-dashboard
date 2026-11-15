@@ -286,6 +286,42 @@ test("sequence mismatch at broadcast: re-signed once with the expected sequence"
   );
 });
 
+test("the sequence moves twice: re-signed twice, each time with exactly the one the node names", async () => {
+  let broadcasts = 0;
+  const { calls, opts } = harness({
+    api: {
+      broadcast: async (chainId, txBytes) => {
+        calls.broadcast.push(txBytes);
+        broadcasts += 1;
+        const mismatch = (expected: number) => ({ chainId, txHash: "B".repeat(64), code: 32, codespace: "sdk", rawLog: `account sequence mismatch, expected ${expected}, got ${expected - 1}: incorrect account sequence`, success: false, updatedAt: 0 });
+        if (broadcasts === 1) return mismatch(367);
+        if (broadcasts === 2) return mismatch(368);
+        return { chainId, txHash: "C".repeat(64), code: 0, codespace: "", rawLog: "", success: true, updatedAt: 0 };
+      },
+    },
+  });
+  const result = await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send] }, opts);
+  assert.equal(result.txHash, "C".repeat(64));
+  assert.deepEqual(calls.signAmino.map((d) => d.sequence), ["366", "367", "368"]);
+});
+
+test("a node expecting a lower sequence than the account endpoint said is believed", async () => {
+  let broadcasts = 0;
+  const { calls, opts } = harness({
+    api: {
+      broadcast: async (chainId, txBytes) => {
+        calls.broadcast.push(txBytes);
+        broadcasts += 1;
+        return broadcasts === 1
+          ? { chainId, txHash: "B".repeat(64), code: 32, codespace: "sdk", rawLog: "account sequence mismatch, expected 365, got 366: incorrect account sequence", success: false, updatedAt: 0 }
+          : { chainId, txHash: "C".repeat(64), code: 0, codespace: "", rawLog: "", success: true, updatedAt: 0 };
+      },
+    },
+  });
+  await signAndBroadcast({ chainId: CHAIN.chainId, messages: [send] }, opts);
+  assert.deepEqual(calls.signAmino.map((d) => d.sequence), ["366", "365"]);
+});
+
 test("a rejection at broadcast is explained, keeps the hash for support, and is not on chain", async () => {
   const stageHashes: Array<string | undefined> = [];
   const { opts } = harness({

@@ -317,7 +317,7 @@ async function incomingNotice(
   const coins: NamedCoin[] = event.coins.map((coin) => {
     const identity = identities.get(coin.denom);
     return trustedIdentity(identity)
-      ? { ...coin, ticker: identity.ticker, decimals: identity.decimals }
+      ? { ...coin, ticker: identity.ticker, decimals: identity.decimals, name: identity.originChainId && identity.originChainId !== identity.chainId ? identity.name : null }
       : { ...coin, ticker: null, decimals: null };
   });
   let sourceChainName: string | null = null;

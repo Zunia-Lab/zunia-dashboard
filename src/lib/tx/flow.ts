@@ -160,6 +160,8 @@ export interface TxPlan {
   memo: string;
 }
 
+/** Signing rounds per request: a sequence that moved under us (another device, a block in between) is re-signed twice at most. */
+const MAX_ATTEMPTS = 3;
 const MAX_MESSAGES = 64;
 const MAX_MEMO_BYTES = 256;
 
@@ -212,9 +214,15 @@ export function memoProblem(memo: string | undefined): string | null {
   return null;
 }
 
-function maxSequence(a: string, b: string | null | undefined): string {
-  if (!b || !/^\d+$/.test(b)) return a;
-  return BigInt(b) > BigInt(a) ? b : a;
+/**
+ * The sequence to start from. A node that refused a broadcast named the one it
+ * expects (`expected`): that is authoritative over what the account endpoint
+ * said, in both directions. The endpoint may lag behind (a pending transaction
+ * from another device) or, behind a load balancer, run ahead of the node that
+ * takes the broadcast; taking the larger of the two would repeat the mismatch.
+ */
+export function startSequence(read: string, expected: string | null | undefined): string {
+  return expected && /^\d+$/.test(expected) ? BigInt(expected).toString() : read;
 }
 
 /**
@@ -301,7 +309,7 @@ export async function planTx(req: SignRequest, opts: FlowOptions, minSequence?: 
     memo,
     opts.api,
     encodePubKeyAny(key.pubKey, pubKeyTypeUrl),
-    maxSequence(account.sequence, minSequence),
+    startSequence(account.sequence, minSequence),
   );
   const fee = computeFee(opts.chain, measured.gas.gasLimit, req.feeTier ?? "average");
   return {
@@ -533,7 +541,7 @@ export async function signAndBroadcast(req: SignRequest, opts: FlowOptions): Pro
   let knownHash: string | null = null;
   try {
     let minSequence: string | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       stage("preparing");
       const plan = await planTx(req, opts, minSequence);
       stage("awaiting-signature");
@@ -542,7 +550,7 @@ export async function signAndBroadcast(req: SignRequest, opts: FlowOptions): Pro
       const answer = await opts.api.broadcast(req.chainId, toBase64(signed.txRaw), plan.signer.address);
       if (answer.code !== 0 && !alreadyKnown(answer)) {
         const explained = explainTxError(answer.rawLog, { code: answer.code, codespace: answer.codespace });
-        if (explained.kind === "sequence-mismatch" && attempt === 0) {
+        if (explained.kind === "sequence-mismatch" && attempt < MAX_ATTEMPTS - 1) {
           minSequence = explained.expectedSequence;
           continue;
         }

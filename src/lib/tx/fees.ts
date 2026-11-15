@@ -42,7 +42,13 @@ export const FALLBACK_GAS: Record<MessageKind, number> = {
 };
 
 const MIN_GAS = 50_000;
-const MAX_GAS = 10_000_000;
+/**
+ * Above any block's per-transaction gas on the curated chains. Real claims
+ * need ~380k gas per validator on the Hub and ~230k on Osmosis (measured live,
+ * Nov 2026): 32 claims × 1.4 is over 10M, and a limit clamped below what the
+ * transaction uses is an out-of-gas failure the user pays for.
+ */
+const MAX_GAS = 30_000_000;
 
 function rational(value: number): { num: bigint; den: bigint } {
   if (!Number.isFinite(value) || value < 0) throw new Error(`${value} is not a usable number`);
@@ -69,6 +75,8 @@ export function gasLimitFromSimulation(gasUsed: string | number, adjustment = DE
   const adj = rational(adjustment);
   if (adj.num === BigInt(0)) throw new Error("Gas adjustment must be positive");
   const limit = Number(ceilDiv(used * adj.num, adj.den));
+  // Never sign a limit below what the simulation says the transaction uses.
+  if (used > BigInt(MAX_GAS)) throw new Error("This transaction needs more gas than a block allows. Send it in smaller parts.");
   return Math.min(Math.max(limit, MIN_GAS), MAX_GAS);
 }
 
