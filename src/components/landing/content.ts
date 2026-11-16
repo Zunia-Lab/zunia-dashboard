@@ -108,7 +108,7 @@ export const MARQUEE_ROWS: ReadonlyArray<readonly string[]> = [
     "migaloo-1",
     "chihuahua-1",
     "cheqd-mainnet-1",
-    "irishub-1",
+    "irishub-2",
     "sommelier-3",
     "bitsong-2b",
     "comdex-1",

@@ -28,19 +28,19 @@ test("curated mainnets index; other mainnets and testnets do not", () => {
 
   assert.equal(chainIndexable({ chainId: "chihuahua-1", network: "mainnet" }), false);
   assert.equal(chainIndexable({ chainId: "cosmoshub-4", network: "testnet" }), false);
-  const testnet = findChain("90u-4");
+  const testnet = findChain("atlantic-2");
   assert.ok(testnet);
   const testMeta = chainMetadata(testnet);
   assert.equal((testMeta.robots as { index: boolean }).index, false);
   assert.match(String(testMeta.title), /testnet/i);
-  // "Terp Testnet (90u-4) testnet" said it twice.
+  // "Sei Testnet (atlantic-2) testnet" said it twice.
   assert.equal((String(testMeta.title).match(/testnet/gi) ?? []).length, 1, String(testMeta.title));
 });
 
 test("chain pages share with the picture and the large card, indexed or not", () => {
   // A page's own openGraph replaces the root's whole: without the image
   // restated, a shared chain link was a bare "summary" card.
-  for (const chainId of ["cosmoshub-4", "chihuahua-1", "90u-4"]) {
+  for (const chainId of ["cosmoshub-4", "chihuahua-1", "atlantic-2"]) {
     const chain = findChain(chainId);
     assert.ok(chain, `${chainId} is in the catalog`);
     const meta = chainMetadata(chain);
