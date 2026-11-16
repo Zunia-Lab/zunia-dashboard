@@ -59,6 +59,7 @@ import {
   type SwapReview,
   type SwapTx,
 } from "@/lib/data/swap";
+import { RETRY_MIN_PENDING_MS } from "@/lib/retry-run";
 import { feeFromWire } from "@/lib/swap/fee";
 import { tickerAmount } from "@/lib/swap/format";
 import { explainError, TxError } from "@/lib/tx/errors";
@@ -98,6 +99,10 @@ export interface ReviewDialogProps {
   /** Token logos for the two sides (the review keeps only what signs). */
   icons: { from: string | null; to: string | null };
   onSigned: (swap: SignedSwap) => void;
+  /** The signature is about to start: the moment to remember the balances as they are. */
+  onSignStart?: (review: SwapReview) => void;
+  /** The cross-chain tracker reports the swap over (delivered, refunded, failed). */
+  onTrackerSettled?: (txHash: string) => void;
 }
 
 export function ReviewDialog(props: ReviewDialogProps) {
@@ -150,6 +155,8 @@ function ReviewContent({
   walletName,
   icons,
   onSigned,
+  onSignStart,
+  onTrackerSettled,
   onOpenChange,
   onBusyChange,
 }: ReviewDialogProps & { review: SwapReview; onBusyChange: (busy: boolean) => void }) {
@@ -158,6 +165,10 @@ function ReviewContent({
   const now = useTicker(1_000);
   const [signProblems, setSignProblems] = useState<string[]>([]);
   const [signed, setSigned] = useState<SignedSwap | null>(null);
+  // "Try again": pending while the attempt runs, and its outcome when it fails again.
+  const [retrying, setRetrying] = useState(false);
+  const [failedAgainAt, setFailedAgainAt] = useState<number | null>(null);
+  const attempting = useRef(false);
   // The stage an attempt last reached, to mark where a failure stopped it.
   const [lastActive, setLastActive] = useState<SignStage>("idle");
   if (signer.stage !== "failed" && signer.stage !== lastActive) setLastActive(signer.stage);
@@ -216,39 +227,65 @@ function ReviewContent({
   const busy = signer.busy;
 
   const sign = async () => {
-    setSignProblems([]);
-    let tx: SwapTx;
-    try {
-      tx = buildSwapTx(review);
-    } catch (error) {
-      setSignProblems([error instanceof Error ? error.message : "The swap could not be built."]);
-      return;
-    }
-    const found = checkSwapTx(review, tx.messages, { chainId: tx.chainId });
-    if (found.length > 0) {
-      setSignProblems(found);
-      return;
-    }
-    onBusyChange(true);
-    const sentence = mask(`${tickerAmount(spent, from)} for about ${tickerAmount(receive.amount, to)}`);
-    try {
-      const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memoContext: tx.memoContext });
-      const swap: SignedSwap = { review, txHash: result.txHash, chainId: result.chainId, confirmed: result.confirmed !== false, at: Date.now() };
-      setSigned(swap);
-      onSigned(swap);
-      const href = `/activity/${result.txHash}?chainId=${encodeURIComponent(result.chainId)}`;
-      if (result.confirmed === false) {
-        toast.info("Swap submitted", { description: `${sentence}. Not in a block yet: check Activity in a minute.`, action: { label: "View", href } });
-      } else {
-        toast.success(plan ? "Swap signed, delivery on its way" : "Swap confirmed", { description: `Swapped ${sentence}.`, action: { label: "View", href } });
+    // A second press while an attempt runs would only raise "already waiting".
+    if (attempting.current || signer.busy) return;
+    attempting.current = true;
+    const isRetry = signer.stage === "failed";
+    setRetrying(isRetry);
+    setFailedAgainAt(null);
+    const run = async (isRetry: boolean) => {
+      setSignProblems([]);
+      const failedAgain = () => {
+        if (isRetry) setFailedAgainAt(Date.now());
+      };
+      let tx: SwapTx;
+      try {
+        tx = buildSwapTx(review);
+      } catch (error) {
+        setSignProblems([error instanceof Error ? error.message : "The swap could not be built."]);
+        failedAgain();
+        return;
       }
-    } catch (error) {
-      const explained = error instanceof TxError ? error.explained : explainError(error);
-      toast.error(explained.title, { description: explained.message });
+      const found = checkSwapTx(review, tx.messages, { chainId: tx.chainId });
+      if (found.length > 0) {
+        setSignProblems(found);
+        failedAgain();
+        return;
+      }
+      onSignStart?.(review);
+      onBusyChange(true);
+      const sentence = mask(`${tickerAmount(spent, from)} for about ${tickerAmount(receive.amount, to)}`);
+      try {
+        const result = await signer.run({ chainId: tx.chainId, messages: tx.messages, memoContext: tx.memoContext });
+        const swap: SignedSwap = { review, txHash: result.txHash, chainId: result.chainId, confirmed: result.confirmed !== false, at: Date.now() };
+        setSigned(swap);
+        onSigned(swap);
+        const href = `/activity/${result.txHash}?chainId=${encodeURIComponent(result.chainId)}`;
+        if (result.confirmed === false) {
+          toast.info("Swap submitted", { description: `${sentence}. Not in a block yet: check Activity in a minute.`, action: { label: "View", href } });
+        } else {
+          toast.success(plan ? "Swap signed, delivery on its way" : "Swap confirmed", { description: `Swapped ${sentence}.`, action: { label: "View", href } });
+        }
+      } catch (error) {
+        const explained = error instanceof TxError ? error.explained : explainError(error);
+        toast.error(explained.title, { description: explained.message });
+        failedAgain();
+      } finally {
+        onBusyChange(false);
+      }
+    };
+
+    // A retry that fails at once still shows "Trying again…" long enough to be seen.
+    const floor = isRetry ? new Promise<void>((resolve) => window.setTimeout(resolve, RETRY_MIN_PENDING_MS)) : null;
+    try {
+      await run(isRetry);
+      await floor;
     } finally {
-      onBusyChange(false);
+      attempting.current = false;
+      setRetrying(false);
     }
   };
+
 
   const items: KeyValueItem[] = [
     {
@@ -348,10 +385,10 @@ function ReviewContent({
         Done
       </Button>
     );
-  } else if (busy) {
+  } else if (busy || retrying) {
     primary = (
       <Button variant="primary" loading>
-        {stageLabel(signer.stage)}
+        {retrying ? "Trying again…" : stageLabel(signer.stage)}
       </Button>
     );
   } else if (canAccept) {
@@ -392,6 +429,7 @@ function ReviewContent({
               {signer.stage === "failed" && signer.explained ? (
                 <p className="text-[12.5px] leading-snug text-fg-muted">
                   <span className="font-medium text-[var(--z-danger)]">{signer.explained.title}.</span> {signer.explained.message}
+                  {failedAgainAt !== null ? <span className="mt-1 block text-fg-dim">Still not working — tried again just now.</span> : null}
                 </p>
               ) : null}
               {signed && plan ? (
@@ -401,6 +439,7 @@ function ReviewContent({
                   expectedAmount={review.path === "pool-deliver" ? (quote.minOut ?? undefined) : review.fee.net}
                   recoveryAddress={review.recoveryAddress}
                   contractAddress={quote.contract?.address ?? null}
+                  onSettled={onTrackerSettled}
                 />
               ) : null}
               {signed ? (

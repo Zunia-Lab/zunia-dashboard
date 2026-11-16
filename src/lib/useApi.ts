@@ -46,7 +46,12 @@ export interface ApiState<T> {
   stale: boolean;
   /** Epoch ms of the last successful read. */
   updatedAt: number | null;
-  refetch: () => void;
+  /**
+   * Reads again now. The promise settles when that read has landed (or failed);
+   * it never rejects, errors are values on the state. A read already in flight
+   * is joined, not duplicated.
+   */
+  refetch: () => Promise<void>;
 }
 
 /**
@@ -91,6 +96,8 @@ interface Entry {
   persist: boolean;
   /** Snapshot object handed to React; replaced on every change. */
   snapshot: Snapshot;
+  /** A fresh read was asked for while one was in flight: that one may predate the cause, so read once more. */
+  again: boolean;
 }
 
 interface Snapshot {
@@ -151,6 +158,7 @@ function entryFor(url: string, persist: boolean): Entry {
       inflight: null,
       listeners: new Set(),
       persist,
+      again: false,
       snapshot: {
         data: persisted?.data ?? null,
         error: null,
@@ -173,8 +181,13 @@ function publish(entry: Entry) {
   for (const listener of entry.listeners) listener();
 }
 
-function load(url: string, entry: Entry, persist: boolean): Promise<void> {
-  if (entry.inflight) return entry.inflight;
+function load(url: string, entry: Entry, persist: boolean, fresh = false): Promise<void> {
+  if (entry.inflight) {
+    // A read that started before a transaction can come back with the old
+    // balance: `fresh` queues one more read behind it.
+    if (fresh) entry.again = true;
+    return entry.inflight;
+  }
   const generation = clearGeneration;
   const run = (async () => {
     try {
@@ -199,6 +212,10 @@ function load(url: string, entry: Entry, persist: boolean): Promise<void> {
     } finally {
       entry.inflight = null;
       publish(entry);
+      if (entry.again) {
+        entry.again = false;
+        void load(url, entry, persist);
+      }
     }
   })();
   entry.inflight = run;
@@ -210,7 +227,7 @@ function load(url: string, entry: Entry, persist: boolean): Promise<void> {
 export function revalidateApi(prefix: string) {
   for (const [url, entry] of entries) {
     if (url.startsWith(prefix) && entry.listeners.size > 0) {
-      void load(url, entry, entry.persist);
+      void load(url, entry, entry.persist, true);
     } else if (url.startsWith(prefix)) {
       entry.updatedAt = null;
     }
@@ -315,9 +332,9 @@ export function useApi<T = unknown>(url: string | null, options: ApiOptions<T> =
     };
   }, [url, persist, refreshMs, dedupeMs]);
 
-  const refetch = useCallback(() => {
-    if (!url) return;
-    void load(url, entryFor(url, persist), persist);
+  const refetch = useCallback((): Promise<void> => {
+    if (!url) return Promise.resolve();
+    return load(url, entryFor(url, persist), persist);
   }, [url, persist]);
 
   // Parse once per payload, not once per render. Callers pass module-level
@@ -369,13 +386,16 @@ export function useApi<T = unknown>(url: string | null, options: ApiOptions<T> =
 
   const error: ApiError | null = parseFailed ? shapeError() : snapshot.error;
 
-  if (error && !snapshot.inflight) {
+  // An error stays on screen while Retry runs (`refreshing`), so the control
+  // that was pressed shows its pending state and its outcome instead of the
+  // card flashing to a skeleton and back.
+  if (error) {
     return {
       data: null,
       error,
       status: "error",
       loading: false,
-      refreshing: false,
+      refreshing: snapshot.inflight,
       stale: false,
       updatedAt: snapshot.updatedAt,
       refetch,

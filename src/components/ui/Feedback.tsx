@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { findChain } from "@/lib/chains";
 import { TONE_ICON, TONE_SOFT, type Tone } from "./Badge";
 import { Button } from "./Button";
+import { useRetry } from "./hooks";
 import { HoverCard } from "./Overlay";
 
 /* ------------------------------------------------------------------ skeleton */
@@ -92,14 +93,22 @@ export interface InlineErrorProps {
   title?: ReactNode;
   /** The reason, in plain words. Never an upstream body or a stack trace. */
   message: ReactNode;
-  onRetry?: () => void;
-  /** Shows the Retry button busy. */
+  /**
+   * Runs the retry. Return the promise of the read (a `refetch`) and the
+   * button shows "Checking…" until it settles, then "Still unavailable —
+   * checked just now" if this error is still on screen. Without a promise the
+   * pending state lasts a short, fixed moment.
+   */
+  onRetry?: () => unknown;
+  /** Also shows the Retry button busy (the read is running for another reason). */
   retrying?: boolean;
   className?: string;
 }
 
 /** A read failed: the reason and Retry, inside the card that failed. */
 export function InlineError({ title = "Couldn't load this", message, onRetry, retrying, className }: InlineErrorProps) {
+  const retry = useRetry(onRetry);
+  const busy = retry.pending || Boolean(retrying);
   return (
     <div
       role="alert"
@@ -112,10 +121,15 @@ export function InlineError({ title = "Couldn't load this", message, onRetry, re
       <div className="min-w-0 flex-1">
         <p className="text-[13.5px] font-medium leading-snug text-fg">{title}</p>
         <p className="mt-0.5 text-[13px] leading-[1.45] text-fg-muted">{message}</p>
+        {onRetry ? (
+          <p role="status" aria-live="polite" className="mt-1 min-h-[1.2em] text-[12.5px] leading-snug text-fg-dim">
+            {busy ? <span className="sr-only">Checking…</span> : retry.checked ? "Still unavailable — checked just now" : null}
+          </p>
+        ) : null}
       </div>
       {onRetry ? (
-        <Button size="sm" variant="secondary" iconLeft="refresh" loading={retrying} onClick={onRetry} className="-my-0.5 shrink-0">
-          Retry
+        <Button size="sm" variant="secondary" iconLeft="refresh" loading={busy} disabled={busy} onClick={retry.run} className="-my-0.5 shrink-0">
+          {busy ? "Checking…" : retry.checked ? "Check again" : "Retry"}
         </Button>
       ) : null}
     </div>
