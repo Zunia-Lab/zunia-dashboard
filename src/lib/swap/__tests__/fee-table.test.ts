@@ -78,8 +78,8 @@ describe("Zunia's swap fee", () => {
     assert.equal(SWAP_FEE_BPS, 50);
   });
 
-  test("lists the 131 treasuries the extension ships, Osmosis and Safrochain among them", () => {
-    assert.equal(Object.keys(SWAP_FEE_RECIPIENTS).length, 131);
+  test("lists the 130 treasuries the extension ships, Osmosis and Safrochain among them", () => {
+    assert.equal(Object.keys(SWAP_FEE_RECIPIENTS).length, 130);
     assert.equal(SWAP_FEE_RECIPIENTS["osmosis-1"], "osmo1gv86dp8wmnmmatdckgr5xkevnpmy4662stl5rm");
     assert.equal(SWAP_FEE_RECIPIENTS["safrochain-1"], "addr_safro1gv86dp8wmnmmatdckgr5xkevnpmy4662qudn7e");
     assert.equal(SWAP_FEE_RECIPIENTS["cosmoshub-4"], "cosmos1gv86dp8wmnmmatdckgr5xkevnpmy4662csvy4f");
