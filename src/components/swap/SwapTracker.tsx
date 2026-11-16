@@ -12,6 +12,7 @@
  * this card offers to sign.
  */
 
+import { useEffect } from "react";
 import { Icon } from "@/components/icons";
 import { Badge, Button, Callout, ChainLogo, Spinner, type Tone } from "@/components/ui";
 import { SKIP_ENTRY_POINT, SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
@@ -48,10 +49,12 @@ export interface SwapTrackerProps {
   recoveryAddress?: string | null;
   /** The contract the swap went through, for a recovery. */
   contractAddress?: string | null;
+  /** The swap is over (delivered, refunded or failed): balances can stop being watched. */
+  onSettled?: (txHash: string) => void;
   className?: string;
 }
 
-export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, contractAddress, className }: SwapTrackerProps) {
+export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, contractAddress, onSettled, className }: SwapTrackerProps) {
   const trace = useTrace({
     plan,
     sourceTxHash: txHash,
@@ -65,6 +68,10 @@ export function SwapTracker({ plan, txHash, expectedAmount, recoveryAddress, con
   const failure = data?.failure ?? null;
   const settled = data !== null && (data.status === "acknowledged" || data.status === "timeout" || data.status === "failed");
   const destination = chainName(plan.destChainId);
+  const over = settled || failure === "swap-delivery-failed";
+  useEffect(() => {
+    if (over) onSettled?.(txHash);
+  }, [over, onSettled, txHash]);
 
   let headline: string;
   let tone: Tone = "neutral";

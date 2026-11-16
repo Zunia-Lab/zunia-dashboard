@@ -30,6 +30,7 @@ import { SWAP_VENUE_CHAIN_ID } from "@/config/interchain";
 import { findChain } from "@/lib/chains";
 import { walletKindLabel } from "@/lib/connect/context";
 import { usePortfolio } from "@/lib/data/portfolio";
+import { useRetry } from "@/components/ui/hooks";
 import { useSpotPrices } from "@/lib/data/prices";
 import {
   amountUnitsOf,
@@ -61,6 +62,7 @@ import { PairChart } from "./PairChart";
 import { PathBanner } from "./PathBanner";
 import { RecentSwaps } from "./RecentSwaps";
 import { ReviewDialog, type SignedSwap } from "./ReviewDialog";
+import { useSwapBalanceSync } from "./useSwapBalanceSync";
 import { RoutePanel, type NetworkFeeView } from "./RoutePanel";
 import type { VenueToken } from "./RouteDiagram";
 import { SlippageControl } from "./SlippageControl";
@@ -121,6 +123,13 @@ function SwapDesk({ link }: { link: SwapLink }) {
   const scope = useChainScope();
   const prefs = usePrefs();
   const portfolio = usePortfolio();
+  const checkBalances = useRetry(portfolio.refetch);
+  const balanceSync = useSwapBalanceSync({
+    refetch: portfolio.refetch,
+    scopeKey: portfolio.accounts.param,
+    portfolio: portfolio.data,
+    currency: prefs.currency,
+  });
   const now = useTicker(1_000);
 
   // A return from step 1 of a two-step swap opens on its step 2 (a deep link
@@ -310,6 +319,10 @@ function SwapDesk({ link }: { link: SwapLink }) {
 
   /* ------------------------------------------------------------ the button */
 
+  // "Try the price again": pending while the request runs, then its outcome.
+  const ctaRetry = useRetry(quoteState.requote, `${from?.key ?? ""}|${to?.key ?? ""}|${amountText}|${quoteState.error?.message ?? ""}`);
+  const retryQuote = ctaRetry.run;
+
   const cta = formCta({
     holdingsLoading: portfolio.loading || (portfolio.status === "idle" && portfolio.accounts.param !== null),
     sellCount: sell.length,
@@ -323,6 +336,8 @@ function SwapDesk({ link }: { link: SwapLink }) {
       loading: quoteState.loading,
       stale: quoteState.stale,
       refreshing: quoteState.refreshing,
+      inflight: quoteState.inflight || ctaRetry.pending,
+      retryChecked: ctaRetry.checked,
       error: quoteState.error,
       blocked: quoteState.blocked,
       current: live,
@@ -422,7 +437,7 @@ function SwapDesk({ link }: { link: SwapLink }) {
   const onCta = () => {
     if (cta.action === "review") void startReview();
     else if (cta.action === "move-first") startMoveFirst();
-    else if (cta.action === "retry") quoteState.requote();
+    else if (cta.action === "retry") void retryQuote();
   };
 
   // Keep the address bar on the pair asked for, so a reload or a shared link
@@ -587,12 +602,13 @@ function SwapDesk({ link }: { link: SwapLink }) {
               icon="hourglass"
               title={`Step 2: waiting for your ${intentTicker ?? "tokens"} on Osmosis`}
               action={
-                <Button size="sm" iconLeft="refresh" loading={portfolio.refreshing} onClick={portfolio.refetch}>
-                  Check balances
+                <Button size="sm" iconLeft="refresh" loading={checkBalances.pending || portfolio.refreshing} onClick={checkBalances.run}>
+                  {checkBalances.pending ? "Checking…" : checkBalances.checked ? "Check again" : "Check balances"}
                 </Button>
               }
             >
               {`When the transfer from step 1 lands, ${intentTicker ?? "they"} ${intentTicker ? "shows" : "show"} up here, ready to swap${intentTo ? ` for ${intentTo}` : ""}. Transfers usually take a minute or two.`}
+              {checkBalances.checked ? <span role="status" className="mt-1 block text-fg-dim">Not arrived yet — checked just now.</span> : null}
             </Callout>
           ) : null}
           {toMissing ? (
@@ -739,7 +755,7 @@ function SwapDesk({ link }: { link: SwapLink }) {
         )}
         <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-[calc(var(--d-sticky-top)+16px)]">{swapCard}</div>
         <div className="order-3 flex min-w-0 flex-col gap-[var(--d-gap)]">
-          {lastSwap && !dialogOpen ? <LastSwapCard swap={lastSwap} onDismiss={() => setLastSwap(null)} /> : null}
+          {lastSwap && !dialogOpen ? <LastSwapCard swap={lastSwap} onDismiss={() => setLastSwap(null)} onTrackerSettled={balanceSync.trackerSettled} /> : null}
           <RoutePanel
             from={from}
             to={to}
@@ -816,8 +832,11 @@ function SwapDesk({ link }: { link: SwapLink }) {
         }
         walletName={walletKind ? walletKindLabel(walletKind) : "your wallet"}
         icons={{ from: from?.iconUrl ?? null, to: to?.iconUrl ?? null }}
+        onSignStart={(signing) => balanceSync.captureBaseline(signing.to, signing.id)}
+        onTrackerSettled={balanceSync.trackerSettled}
         onSigned={(swap) => {
           setLastSwap(swap);
+          balanceSync.watch(swap);
           // Step 2 is done once its swap is signed.
           if (intent) forgetIntent();
         }}

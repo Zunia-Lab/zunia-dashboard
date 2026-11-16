@@ -373,6 +373,18 @@ describe("the form's button", () => {
     assert.equal(move.label, "Step 1: move OSMO to Osmosis");
   });
 
+  test("\"Try the price again\" shows pending, then its outcome", () => {
+    const q = { ...base.quote, current: null, error: { message: "Router down" } };
+    // Pending: a disabled, busy button instead of an unchanged one.
+    assert.deepEqual(formCta({ ...base, quote: { ...q, inflight: true } }), { label: "Checking the price…", reason: null, action: null, busy: true });
+    // Outcome: the same failure says it was checked.
+    const again = formCta({ ...base, quote: { ...q, retryChecked: true } });
+    assert.equal(again.action, "retry");
+    assert.match(again.reason ?? "", /^Still unavailable — checked just now\. Router down/);
+    // Untouched: the plain reason.
+    assert.equal(formCta({ ...base, quote: q }).reason, "Router down");
+  });
+
   test("every blocked code has a label", () => {
     for (const code of ["testnet", "same-token", "no-pool-route", "delivery-unavailable", "inbound-unavailable", "route-unpriced"] as const) {
       assert.ok(blockedLabel(code).length > 0);

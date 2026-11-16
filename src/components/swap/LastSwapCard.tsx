@@ -15,7 +15,7 @@ import type { SignedSwap } from "./ReviewDialog";
 import { SwapTracker } from "./SwapTracker";
 import { receiveView, trackingPlan } from "./swap-view";
 
-export function LastSwapCard({ swap, onDismiss }: { swap: SignedSwap; onDismiss: () => void }) {
+export function LastSwapCard({ swap, onDismiss, onTrackerSettled }: { swap: SignedSwap; onDismiss: () => void; onTrackerSettled?: (txHash: string) => void }) {
   const { review } = swap;
   const plan = trackingPlan(review);
   const explorer = explorerTxUrl(swap.chainId, swap.txHash);
@@ -46,6 +46,7 @@ export function LastSwapCard({ swap, onDismiss }: { swap: SignedSwap; onDismiss:
           expectedAmount={review.path === "pool-deliver" ? (review.quote.minOut ?? undefined) : review.fee.net}
           recoveryAddress={review.recoveryAddress}
           contractAddress={review.quote.contract?.address ?? null}
+          onSettled={onTrackerSettled}
         />
       ) : null}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">

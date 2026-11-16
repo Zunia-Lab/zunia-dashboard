@@ -7,7 +7,8 @@
  * sets state, which the React Compiler lint rules forbid.
  */
 
-import { useCallback, useSyncExternalStore, type Ref, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
+import { runRetry } from "@/lib/retry-run";
 
 /* -------------------------------------------------------------- media */
 
@@ -105,4 +106,47 @@ export function composeRefs<T>(...refs: Array<Ref<T> | undefined>): (node: T | n
   return (node) => {
     for (const ref of refs) assignRef(ref, node);
   };
+}
+
+/* -------------------------------------------------------------- retry */
+
+export interface RetryControl {
+  /** The retry is running: show "Checking…", disabled. */
+  pending: boolean;
+  /** A retry has finished and the thing it retries is still there: say so. */
+  checked: boolean;
+  /** Start a retry; a press while one runs is ignored (no double submit). */
+  run: () => void;
+}
+
+/**
+ * Pending and outcome state for one retry control. `action` may return a
+ * promise (a refetch); when it settles the control is idle again and
+ * `checked` is true. If the retry worked, the control's owner stops rendering
+ * the error and `checked` is never seen; if it did not, "Still unavailable —
+ * checked just now" is. The outcome clears on the next press.
+ */
+export function useRetry(action: (() => unknown) | undefined, scope: string | null = null): RetryControl {
+  const [state, setState] = useState<{ phase: "idle" | "pending" | "checked"; scope: string | null }>({ phase: "idle", scope });
+  const running = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const run = useCallback(() => {
+    if (!action || running.current) return;
+    running.current = true;
+    setState({ phase: "pending", scope });
+    void runRetry(action).then(() => {
+      running.current = false;
+      if (mounted.current) setState({ phase: "checked", scope });
+    });
+  }, [action, scope]);
+  // The outcome belongs to what was retried: another `scope` (a new pair, a
+  // different error) is not "still unavailable".
+  const current = state.scope === scope;
+  return { pending: state.phase === "pending", checked: current && state.phase === "checked", run };
 }

@@ -146,8 +146,10 @@ export interface SwapQuoteState {
   readonly expired: boolean;
   /** Whole seconds until the quote on screen expires; `null` without one. */
   readonly secondsLeft: number | null;
-  /** Ask again now (the Refresh control). */
-  readonly requote: () => void;
+  /** A request is in flight, whether or not an answer (or an error) is on screen. */
+  readonly inflight: boolean;
+  /** Ask again now (the Refresh control). Settles when the answer (or its failure) has landed. */
+  readonly requote: () => Promise<void>;
 }
 
 function keyOf(request: SwapQuoteRequest | null): string | null {
@@ -186,9 +188,9 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
     inflightKeyRef.current = inflightKey;
   }, [inflightKey]);
 
-  const run = useCallback(() => {
+  const run = useCallback((): Promise<void> => {
     const currentKey = keyRef.current;
-    if (!currentKey) return;
+    if (!currentKey) return Promise.resolve();
     controller.current?.abort();
     const abort = new AbortController();
     controller.current = abort;
@@ -198,7 +200,7 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
       abort.abort();
     }, QUOTE_REQUEST_TIMEOUT_MS);
     setInflightKey(currentKey);
-    void (async () => {
+    return (async () => {
       let next: Answer;
       try {
         const response = await fetch("/api/swap/quote", {
@@ -244,7 +246,7 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
       controller.current?.abort();
       return;
     }
-    const timer = window.setTimeout(run, QUOTE_DEBOUNCE_MS);
+    const timer = window.setTimeout(() => void run(), QUOTE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [key, run]);
 
@@ -264,7 +266,7 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
     const tick = () => {
       const at = Date.now();
       setNow(at);
-      if (at >= quote.expiresAt && isVisible() && keyRef.current && inflightKeyRef.current === null) run();
+      if (at >= quote.expiresAt && isVisible() && keyRef.current && inflightKeyRef.current === null) void run();
     };
     const timer = window.setInterval(tick, 1_000);
     document.addEventListener("visibilitychange", tick);
@@ -275,6 +277,7 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
   }, [quote, run]);
 
   const requote = useCallback(() => run(), [run]);
+
 
   return useMemo<SwapQuoteState>(() => {
     const data = shown?.data ?? null;
@@ -295,6 +298,7 @@ export function useSwapQuote(request: SwapQuoteRequest | null): SwapQuoteState {
       loading: Boolean(key) && data === null && error === null,
       refreshing: data !== null && (inflight || stale),
       stale,
+      inflight,
       expired,
       secondsLeft: secondsLeft === null ? null : Math.min(secondsLeft, Math.ceil(QUOTE_TTL_MS / 1000)),
       requote,

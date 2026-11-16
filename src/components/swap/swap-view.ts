@@ -353,6 +353,10 @@ export interface CtaInput {
     readonly loading: boolean;
     readonly stale: boolean;
     readonly refreshing: boolean;
+    /** A request is running (also when only an error is on screen). */
+    readonly inflight?: boolean;
+    /** The user pressed "Try the price again" and the answer was a failure again. */
+    readonly retryChecked?: boolean;
     readonly error: { readonly message: string } | null;
     readonly blocked: { readonly code: SwapBlockedCode; readonly message: string } | null;
     /** The signable answer for the current request (`useSwapQuote().quote`). */
@@ -419,7 +423,10 @@ export function formCta(input: CtaInput): CtaState {
   if (!input.requestReady) return idle("Amount too small", "After the Zunia fee nothing would be left to swap.");
   if (quote.blocked && !quote.stale) return idle(blockedLabel(quote.blocked.code), quote.blocked.message);
   if (quote.error && !quote.refreshing) {
-    return { label: "Try the price again", reason: quote.error.message, action: "retry", busy: false };
+    // A retry on its way is a pending button, not an unchanged one.
+    if (quote.inflight) return waiting("Checking the price…");
+    const reason = quote.retryChecked ? `Still unavailable — checked just now. ${quote.error.message}` : quote.error.message;
+    return { label: "Try the price again", reason, action: "retry", busy: false };
   }
   if (!quote.current) return waiting(quote.stale ? "Updating the price…" : "Getting the best price…");
   if (quote.current.path === "move-first") {
